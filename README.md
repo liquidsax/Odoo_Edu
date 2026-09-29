@@ -15,6 +15,7 @@
 | `server/addons/tutoring_center/` | 核心自定义模块（application，依赖 `portal`、`website`） |
 | `docs/数学辅导数据中台使用说明.md` | 面向使用者的操作说明 |
 | `dev/` | 演示数据脚本、品牌设置、RPC 进程内升级、临时验收账号等运维脚本 |
+| `docker-compose.yml` | 协作者一键开发环境（Odoo 19 + PostgreSQL 18 容器，含热重载） |
 | `.agent/` | 项目交接文档与本机运维手册（handoff / README） |
 
 > Odoo 本体源码、Python 运行时、数据库备份、`odoo.conf`、日志等本机安装产物**不入库**，见 [.gitignore](.gitignore)。
@@ -30,7 +31,44 @@
 - 门户 `/my` 对绑定学生档案的账号直跳 `/my/learning`，门户数据按联系人隔离；
 - 可通过安全组恢复被隐藏的 Odoo 原生应用菜单。
 
-## 本地部署（参考）
+## 快速开始（协作者 · Docker 推荐）
+
+只需装有 Docker（Windows 用 Docker Desktop / WSL2，macOS 用 Docker Desktop 或 OrbStack），**无需手动装 PostgreSQL 和 Odoo**：
+
+```bash
+git clone https://github.com/liquidsax/Odoo_Edu.git
+cd Odoo_Edu
+docker compose up -d        # 首次启动自动建库 + 安装 tutoring_center + 中文语言包
+```
+
+启动完成后：
+
+- 浏览器打开 http://localhost:8069 —— 教师后台（首次账号 `admin` / `admin`，**请立即改密**）；
+- 需要演示数据时执行 `./dev/seed_docker.sh`（Windows 可在 Git Bash 中运行）。
+
+### 边开发边看效果（热重载）
+
+`docker-compose.yml` 已带 `--dev=xml,qweb,reload`，模块源码是从仓库目录**直接挂载**进容器的：
+
+| 改什么 | 生效方式 |
+|---|---|
+| 视图/数据 XML | 保存后**刷新浏览器**即生效 |
+| QWeb 模板/前端 JS | 同上 |
+| Python 模型/控制器 | 保存后容器**自动重启**（`--dev=reload`），稍候刷新即可 |
+
+个别情况（如改 manifest、加字段后视图报错）需要手动升级模块：
+
+```bash
+docker compose exec odoo odoo -d edu_dev --db_host=db --db_user=odoo \
+    --db_password=odoo -u tutoring_center --stop-after-init
+docker compose restart odoo
+```
+
+清空环境重来：`docker compose down -v`（会删除容器内数据库与附件，不影响仓库代码）。
+
+> 端口占用时把 compose 里的 `"8069:8069"` 改成如 `"18069:8069"`；容器内账号密码均只作用于本地开发库，勿填真实凭据。
+
+## 本地部署（参考，维护者当前环境）
 
 1. 安装 Odoo 19 社区版 + PostgreSQL（Windows 下注意 `db_template` 需为 C/C 排序规则的模板库，不能是 `template0`）；
 2. 将 `server/addons/tutoring_center` 加入 `addons_path` 指向的自定义模块目录；

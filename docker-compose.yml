@@ -1,0 +1,46 @@
+# ============================================================
+# 数学辅导数据中台 · 协作者一键开发环境
+#
+# 用法（装有 Docker 的机器上，仓库根目录执行）：
+#   docker compose up -d          # 首次启动会自动建库并安装 tutoring_center
+#   浏览器打开 http://localhost:8069（教师后台 admin/admin，请立即改密）
+#
+# 本文件只服务于容器化开发环境；任何真实密码不要写进本文件，
+# 容器内均为一次性开发数据，端口/密码可按需在此修改。
+# ============================================================
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo        # 仅限本地开发容器
+      POSTGRES_DB: postgres
+    volumes:
+      - edu_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  odoo:
+    image: odoo:19
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8069:8069"
+    volumes:
+      - edu_data:/var/lib/odoo
+      # 自定义模块直接挂载源码目录：改动即时进入容器
+      - ./server/addons/tutoring_center:/mnt/extra-addons/tutoring_center
+    command: >
+      odoo -d edu_dev -i tutoring_center --without-demo=all
+      --load-language=zh_CN
+      --db_host=db --db_user=odoo --db_password=odoo
+      --dev=xml,qweb,reload
+
+volumes:
+  edu_db:
+  edu_data:
