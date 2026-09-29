@@ -31,9 +31,11 @@
 - 门户 `/my` 对绑定学生档案的账号直跳 `/my/learning`，门户数据按联系人隔离；
 - 可通过安全组恢复被隐藏的 Odoo 原生应用菜单。
 
-## 快速开始（协作者 · Docker 推荐）
+## 快速开始（协作者）
 
-只需装有 Docker（Windows 用 Docker Desktop / WSL2，macOS 用 Docker Desktop 或 OrbStack），**无需手动装 PostgreSQL 和 Odoo**：
+**推荐原生 Windows 安装**（与维护者环境同构，完整步骤见 [.agent/ONBOARDING.md](.agent/ONBOARDING.md)：PostgreSQL 18 + Python 3.12 + Odoo 19 源码 + 本仓库模块，含关键模板库陷阱与热重载开发流程）。
+
+若倾向容器化（步骤最少），装有 Docker 的机器上：
 
 ```bash
 git clone https://github.com/liquidsax/Odoo_Edu.git

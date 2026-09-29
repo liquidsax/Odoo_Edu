@@ -31,7 +31,8 @@
 
 | 角色 | 环境 | 说明 |
 |---|---|---|
-| **协作者** | Docker（`docker compose up -d`） | 按 [ONBOARDING.md](ONBOARDING.md) 操作，容器内 `edu_dev` 库，数据一次性 |
+| **协作者** | 原生 Windows 安装（**优先**） | PostgreSQL 18 + Python 3.12 + Odoo 19 源码，完整步骤见 [ONBOARDING.md](ONBOARDING.md) 路径 A |
+| **协作者（备选）** | Docker（`docker compose up -d`） | ONBOARDING.md 路径 B，容器内 `edu_dev` 库，数据一次性 |
 | **维护者** | 原生 Windows 服务 | Odoo 19 社区版 + PostgreSQL 18（服务 `odoo-server-19.0` / `postgresql-x64-18`），**本机不装 Docker** |
 
 两套环境数据完全隔离。维护者环境的详细安装/陷阱见根 README 与 `updates/2026-09-29.md`。
