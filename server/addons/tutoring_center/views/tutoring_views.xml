@@ -1,0 +1,468 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- ===== 学生档案 ===== -->
+        <record id="view_tutoring_student_list" model="ir.ui.view">
+            <field name="name">tutoring.student.list</field>
+            <field name="model">tutoring.student</field>
+            <field name="arch" type="xml">
+                <list string="学生">
+                    <field name="name"/>
+                    <field name="grade"/>
+                    <field name="school" optional="show"/>
+                    <field name="status" widget="badge" decoration-info="status == 'active'"
+                           decoration-warning="status == 'paused'" decoration-muted="status == 'done'"/>
+                    <field name="session_count" string="已上课次"/>
+                    <field name="session_planned_count" string="总课次"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_tutoring_student_form" model="ir.ui.view">
+            <field name="name">tutoring.student.form</field>
+            <field name="model">tutoring.student</field>
+            <field name="arch" type="xml">
+                <form string="学生">
+                    <sheet>
+                        <div class="oe_button_box" name="button_box">
+                            <button name="action_view_partner" type="object" class="oe_stat_button"
+                                    icon="fa-address-card" invisible="not partner_id">
+                                <div class="o_stat_info">
+                                    <span class="o_stat_text">门户账号</span>
+                                </div>
+                            </button>
+                        </div>
+                        <div class="oe_title">
+                            <label for="name"/>
+                            <h1><field name="name" placeholder="学生姓名"/></h1>
+                        </div>
+                        <group>
+                            <group>
+                                <field name="partner_id"/>
+                                <field name="grade"/>
+                                <field name="school"/>
+                            </group>
+                            <group>
+                                <field name="status" widget="statusbar" options="{'clickable': true}"/>
+                                <field name="session_planned_count"/>
+                                <field name="session_count"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="知识点掌握" name="points">
+                                <field name="point_ids">
+                                    <list string="知识点掌握" editable="bottom">
+                                        <field name="point_id" string="知识点"
+                                               domain="[('grade', '=', parent.grade)]"
+                                               context="{'default_grade': parent.grade}"/>
+                                        <field name="mastery" widget="badge"
+                                               decoration-info="mastery == 'learning'"
+                                               decoration-warning="mastery == 'basic'"
+                                               decoration-success="mastery == 'mastered'"
+                                               decoration-muted="mastery == 'none'"/>
+                                        <field name="note" optional="show"/>
+                                    </list>
+                                </field>
+                            </page>
+                            <page string="学校考试" name="exams">
+                                <field name="exam_ids">
+                                    <list string="学校考试">
+                                        <field name="date"/>
+                                        <field name="name"/>
+                                        <field name="exam_type"/>
+                                        <field name="total_score" string="得分"/>
+                                        <field name="total_full" string="满分"/>
+                                        <field name="percentage" widget="progressbar"/>
+                                    </list>
+                                </field>
+                            </page>
+                            <page string="辅导课次" name="sessions">
+                                <field name="session_ids">
+                                    <list string="课次">
+                                        <field name="date"/>
+                                        <field name="duration" widget="float_time"/>
+                                        <field name="topic_ids" widget="many2many_tags"/>
+                                    </list>
+                                </field>
+                            </page>
+                            <page string="错题记录" name="mistakes">
+                                <field name="mistake_ids">
+                                    <list string="错题记录">
+                                        <field name="date"/>
+                                        <field name="source"/>
+                                        <field name="topic_id" optional="show"/>
+                                        <field name="state" widget="badge"
+                                               decoration-info="state == 'todo'"
+                                               decoration-success="state == 'done'"/>
+                                    </list>
+                                </field>
+                            </page>
+                            <page string="备注" name="remark">
+                                <field name="remark"/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_tutoring_student_search" model="ir.ui.view">
+            <field name="name">tutoring.student.search</field>
+            <field name="model">tutoring.student</field>
+            <field name="arch" type="xml">
+                <search string="学生">
+                    <field name="name"/>
+                    <field name="school"/>
+                    <filter string="在读" name="active" domain="[('status', '=', 'active')]"/>
+                    <group>
+                        <filter string="年级" name="group_grade" context="{'group_by': 'grade'}"/>
+                        <filter string="状态" name="group_status" context="{'group_by': 'status'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ===== 教学内容 ===== -->
+        <record id="view_tutoring_topic_list" model="ir.ui.view">
+            <field name="name">tutoring.topic.list</field>
+            <field name="model">tutoring.topic</field>
+            <field name="arch" type="xml">
+                <list string="教学内容" editable="bottom">
+                    <field name="name"/>
+                    <field name="note"/>
+                    <field name="active" widget="boolean_toggle"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ===== 辅导课次 ===== -->
+        <record id="view_tutoring_session_list" model="ir.ui.view">
+            <field name="name">tutoring.session.list</field>
+            <field name="model">tutoring.session</field>
+            <field name="arch" type="xml">
+                <list string="辅导课次">
+                    <field name="date"/>
+                    <field name="student_id"/>
+                    <field name="duration" widget="float_time"/>
+                    <field name="topic_ids" widget="many2many_tags"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_tutoring_session_form" model="ir.ui.view">
+            <field name="name">tutoring.session.form</field>
+            <field name="model">tutoring.session</field>
+            <field name="arch" type="xml">
+                <form string="辅导课次">
+                    <sheet>
+                        <group>
+                            <group>
+                                <field name="student_id"/>
+                                <field name="date"/>
+                                <field name="duration" widget="float_time"/>
+                            </group>
+                            <group>
+                                <field name="topic_ids" widget="many2many_tags" placeholder="本课讲授的教学内容，可即输即建"/>
+                            </group>
+                        </group>
+                        <group string="课堂内容与表现">
+                            <field name="performance" nolabel="1" placeholder="本课讲了什么、学生掌握情况、课堂表现……"/>
+                        </group>
+                        <group string="下一步计划">
+                            <field name="plan" nolabel="1" placeholder="下次课计划、需要巩固的内容……"/>
+                        </group>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_tutoring_session_calendar" model="ir.ui.view">
+            <field name="name">tutoring.session.calendar</field>
+            <field name="model">tutoring.session</field>
+            <field name="arch" type="xml">
+                <calendar string="课次日历" date_start="date" color="student_id">
+                    <field name="student_id"/>
+                    <field name="topic_ids" widget="many2many_tags"/>
+                </calendar>
+            </field>
+        </record>
+
+        <record id="view_tutoring_session_search" model="ir.ui.view">
+            <field name="name">tutoring.session.search</field>
+            <field name="model">tutoring.session</field>
+            <field name="arch" type="xml">
+                <search string="辅导课次">
+                    <field name="student_id"/>
+                    <field name="topic_ids"/>
+                    <group>
+                        <filter string="学生" name="group_student" context="{'group_by': 'student_id'}"/>
+                        <filter string="月份" name="group_month" context="{'group_by': 'date:month'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ===== 作业 ===== -->
+        <record id="view_tutoring_homework_list" model="ir.ui.view">
+            <field name="name">tutoring.homework.list</field>
+            <field name="model">tutoring.homework</field>
+            <field name="arch" type="xml">
+                <list string="作业" decoration-muted="state == 'reviewed'">
+                    <field name="assigned_date"/>
+                    <field name="student_id"/>
+                    <field name="title"/>
+                    <field name="due_date" optional="show"/>
+                    <field name="question_count" string="总题数"/>
+                    <field name="correct_count" string="正确" optional="show"/>
+                    <field name="accuracy" widget="progressbar"/>
+                    <field name="state" widget="badge" decoration-info="state == 'draft'"
+                           decoration-warning="state == 'done'" decoration-success="state == 'reviewed'"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_tutoring_homework_form" model="ir.ui.view">
+            <field name="name">tutoring.homework.form</field>
+            <field name="model">tutoring.homework</field>
+            <field name="arch" type="xml">
+                <form string="作业">
+                    <header>
+                        <field name="state" widget="statusbar" statusbar_visible="draft,done,reviewed"
+                               options="{'clickable': true}"/>
+                    </header>
+                    <sheet>
+                        <group>
+                            <group>
+                                <field name="student_id"/>
+                                <field name="session_id"/>
+                                <field name="title"/>
+                            </group>
+                            <group>
+                                <field name="assigned_date"/>
+                                <field name="due_date"/>
+                                <field name="question_count"/>
+                                <field name="correct_count"/>
+                                <field name="accuracy" widget="progressbar"/>
+                            </group>
+                        </group>
+                        <group string="教师反馈">
+                            <field name="feedback" nolabel="1" placeholder="作业整体情况、错题类型、需要家长督促的事项……"/>
+                        </group>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_tutoring_homework_graph" model="ir.ui.view">
+            <field name="name">tutoring.homework.graph</field>
+            <field name="model">tutoring.homework</field>
+            <field name="arch" type="xml">
+                <graph string="作业正确率">
+                    <field name="assigned_date" interval="week"/>
+                    <field name="accuracy" type="measure" widget="progressbar"/>
+                </graph>
+            </field>
+        </record>
+
+        <record id="view_tutoring_homework_search" model="ir.ui.view">
+            <field name="name">tutoring.homework.search</field>
+            <field name="model">tutoring.homework</field>
+            <field name="arch" type="xml">
+                <search string="作业">
+                    <field name="student_id"/>
+                    <field name="title"/>
+                    <filter string="已布置" name="draft" domain="[('state', '=', 'draft')]"/>
+                    <filter string="已完成" name="done" domain="[('state', '=', 'done')]"/>
+                    <filter string="已批改" name="reviewed" domain="[('state', '=', 'reviewed')]"/>
+                    <group>
+                        <filter string="学生" name="group_student" context="{'group_by': 'student_id'}"/>
+                        <filter string="状态" name="group_state" context="{'group_by': 'state'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ===== 考试 ===== -->
+        <record id="view_tutoring_exam_list" model="ir.ui.view">
+            <field name="name">tutoring.exam.list</field>
+            <field name="model">tutoring.exam</field>
+            <field name="arch" type="xml">
+                <list string="考试">
+                    <field name="date"/>
+                    <field name="student_id"/>
+                    <field name="name"/>
+                    <field name="exam_type"/>
+                    <field name="total_score" string="得分"/>
+                    <field name="total_full" string="满分"/>
+                    <field name="percentage" widget="progressbar"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_tutoring_exam_form" model="ir.ui.view">
+            <field name="name">tutoring.exam.form</field>
+            <field name="model">tutoring.exam</field>
+            <field name="arch" type="xml">
+                <form string="考试">
+                    <sheet>
+                        <group>
+                            <group>
+                                <field name="student_id"/>
+                                <field name="name"/>
+                                <field name="date"/>
+                            </group>
+                            <group>
+                                <field name="exam_type"/>
+                                <field name="total_score"/>
+                                <field name="total_full"/>
+                                <field name="percentage" widget="progressbar"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="得分明细" name="lines">
+                                <field name="line_ids">
+                                    <list string="明细" editable="bottom">
+                                        <field name="topic_id" context="{'default_note': ''}"/>
+                                        <field name="score"/>
+                                        <field name="full_score"/>
+                                        <field name="percentage" widget="progressbar"/>
+                                    </list>
+                                </field>
+                            </page>
+                            <page string="备注" name="remark">
+                                <field name="remark"/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_tutoring_exam_graph" model="ir.ui.view">
+            <field name="name">tutoring.exam.graph</field>
+            <field name="model">tutoring.exam</field>
+            <field name="arch" type="xml">
+                <graph string="成绩趋势">
+                    <field name="date" interval="month"/>
+                    <field name="percentage" type="measure" widget="progressbar"/>
+                </graph>
+            </field>
+        </record>
+
+        <record id="view_tutoring_exam_line_graph" model="ir.ui.view">
+            <field name="name">tutoring.exam.line.graph</field>
+            <field name="model">tutoring.exam.line</field>
+            <field name="arch" type="xml">
+                <graph string="教学内容得分率">
+                    <field name="topic_id"/>
+                    <field name="percentage" type="measure" widget="progressbar"/>
+                </graph>
+            </field>
+        </record>
+
+        <record id="view_tutoring_exam_search" model="ir.ui.view">
+            <field name="name">tutoring.exam.search</field>
+            <field name="model">tutoring.exam</field>
+            <field name="arch" type="xml">
+                <search string="考试">
+                    <field name="student_id"/>
+                    <field name="name"/>
+                    <group>
+                        <filter string="学生" name="group_student" context="{'group_by': 'student_id'}"/>
+                        <filter string="类型" name="group_type" context="{'group_by': 'exam_type'}"/>
+                        <filter string="月份" name="group_month" context="{'group_by': 'date:month'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ===== 知识点 ===== -->
+        <record id="view_tutoring_knowledge_point_list" model="ir.ui.view">
+            <field name="name">tutoring.knowledge.point.list</field>
+            <field name="model">tutoring.knowledge.point</field>
+            <field name="arch" type="xml">
+                <list string="知识点" editable="bottom">
+                    <field name="grade"/>
+                    <field name="name"/>
+                    <field name="note"/>
+                    <field name="active" widget="boolean_toggle"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_tutoring_knowledge_point_search" model="ir.ui.view">
+            <field name="name">tutoring.knowledge.point.search</field>
+            <field name="model">tutoring.knowledge.point</field>
+            <field name="arch" type="xml">
+                <search string="知识点">
+                    <field name="name"/>
+                    <field name="grade"/>
+                    <group>
+                        <filter string="年级" name="group_grade" context="{'group_by': 'grade'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <record id="action_tutoring_knowledge_point" model="ir.actions.act_window">
+            <field name="name">知识点</field>
+            <field name="res_model">tutoring.knowledge.point</field>
+            <field name="view_mode">list</field>
+            <field name="context">{'search_default_group_grade': 1}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">按年级维护知识点库</p>
+                <p>例如七年级的"一元一次方程"、"有理数运算"。在学生档案的"知识点掌握"页签中，可直接从本库挑选该生需要掌握的知识点。</p>
+            </field>
+        </record>
+
+        <!-- ===== 动作 ===== -->
+        <record id="action_tutoring_student" model="ir.actions.act_window">
+            <field name="name">学生</field>
+            <field name="res_model">tutoring.student</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">创建第一个学生档案</p>
+                <p>保存后可打开"门户账号"为学生/家长开通登录。</p>
+            </field>
+        </record>
+
+        <record id="action_tutoring_topic" model="ir.actions.act_window">
+            <field name="name">教学内容</field>
+            <field name="res_model">tutoring.topic</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">按你的教学进度随时添加教学内容</p>
+                <p>例如"一元一次方程"、"全等三角形"，录入课次/作业/考试时可即输即建。</p>
+            </field>
+        </record>
+
+        <record id="action_tutoring_session" model="ir.actions.act_window">
+            <field name="name">辅导课次</field>
+            <field name="res_model">tutoring.session</field>
+            <field name="view_mode">list,form,calendar</field>
+        </record>
+
+        <record id="action_tutoring_homework" model="ir.actions.act_window">
+            <field name="name">作业</field>
+            <field name="res_model">tutoring.homework</field>
+            <field name="view_mode">list,form,graph</field>
+        </record>
+
+        <record id="action_tutoring_exam" model="ir.actions.act_window">
+            <field name="name">考试成绩</field>
+            <field name="res_model">tutoring.exam</field>
+            <field name="view_mode">list,form,graph</field>
+        </record>
+
+        <!-- ===== 菜单 ===== -->
+        <menuitem id="menu_tutoring_root" name="数学辅导" sequence="15"/>
+        <menuitem id="menu_tutoring_student" name="学生" parent="menu_tutoring_root"
+                  action="action_tutoring_student" sequence="10"/>
+        <menuitem id="menu_tutoring_knowledge" name="知识点" parent="menu_tutoring_root"
+                  action="action_tutoring_knowledge_point" sequence="20"/>
+    </data>
+</odoo>

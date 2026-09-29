@@ -1,0 +1,465 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- ===== /my 首页卡片 ===== -->
+        <template id="portal_my_home_tutoring" name="我的学习" inherit_id="portal.portal_my_home" priority="40">
+            <div id="portal_common_category" position="inside">
+                <t t-call="portal.portal_docs_entry">
+                    <t t-set="title">我的学习</t>
+                    <t t-set="url" t-value="'/my/learning'"/>
+                    <t t-set="text">查看上课安排、考试成绩与错题订正</t>
+                    <t t-set="placeholder_count" t-value="'tutoring_session_count'"/>
+                </t>
+            </div>
+        </template>
+
+        <!-- 停用项目/任务门户卡片，与学习无关 -->
+        <record id="project.portal_my_home" model="ir.ui.view">
+            <field name="active">False</field>
+        </record>
+
+        <!-- 删除"地址"与"连接 & 安全"卡片（按 url 匹配，不受界面翻译影响） -->
+        <template id="portal_my_home_strip_cards" name="清理门户首页卡片"
+                  inherit_id="portal.portal_my_home" priority="50">
+            <xpath expr="//div[@id='portal_common_category']/t[t[@t-set='url'][contains(@t-value, '/my/addresses')]]"
+                   position="replace"/>
+            <xpath expr="//div[@id='portal_common_category']/t[t[@t-set='url'][contains(@t-value, '/my/security')]]"
+                   position="replace"/>
+        </template>
+
+        <!-- ===== 未关联学生档案时的提示页 ===== -->
+        <template id="portal_my_learning_empty" name="我的学习（未关联学生）">
+            <t t-call="portal.portal_layout">
+                <t t-set="breadcrumbs_searchbar" t-value="True"/>
+                <div class="alert alert-info mt-3">
+                    当前账号尚未关联学生档案。请在后台为学生档案绑定门户联系人并设置账号后再访问学习数据。
+                </div>
+                <a class="btn btn-secondary" href="/my">返回我的账户</a>
+            </t>
+        </template>
+
+        <!-- ===== 面包屑 ===== -->
+        <template id="portal_breadcrumbs_tutoring" name="Portal layout : tutoring breadcrumbs"
+                  inherit_id="portal.portal_breadcrumbs" priority="45">
+            <xpath expr="//ol[hasclass('o_portal_submenu')]" position="inside">
+                <li t-if="page_name == 'learning'" class="breadcrumb-item active">我的学习</li>
+                <li t-if="page_name == 'tutoring_sessions'"
+                    t-attf-class="breadcrumb-item #{'active' if not session else ''}">
+                    <a t-if="session" href="/my/learning/sessions">辅导课次</a>
+                    <t t-else="">辅导课次</t>
+                </li>
+                <li t-if="session and page_name == 'tutoring_sessions'" class="breadcrumb-item active">
+                    <t t-out="session.date"/>
+                </li>
+                <li t-if="page_name == 'tutoring_homework'"
+                    t-attf-class="breadcrumb-item #{'active' if not homework else ''}">
+                    <a t-if="homework" href="/my/learning/homework">作业</a>
+                    <t t-else="">作业</t>
+                </li>
+                <li t-if="homework and page_name == 'tutoring_homework'" class="breadcrumb-item active">
+                    <t t-out="homework.title"/>
+                </li>
+                <li t-if="page_name == 'tutoring_exams'"
+                    t-attf-class="breadcrumb-item #{'active' if not exam else ''}">
+                    <a t-if="exam" href="/my/learning/exams">考试成绩</a>
+                    <t t-else="">考试成绩</t>
+                </li>
+                <li t-if="exam and page_name == 'tutoring_exams'" class="breadcrumb-item active">
+                    <t t-out="exam.name"/>
+                </li>
+            </xpath>
+        </template>
+
+        <!-- ===== 我的学习总览 ===== -->
+        <template id="portal_my_learning" name="我的学习">
+            <t t-call="portal.portal_layout">
+                <t t-set="breadcrumbs_searchbar" t-value="True"/>
+                <t t-call="portal.portal_searchbar">
+                    <t t-set="title">我的学习</t>
+                </t>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-12 col-md-4">
+                        <div class="card h-100 border-0 bg-100">
+                            <div class="card-body">
+                                <div class="fs-2 fw-bold text-primary">
+                                    <t t-out="student.session_count"/>
+                                    <span class="fs-5 text-muted" t-if="student.session_planned_count">/ <t t-out="student.session_planned_count"/></span>
+                                </div>
+                                <div class="text-muted small">已上课次（总课次）</div>
+                                <div class="progress mt-2" t-if="student.session_planned_count" style="height: 0.5rem;">
+                                    <div class="progress-bar bg-primary"
+                                         t-att-style="'width: {:.0f}%'.format(min(student.session_count * 100.0 / student.session_planned_count, 100))"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-4">
+                        <div class="card h-100 border-0 bg-100">
+                            <div class="card-body text-center">
+                                <div class="fs-2 fw-bold text-primary"><t t-out="'{:.1f}%'.format(exam_avg)"/></div>
+                                <div class="text-muted small">考试平均得分率</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-4">
+                        <div class="card h-100 border-0 bg-100">
+                            <div class="card-body text-center">
+                                <div class="fs-2 fw-bold" t-attf-class="#{'text-danger' if mistake_open_count else 'text-success'}">
+                                    <t t-out="mistake_open_count"/>
+                                </div>
+                                <div class="text-muted small">待订正错题</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-12">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">考试成绩趋势（最近 10 次）</h5>
+                                <div class="tutoring_chart position-relative" t-att-data-chart-type="'line'"
+                                     t-att-data-chart-data="exam_chart_data" t-att-data-max-height="'280'">
+                                    <canvas/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-header fw-bold">上课时间安排</div>
+                            <div class="card-body p-0">
+                                <t t-if="upcoming_sessions">
+                                    <div class="px-3 pt-2 small text-muted">近期安排</div>
+                                    <table class="table table-sm mb-2">
+                                        <tbody>
+                                            <tr t-foreach="upcoming_sessions" t-as="s" t-key="s.id">
+                                                <td style="width: 1%; white-space: nowrap;"
+                                                    class="fw-bold text-primary" t-out="s.date"/>
+                                                <td style="width: 1%; white-space: nowrap;"
+                                                    t-out="'{:.1f} 小时'.format(s.duration)"/>
+                                                <td t-out="', '.join(s.topic_ids.mapped('name')) or '—'"/>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </t>
+                                <div class="px-3 pt-2 small text-muted">最近上课</div>
+                                <t t-if="not recent_sessions">
+                                    <p class="text-muted m-3">还没有上课记录。</p>
+                                </t>
+                                <t t-else="">
+                                    <table class="table table-sm mb-0">
+                                        <tbody>
+                                            <tr t-foreach="recent_sessions" t-as="s" t-key="s.id">
+                                                <td style="width: 1%; white-space: nowrap;" t-out="s.date"/>
+                                                <td style="width: 1%; white-space: nowrap;"
+                                                    class="d-none d-md-table-cell"
+                                                    t-out="'{:.1f} 小时'.format(s.duration)"/>
+                                                <td>
+                                                    <a t-attf-href="/my/learning/sessions/#{s.id}"
+                                                       t-out="', '.join(s.topic_ids.mapped('name')) or '课次详情'"/>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </t>
+                                <div class="m-3 mb-0"><a href="/my/learning/sessions">查看全部课次 →</a></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-header fw-bold">最近错题</div>
+                            <div class="card-body p-0">
+                                <t t-if="not mistakes">
+                                    <p class="text-muted m-3">暂无错题记录，继续保持！</p>
+                                </t>
+                                <t t-else="">
+                                    <table class="table table-sm mb-0">
+                                        <tbody>
+                                            <tr t-foreach="mistakes" t-as="m" t-key="m.id">
+                                                <td style="width: 1%; white-space: nowrap;" t-out="m.date"/>
+                                                <td t-out="m.topic_id.name or mistake_sources[m.source]"/>
+                                                <td style="width: 1%; white-space: nowrap;">
+                                                    <span class="badge"
+                                                          t-attf-class="#{'text-bg-info' if m.state == 'todo' else 'text-bg-success'}"
+                                                          t-out="mistake_states[m.state]"/>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-header fw-bold">最近考试</div>
+                            <div class="card-body p-0">
+                                <t t-if="not recent_exams">
+                                    <p class="text-muted m-3">还没有考试记录。</p>
+                                </t>
+                                <t t-else="">
+                                    <table class="table table-sm mb-0">
+                                        <tbody>
+                                            <tr t-foreach="recent_exams" t-as="e" t-key="e.id">
+                                                <td style="width: 1%; white-space: nowrap;" t-out="e.date"/>
+                                                <td><a t-attf-href="/my/learning/exams/#{e.id}" t-out="e.name"/></td>
+                                                <td class="text-end fw-bold" t-out="'{:.1f}%'.format(e.percentage)"/>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </t>
+                                <div class="m-3 mb-0"><a href="/my/learning/exams">查看全部考试 →</a></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-header fw-bold">知识点掌握</div>
+                            <div class="card-body p-0">
+                                <t t-if="not points">
+                                    <p class="text-muted m-3">老师还没有为你设置知识点。</p>
+                                </t>
+                                <t t-else="">
+                                    <table class="table table-sm mb-0">
+                                        <tbody>
+                                            <tr t-foreach="points" t-as="p" t-key="p.id">
+                                                <td t-out="p.point_id.name"/>
+                                                <td style="width: 1%; white-space: nowrap;">
+                                                    <span class="badge"
+                                                          t-attf-class="#{'text-bg-secondary' if p.mastery == 'none' else 'text-bg-info' if p.mastery == 'learning' else 'text-bg-warning' if p.mastery == 'basic' else 'text-bg-success'}"
+                                                          t-out="mastery_labels[p.mastery]"/>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </t>
+        </template>
+
+        <!-- ===== 课次列表 ===== -->
+        <template id="portal_my_learning_sessions" name="我的辅导课次">
+            <t t-call="portal.portal_layout">
+                <t t-set="breadcrumbs_searchbar" t-value="True"/>
+                <t t-call="portal.portal_searchbar">
+                    <t t-set="title">辅导课次</t>
+                </t>
+                <t t-if="not sessions">
+                    <p class="alert alert-warning">暂无课次记录。</p>
+                </t>
+                <t t-if="sessions" t-call="portal.portal_table">
+                    <thead>
+                        <tr class="active">
+                            <th>上课日期</th>
+                            <th class="d-none d-md-table-cell">时长</th>
+                            <th>教学内容</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="sessions" t-as="s" t-key="s.id">
+                            <td>
+                                <a t-attf-href="/my/learning/sessions/#{s.id}?{{ keep_query() }}"
+                                   t-out="s.date"/>
+                            </td>
+                            <td class="d-none d-md-table-cell" t-out="'{:.1f} 小时'.format(s.duration)"/>
+                            <td t-out="', '.join(s.topic_ids.mapped('name')) or '—'"/>
+                        </tr>
+                    </tbody>
+                </t>
+                <div t-if="sessions" class="o_portal_pager text-center mt-3"><t t-out="pager"/></div>
+            </t>
+        </template>
+
+        <!-- ===== 课次详情 ===== -->
+        <template id="portal_my_learning_session" name="课次详情">
+            <t t-call="portal.portal_layout">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="mb-3"><t t-out="session.date"/> 的辅导课次</h4>
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr><td class="text-muted" style="width: 30%;">学生</td><td t-out="session.student_id.name"/></tr>
+                                <tr><td class="text-muted">时长</td><td t-out="'{:.1f} 小时'.format(session.duration)"/></tr>
+                                <tr>
+                                    <td class="text-muted">教学内容</td>
+                                    <td>
+                                        <t t-foreach="session.topic_ids" t-as="t" t-key="t.id">
+                                            <span class="badge text-bg-light me-1 mb-1" t-out="t.name"/>
+                                        </t>
+                                        <span t-if="not session.topic_ids" class="text-muted">—</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <h5 class="mt-4 mb-2">课堂内容与表现</h5>
+                        <div t-if="session.performance" t-out="session.performance"/>
+                        <p t-else="" class="text-muted">暂无记录。</p>
+                        <h5 class="mt-4 mb-2">下一步计划</h5>
+                        <div t-if="session.plan" t-out="session.plan"/>
+                        <p t-else="" class="text-muted">暂无记录。</p>
+                    </div>
+                </div>
+            </t>
+        </template>
+
+        <!-- ===== 作业列表 ===== -->
+        <template id="portal_my_learning_homework" name="我的作业">
+            <t t-call="portal.portal_layout">
+                <t t-set="breadcrumbs_searchbar" t-value="True"/>
+                <t t-call="portal.portal_searchbar">
+                    <t t-set="title">作业</t>
+                </t>
+                <t t-if="not homeworks">
+                    <p class="alert alert-warning">暂无作业记录。</p>
+                </t>
+                <t t-if="homeworks" t-call="portal.portal_table">
+                    <thead>
+                        <tr class="active">
+                            <th>作业</th>
+                            <th>布置日期</th>
+                            <th class="d-none d-md-table-cell">截止日期</th>
+                            <th class="d-none d-md-table-cell">正确率</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="homeworks" t-as="hw" t-key="hw.id">
+                            <td><a t-attf-href="/my/learning/homework/#{hw.id}?{{ keep_query() }}" t-out="hw.title"/></td>
+                            <td t-out="hw.assigned_date"/>
+                            <td class="d-none d-md-table-cell" t-out="hw.due_date or '—'"/>
+                            <td class="d-none d-md-table-cell"
+                                t-out="'{}/{}'.format(hw.correct_count, hw.question_count) if hw.question_count else '—'"/>
+                            <td><span class="badge text-bg-secondary" t-out="states[hw.state]"/></td>
+                        </tr>
+                    </tbody>
+                </t>
+                <div t-if="homeworks" class="o_portal_pager text-center mt-3"><t t-out="pager"/></div>
+            </t>
+        </template>
+
+        <!-- ===== 作业详情 ===== -->
+        <template id="portal_my_learning_homework_detail" name="作业详情">
+            <t t-call="portal.portal_layout">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="mb-3"><t t-out="homework.title"/></h4>
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr><td class="text-muted" style="width: 30%;">状态</td>
+                                    <td><span class="badge text-bg-secondary" t-out="states[homework.state]"/></td></tr>
+                                <tr><td class="text-muted">布置日期</td><td t-out="homework.assigned_date"/></tr>
+                                <tr><td class="text-muted">截止日期</td><td t-out="homework.due_date or '—'"/></tr>
+                                <tr><td class="text-muted">完成情况</td>
+                                    <td t-out="'共 {} 题，正确 {} 题（正确率 {:.1f}%）'.format(homework.question_count, homework.correct_count, homework.accuracy) if homework.question_count else '未统计'"/></tr>
+                            </tbody>
+                        </table>
+                        <h5 class="mt-4 mb-2">教师反馈</h5>
+                        <div t-if="homework.feedback" t-out="homework.feedback"/>
+                        <p t-else="" class="text-muted">暂无反馈。</p>
+                    </div>
+                </div>
+            </t>
+        </template>
+
+        <!-- ===== 考试列表 ===== -->
+        <template id="portal_my_learning_exams" name="我的考试成绩">
+            <t t-call="portal.portal_layout">
+                <t t-set="breadcrumbs_searchbar" t-value="True"/>
+                <t t-call="portal.portal_searchbar">
+                    <t t-set="title">考试成绩</t>
+                </t>
+                <t t-if="not exams">
+                    <p class="alert alert-warning">暂无考试记录。</p>
+                </t>
+                <t t-if="exams" t-call="portal.portal_table">
+                    <thead>
+                        <tr class="active">
+                            <th>考试</th>
+                            <th>日期</th>
+                            <th class="d-none d-md-table-cell">类型</th>
+                            <th>得分</th>
+                            <th>得分率</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="exams" t-as="e" t-key="e.id">
+                            <td><a t-attf-href="/my/learning/exams/#{e.id}?{{ keep_query() }}" t-out="e.name"/></td>
+                            <td t-out="e.date"/>
+                            <td class="d-none d-md-table-cell" t-out="exam_types[e.exam_type]"/>
+                            <td t-out="'{} / {}'.format(e.total_score, e.total_full) if e.total_full else '—'"/>
+                            <td><span class="badge" t-attf-class="#{'text-bg-success' if e.percentage >= 85 else 'text-bg-warning' if e.percentage >= 60 else 'text-bg-danger'}"
+                                      t-out="'{:.1f}%'.format(e.percentage)"/></td>
+                        </tr>
+                    </tbody>
+                </t>
+                <div t-if="exams" class="o_portal_pager text-center mt-3"><t t-out="pager"/></div>
+            </t>
+        </template>
+
+        <!-- ===== 考试详情 ===== -->
+        <template id="portal_my_learning_exam_detail" name="考试详情">
+            <t t-call="portal.portal_layout">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="mb-3"><t t-out="exam.name"/></h4>
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr><td class="text-muted" style="width: 30%;">日期</td><td t-out="exam.date"/></tr>
+                                <tr><td class="text-muted">类型</td><td t-out="exam_types[exam.exam_type]"/></tr>
+                                <tr>
+                                    <td class="text-muted">总成绩</td>
+                                    <td>
+                                        <strong t-out="'{} / {}'.format(exam.total_score, exam.total_full) if exam.total_full else '—'"/>
+                                        <span class="badge ms-2"
+                                              t-attf-class="#{'text-bg-success' if exam.percentage >= 85 else 'text-bg-warning' if exam.percentage >= 60 else 'text-bg-danger'}"
+                                              t-if="exam.total_full"
+                                              t-out="'得分率 {:.1f}%'.format(exam.percentage)"/>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <h5 class="mt-4 mb-2">各教学内容得分</h5>
+                        <t t-if="exam.line_ids">
+                            <table class="table table-sm">
+                                <thead><tr>
+                                    <th>教学内容</th><th>得分</th><th>满分</th><th style="width: 35%;">得分率</th>
+                                </tr></thead>
+                                <tbody>
+                                    <tr t-foreach="exam.line_ids" t-as="line" t-key="line.id">
+                                        <td t-out="line.topic_id.name"/>
+                                        <td t-out="'{}'.format(line.score)"/>
+                                        <td t-out="'{}'.format(line.full_score)"/>
+                                        <td>
+                                            <div class="progress" style="height: 1.2rem;">
+                                                <div class="progress-bar"
+                                                     t-att-style="'width: {:.0f}%'.format(min(line.percentage, 100))"
+                                                     t-attf-class="#{'bg-success' if line.percentage >= 85 else 'bg-warning' if line.percentage >= 60 else 'bg-danger'}"
+                                                     t-out="'{:.0f}%'.format(line.percentage)"/>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </t>
+                        <p t-else="" class="text-muted">暂无明细。</p>
+                        <h5 class="mt-4 mb-2">备注</h5>
+                        <div t-if="exam.remark" t-out="exam.remark"/>
+                        <p t-else="" class="text-muted">暂无备注。</p>
+                    </div>
+                </div>
+            </t>
+        </template>
+    </data>
+</odoo>

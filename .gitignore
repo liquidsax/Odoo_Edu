@@ -1,0 +1,55 @@
+# ============================================================
+# 本仓库只跟踪项目自研内容：自定义模块、文档、开发/运维脚本。
+# Odoo 本体源码、Python 运行时、备份、日志、配置等本机安装产物
+# 一律不入库。
+# ============================================================
+
+# --- Odoo 本体与运行环境（huge，非本项目内容） ---
+/python/
+/server/*
+# gitignore 的 * 不匹配点开头文件，Odoo 源码树的 dotfile 需显式排除
+/server/.github/
+/server/.gitignore
+/server/.weblate.json
+/server/addons/.gitignore
+/server/addons/.weblate.json
+!/server/addons/
+/server/addons/*
+!/server/addons/tutoring_center/
+/nssm/
+/vcredist/
+/thirdparty/
+/Uninstall.exe
+
+# --- 本机配置与日志（含数据库密码等敏感信息） ---
+odoo.conf
+*.log
+
+# --- 数据库备份与附件（含学生真实数据） ---
+/backup/
+filestore*/
+*.dump
+*.sql
+*.zip
+
+# --- 运行时产物 ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- 文档二进制与截图素材（体积大且可能含真实数据） ---
+docs/*.pptx
+docs/ppt_assets/
+docs/~$*
+
+# --- dev 目录中的调试产物（会话 cookie、页面快照、扒下来的前端源码） ---
+dev/cookies_*.txt
+dev/*.html
+dev/lazy.js
+
+# --- IDE / 系统杂项 ---
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store

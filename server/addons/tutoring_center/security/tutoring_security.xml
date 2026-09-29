@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="module_category_tutoring" model="ir.module.category">
+            <field name="name">数学辅导</field>
+            <field name="description">数学辅导数据中台的访问权限</field>
+            <field name="sequence">25</field>
+        </record>
+
+        <record id="res_groups_privilege_tutoring" model="res.groups.privilege">
+            <field name="name">数学辅导</field>
+            <field name="description">数学辅导数据中台的使用角色</field>
+            <field name="category_id" ref="module_category_tutoring"/>
+            <field name="sequence">25</field>
+        </record>
+
+        <record id="group_teacher" model="res.groups">
+            <field name="name">教师</field>
+            <field name="comment">数学辅导数据中台：可维护学生、教学内容、课次、作业与考试数据</field>
+            <field name="sequence">10</field>
+            <field name="privilege_id" ref="res_groups_privilege_tutoring"/>
+            <field name="implied_ids" eval="[Command.link(ref('base.group_user'))]"/>
+            <field name="user_ids" eval="[Command.link(ref('base.user_admin'))]"/>
+        </record>
+
+        <!-- 门户用户：只能看到与自己（学生档案门户联系人）绑定的数据 -->
+        <record id="rule_student_portal" model="ir.rule">
+            <field name="name">学生档案：仅门户本人</field>
+            <field name="model_id" ref="model_tutoring_student"/>
+            <field name="domain_force">[('partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_session_portal" model="ir.rule">
+            <field name="name">辅导课次：仅门户本人学生</field>
+            <field name="model_id" ref="model_tutoring_session"/>
+            <field name="domain_force">[('student_id.partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_homework_portal" model="ir.rule">
+            <field name="name">作业：仅门户本人学生</field>
+            <field name="model_id" ref="model_tutoring_homework"/>
+            <field name="domain_force">[('student_id.partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_exam_portal" model="ir.rule">
+            <field name="name">考试：仅门户本人学生</field>
+            <field name="model_id" ref="model_tutoring_exam"/>
+            <field name="domain_force">[('student_id.partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_exam_line_portal" model="ir.rule">
+            <field name="name">考试明细：仅门户本人学生</field>
+            <field name="model_id" ref="model_tutoring_exam_line"/>
+            <field name="domain_force">[('exam_id.student_id.partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_topic_portal" model="ir.rule">
+            <field name="name">教学内容：门户可读</field>
+            <field name="model_id" ref="model_tutoring_topic"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+        <record id="rule_student_point_portal" model="ir.rule">
+            <field name="name">学生知识点掌握：仅门户本人学生</field>
+            <field name="model_id" ref="model_tutoring_student_point"/>
+            <field name="domain_force">[('student_id.partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_mistake_portal" model="ir.rule">
+            <field name="name">错题记录：仅门户本人学生</field>
+            <field name="model_id" ref="model_tutoring_mistake"/>
+            <field name="domain_force">[('student_id.partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_knowledge_point_portal" model="ir.rule">
+            <field name="name">知识点：门户可读</field>
+            <field name="model_id" ref="model_tutoring_knowledge_point"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+    </data>
+</odoo>

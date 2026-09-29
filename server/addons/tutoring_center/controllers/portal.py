@@ -1,0 +1,257 @@
+import json
+
+from odoo import _, http
+from odoo.fields import Date
+from odoo.http import request
+
+from odoo.addons.portal.controllers.portal import CustomerPortal
+from odoo.addons.portal.controllers.portal import pager as portal_pager
+
+
+class TutoringPortal(CustomerPortal):
+
+    def _tutoring_student(self):
+        """当前门户用户绑定的学生档案（记录规则已按门户联系人过滤）。"""
+        return request.env['tutoring.student'].search(
+            [('partner_id', '=', request.env.user.partner_id.id)], limit=1)
+
+    def home(self, **kw):
+        """已绑定学生档案的门户用户，访问 /my 直接进入学习页。"""
+        if self._tutoring_student():
+            return request.redirect('/my/learning')
+        return super().home(**kw)
+
+    def _prepare_home_portal_values(self, counters):
+        values = super()._prepare_home_portal_values(counters)
+        student = self._tutoring_student()
+        if 'tutoring_session_count' in counters:
+            values['tutoring_session_count'] = (
+                request.env['tutoring.session'].search_count([('student_id', '=', student.id)])
+                if student and request.env['tutoring.session'].has_access('read') else 0)
+        if 'tutoring_mistake_count' in counters:
+            values['tutoring_mistake_count'] = (
+                request.env['tutoring.mistake'].search_count([('student_id', '=', student.id)])
+                if student and request.env['tutoring.mistake'].has_access('read') else 0)
+        return values
+
+    # ------------------------------------------------------------
+    # 我的学习总览
+    # ------------------------------------------------------------
+
+    def _tutoring_dashboard_values(self, student):
+        today = Date.context_today(student)
+        exams = student.exam_ids.sorted(key=lambda e: (e.date or Date.MIN, e.id))[-10:]
+        sessions = student.session_ids.sorted(key=lambda s: (s.date or Date.MIN, s.id))
+        upcoming_sessions = sessions.filtered(lambda s: s.date and s.date >= today)[:5]
+        recent_sessions = sessions.filtered(lambda s: not s.date or s.date < today)[-5:]
+        points = student.point_ids.sorted(key=lambda p: (p.point_id.grade, p.point_id.name))
+
+        return {
+            'student': student,
+            'upcoming_sessions': upcoming_sessions,
+            'recent_sessions': recent_sessions,
+            'recent_exams': student.exam_ids[:5],
+            'exam_avg': student.exam_avg,
+            'mistakes': student.mistake_ids[:5],
+            'mistake_open_count': student.mistake_open_count,
+            'mistake_sources': dict(request.env['tutoring.mistake']._fields['source'].selection),
+            'mistake_states': dict(request.env['tutoring.mistake']._fields['state'].selection),
+            'points': points,
+            'mastery_labels': dict(
+                request.env['tutoring.student.point']._fields['mastery'].selection),
+            'exam_chart_data': json.dumps({
+                'labels': [e.name for e in exams],
+                'datasets': [{
+                    'label': _('得分率(%)'),
+                    'data': [round(e.percentage, 1) for e in exams],
+                    'fill': False,
+                    'tension': 0.3,
+                    'borderColor': '#714B67',
+                    'backgroundColor': '#714B67',
+                }],
+            }),
+        }
+
+    @http.route('/my/learning', type='http', auth='user', website=True)
+    def portal_my_learning(self, **kwargs):
+        student = self._tutoring_student()
+        if not student:
+            # 未关联学生档案的账号（如教师本人）：显示提示页，不再跳回 /my
+            return request.render('tutoring_center.portal_my_learning_empty',
+                                  {'page_name': 'learning'})
+        values = self._tutoring_dashboard_values(student)
+        values.update({
+            'page_name': 'learning',
+            'exam_types': dict(request.env['tutoring.exam']._fields['exam_type'].selection),
+        })
+        return request.render('tutoring_center.portal_my_learning', values)
+
+    # ------------------------------------------------------------
+    # 辅导课次
+    # ------------------------------------------------------------
+
+    @http.route('/my/learning/sessions', type='http', auth='user', website=True)
+    def portal_my_sessions(self, sortby=None, page=1, **kwargs):
+        student = self._tutoring_student()
+        if not student:
+            return request.redirect('/my')
+        values = self._tutoring_list_values(
+            student.session_ids, sortby, page,
+            sortings={
+                'date': {
+                    'label': _('最新上课'),
+                    'key': lambda r: (r.date or Date.MIN, r.id), 'reverse': True,
+                },
+                'date_asc': {
+                    'label': _('最早上课'),
+                    'key': lambda r: (r.date or Date.MAX, r.id), 'reverse': False,
+                },
+            },
+            url='/my/learning/sessions',
+        )
+        values.update({
+            'page_name': 'tutoring_sessions',
+            'sessions': values.pop('records'),
+        })
+        return request.render('tutoring_center.portal_my_learning_sessions', values)
+
+    @http.route('/my/learning/sessions/<int:session_id>', type='http', auth='user', website=True)
+    def portal_my_session(self, session_id, **kwargs):
+        session = request.env['tutoring.session'].browse(session_id).exists()
+        if not session or not session.has_access('read'):
+            return request.not_found()
+        return request.render('tutoring_center.portal_my_learning_session', {
+            'page_name': 'tutoring_sessions',
+            'session': session,
+        })
+
+    # ------------------------------------------------------------
+    # 作业
+    # ------------------------------------------------------------
+
+    @http.route('/my/learning/homework', type='http', auth='user', website=True)
+    def portal_my_homework(self, sortby=None, filterby=None, page=1, **kwargs):
+        student = self._tutoring_student()
+        if not student:
+            return request.redirect('/my')
+        searchbar_filters = {
+            'all': {'label': _('全部'), 'domain': []},
+            'draft': {'label': _('待完成'), 'domain': [('state', '=', 'draft')]},
+            'done': {'label': _('已完成'), 'domain': [('state', '=', 'done')]},
+            'reviewed': {'label': _('已批改'), 'domain': [('state', '=', 'reviewed')]},
+        }
+        if not filterby or filterby not in searchbar_filters:
+            filterby = 'all'
+        records = request.env['tutoring.homework'].search(
+            [('student_id', '=', student.id)] + searchbar_filters[filterby]['domain'])
+        values = self._tutoring_list_values(
+            records, sortby, page,
+            sortings={
+                'assigned': {
+                    'label': _('最新布置'),
+                    'key': lambda r: (r.assigned_date or Date.MIN, r.id), 'reverse': True,
+                },
+                'assigned_asc': {
+                    'label': _('最早布置'),
+                    'key': lambda r: (r.assigned_date or Date.MAX, r.id), 'reverse': False,
+                },
+                'due': {
+                    'label': _('按截止日期'),
+                    'key': lambda r: (r.due_date or Date.MAX, r.id), 'reverse': False,
+                },
+            },
+            url='/my/learning/homework', filterby=filterby, searchbar_filters=searchbar_filters,
+        )
+        values.update({
+            'page_name': 'tutoring_homework',
+            'homeworks': values.pop('records'),
+            'states': dict(request.env['tutoring.homework']._fields['state'].selection),
+        })
+        return request.render('tutoring_center.portal_my_learning_homework', values)
+
+    @http.route('/my/learning/homework/<int:homework_id>', type='http', auth='user', website=True)
+    def portal_my_homework_detail(self, homework_id, **kwargs):
+        homework = request.env['tutoring.homework'].browse(homework_id).exists()
+        if not homework or not homework.has_access('read'):
+            return request.not_found()
+        return request.render('tutoring_center.portal_my_learning_homework_detail', {
+            'page_name': 'tutoring_homework',
+            'homework': homework,
+            'states': dict(request.env['tutoring.homework']._fields['state'].selection),
+        })
+
+    # ------------------------------------------------------------
+    # 考试
+    # ------------------------------------------------------------
+
+    @http.route('/my/learning/exams', type='http', auth='user', website=True)
+    def portal_my_exams(self, sortby=None, filterby=None, page=1, **kwargs):
+        student = self._tutoring_student()
+        if not student:
+            return request.redirect('/my')
+        exam_type_selection = request.env['tutoring.exam']._fields['exam_type'].selection
+        searchbar_filters = {'all': {'label': _('全部'), 'domain': []}}
+        for key, label in exam_type_selection:
+            searchbar_filters[key] = {
+                'label': label, 'domain': [('exam_type', '=', key)]}
+        if not filterby or filterby not in searchbar_filters:
+            filterby = 'all'
+        records = request.env['tutoring.exam'].search(
+            [('student_id', '=', student.id)] + searchbar_filters[filterby]['domain'])
+        values = self._tutoring_list_values(
+            records, sortby, page,
+            sortings={
+                'date': {
+                    'label': _('最新考试'),
+                    'key': lambda r: (r.date or Date.MIN, r.id), 'reverse': True,
+                },
+                'date_asc': {
+                    'label': _('最早考试'),
+                    'key': lambda r: (r.date or Date.MAX, r.id), 'reverse': False,
+                },
+            },
+            url='/my/learning/exams', filterby=filterby, searchbar_filters=searchbar_filters,
+        )
+        values.update({
+            'page_name': 'tutoring_exams',
+            'exams': values.pop('records'),
+            'exam_types': dict(exam_type_selection),
+        })
+        return request.render('tutoring_center.portal_my_learning_exams', values)
+
+    @http.route('/my/learning/exams/<int:exam_id>', type='http', auth='user', website=True)
+    def portal_my_exam_detail(self, exam_id, **kwargs):
+        exam = request.env['tutoring.exam'].browse(exam_id).exists()
+        if not exam or not exam.has_access('read'):
+            return request.not_found()
+        return request.render('tutoring_center.portal_my_learning_exam_detail', {
+            'page_name': 'tutoring_exams',
+            'exam': exam,
+            'exam_types': dict(request.env['tutoring.exam']._fields['exam_type'].selection),
+        })
+
+    # ------------------------------------------------------------
+    # 列表页公共准备（排序/筛选/分页）
+    # ------------------------------------------------------------
+
+    def _tutoring_list_values(self, records, sortby, page, sortings, url,
+                              filterby=None, searchbar_filters=None):
+        if not sortby or sortby not in sortings:
+            sortby = next(iter(sortings))
+        option = sortings[sortby]
+        records = records.sorted(key=option['key'], reverse=option.get('reverse', False))
+        page_size = 10
+        pager = portal_pager(
+            url=url,
+            url_args={'sortby': sortby, 'filterby': filterby or 'all'},
+            total=len(records), page=page, step=page_size)
+        offset = (page - 1) * page_size
+        return {
+            'records': records[offset:offset + page_size],
+            'pager': pager,
+            'sortby': sortby,
+            'searchbar_sortings': sortings,
+            'filterby': filterby,
+            'searchbar_filters': searchbar_filters,
+            'default_url': url,
+        }
