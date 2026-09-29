@@ -133,6 +133,14 @@
 | `E:\Odoo\dev\make_qa_user.py` / `del_qa_user.py` | 临时验收账号脚本 |
 | `E:\Odoo\dev\*.html / cookies_*.txt / *.py` 其余 | 历次调试过程产物，可清理 |
 
+### GitHub 协作仓库（2026-09-29 晚）
+
+- 本项目已绑定 **https://github.com/liquidsax/Odoo_Edu**（`origin`，分支 `main`），首次提交 `5fbc5c5` 已推送。
+- **入库范围**：`server/addons/tutoring_center`、`docs/使用说明.md`、`dev/` 脚本、`.agent/` 文档、根 `README.md`、`.gitignore`；Odoo 本体源码/运行时/备份/`odoo.conf`/日志/PPT 及截图素材/调试产物一律排除。
+- **脱敏**：所有真实密码已从文档与脚本中移除（`seed_data.py` 改为环境变量 `TUTOR_DEMO_PW_A/B` 注入，`make_qa_user.py` 运行时随机/环境变量注入）；`C:\Users\lenovo\...` 路径改为 `%USERPROFILE%` / `%LOCALAPPDATA%` 写法；种子脚本中学生"表弟"改为通用"学生A"。
+- **重要**：为防 Odoo 源码自带的 `server/.gitignore`（`!.gitignore` 等否定规则，子目录优先级高于根规则）把 Odoo 元数据文件带进仓库，已**本地修改** `server/.gitignore` 移除这些否定行（该文件不入库；若未来重装/更新 Odoo 源码需重做此补丁）。
+- 已知 git 陷阱：`.gitignore` 的 `*` 不匹配点开头文件，排除 `server/` 下 dotfile 需显式规则（根 `.gitignore` 已写）。
+
 ## 八、验证记录（本次会话实测通过）
 
 1. 学生列表六列显示、总课次录入与展示（浏览器实测）。
