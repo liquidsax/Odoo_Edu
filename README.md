@@ -16,7 +16,7 @@
 | `docs/数学辅导数据中台使用说明.md` | 面向使用者的操作说明 |
 | `dev/` | 演示数据脚本、品牌设置、RPC 进程内升级、临时验收账号等运维脚本 |
 | `docker-compose.yml` | 协作者一键开发环境（Odoo 19 + PostgreSQL 18 容器，含热重载） |
-| `.agent/` | 项目交接文档与本机运维手册（handoff / README） |
+| `.agent/` | 协作须知：[handoff](.agent/handoff.md)（交接要点+协作规则）、[ONBOARDING](.agent/ONBOARDING.md)（安装配置指南）、[updates](.agent/updates)（按日期的更新记录） |
 
 > Odoo 本体源码、Python 运行时、数据库备份、`odoo.conf`、日志等本机安装产物**不入库**，见 [.gitignore](.gitignore)。
 
