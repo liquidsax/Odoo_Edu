@@ -13,10 +13,8 @@
             </div>
         </template>
 
-        <!-- 停用项目/任务门户卡片，与学习无关 -->
-        <record id="project.portal_my_home" model="ir.ui.view">
-            <field name="active">False</field>
-        </record>
+        <!-- 停用项目/任务门户卡片：由 ir.ui.view._apply_tutoring_view_cleanup 容错处理
+             （project 非本模块依赖，全新库里没装，写死 <record id="project.*"> 会导致安装失败） -->
 
         <!-- 删除"地址"与"连接 & 安全"卡片（按 url 匹配，不受界面翻译影响） -->
         <template id="portal_my_home_strip_cards" name="清理门户首页卡片"

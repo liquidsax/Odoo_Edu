@@ -61,6 +61,10 @@ E:\odoo19\venv\Scripts\pip install -r E:\odoo19\requirements.txt
 
 源码位置可自定（下文以 `E:\odoo19` 为例，**后面 odoo.conf 里的路径要与之一致**）。
 
+> **不要改 Odoo 本体源码**：本项目所有内容都放在自研模块 `server/addons/tutoring_center` 里，
+> 维护者本机的源码树自 2026-09-21 装好后**零改动**（已核实），所以直接 clone 上游 19.0 即可，
+> 仓库不带源码不会丢东西。若确需改本体，请先与维护者商量——那些改动进不了 git，换机即失效。
+
 ### A3. 克隆本项目仓库
 
 ```bat
@@ -71,6 +75,14 @@ cd E:\Odoo_Edu && git checkout main && git pull
 **addons_path 直接指向仓库内的 `server\addons` 目录**——这样自定义模块始终在 git 工作区里，改完代码即改完"线上"代码，热重载所见即所改。
 
 ### A4. 编写 odoo.conf（放在仓库根目录或 Odoo 源码目录均可）
+
+仓库根有脱敏模板 `odoo.conf.example`，直接复制成 `odoo.conf` 再填密码与路径即可：
+
+```bat
+copy odoo.conf.example odoo.conf
+```
+
+内容要点（与模板一致）：
 
 ```ini
 [options]
@@ -97,6 +109,10 @@ E:\odoo19\venv\Scripts\python E:\odoo19\odoo-bin -c E:\Odoo_Edu\odoo.conf ^
 
 成功判据：进程正常退出、末尾无 ERROR，数据库 `edu_native` 已建且模块已装。
 
+> `contacts`（联系人应用）会随 `tutoring_center` 的依赖自动装上，**不要**手动列进 `-i`。
+> 2026-09-30 已用全新库实测本步骤：67 个模块安装无 CRITICAL，首页门面、`/my/learning`、
+> `/tools/function-plot` 及其 JS/CSS 资产包全部正常。
+
 ### A6. 启动、账号与演示数据
 
 ```bat
@@ -113,6 +129,15 @@ E:/odoo19/venv/Scripts/python E:/odoo19/odoo-bin shell -c E:/Odoo_Edu/odoo.conf 
 ```
 
 门户账号密码用环境变量注入：`TUTOR_DEMO_PW_A=xxx TUTOR_DEMO_PW_B=yyy python odoo-bin shell ... < dev/seed_data.py`。
+
+品牌装饰（可选，想让站点和维护者看到的一模一样时才跑）。公司名/站点名/logo/页脚不在模块 data 里，
+是一次性写库的脚本，按顺序执行（脚本无密码、无绝对路径依赖，可重复跑）：
+
+```bash
+E:/odoo19/venv/Scripts/python E:/odoo19/odoo-bin shell -c E:/Odoo_Edu/odoo.conf -d edu_native < dev/branding.py    # 公司名 / 站点名
+E:/odoo19/venv/Scripts/python E:/odoo19/odoo-bin shell -c E:/Odoo_Edu/odoo.conf -d edu_native < dev/branding2.py   # 页脚与版权行
+E:/odoo19/venv/Scripts/python E:/odoo19/odoo-bin shell -c E:/Odoo_Edu/odoo.conf -d edu_native < dev/branding3.py   # LOGO（内联 SVG）/ 隐藏标题文本
+```
 
 ### A7. 开发热重载（边改边看）
 
@@ -140,6 +165,7 @@ E:\odoo19\venv\Scripts\python E:\odoo19\odoo-bin -c E:\Odoo_Edu\odoo.conf --dev=
 | `check`/日志报 `<库>\|C\|English_United States.936` | 踩了 A1 的模板坑，删库按 A1 重建 |
 | 8069 被占用 | 换 `http_port = 18069` |
 | pip 装 requirements 失败 | 确认 Python 3.10~3.12；个别包缺 wheel 时升级 pip 后重试 |
+| 日志报 `The ID "xxx.yyy" refers to an uninstalled module` | 自研模块用了他人模块的记录却没声明依赖 → 补进 `__manifest__.py` 的 `depends`（纯展示性/清理性的引用改用容错 `<function>`，见 `models/ir_ui_view.py`） |
 | 界面是英文 | 初始化时漏了 `--load-language=zh_CN`，后台 Settings → Translations 手动加载 |
 | 改了 Python 没生效 | 模型类/控制器变更必须重启进程（见 A7 表） |
 

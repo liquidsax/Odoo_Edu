@@ -1,0 +1,33 @@
+# ============================================================
+# odoo.conf 模板 —— 复制为 odoo.conf 后按本机情况填写再使用。
+#
+#   cp odoo.conf.example odoo.conf      # odoo.conf 已在 .gitignore 中，永不提交
+#
+# 真实密码、本机绝对路径、日志路径都不要提交进仓库。
+# ============================================================
+
+[options]
+# 数据库管理器页（/web/database/manager）的口令，与数据库账号无关
+admin_passwd = <自定强密码>
+
+db_host = 127.0.0.1
+db_port = 5432
+# 业务库登录角色，需 LOGIN + CREATEDB（建库时用）
+db_user = openpg
+db_password = <与 db_user 对应的密码>
+
+# Windows 上的关键项：默认 template0 会建出 collate ≠ ctype 的库，
+# PostgreSQL 随后拒绝连接。必须先用 template0 建一个纯 C 排序规则的
+# 模板库并把属主给 db_user，见 .agent/ONBOARDING.md 路径 A 的 A1。
+db_template = odoo_template_c
+
+# 官方源码 addons + 本仓库自研模块目录
+addons_path = <Odoo 源码目录>\odoo\addons,<本仓库目录>\server\addons
+
+# 默认只监听本机；确需局域网访问再改 0.0.0.0 并提升口令强度
+http_interface = 127.0.0.1
+http_port = 8069
+
+# 开发期建议：日志走控制台（注释掉 logfile），便于看热重载输出
+# logfile = <本机日志路径>
+with_demo = False

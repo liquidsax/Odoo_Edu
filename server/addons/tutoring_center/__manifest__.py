@@ -14,7 +14,7 @@
 """,
     'author': 'Tutoring',
     'license': 'LGPL-3',
-    'depends': ['portal', 'website'],
+    'depends': ['portal', 'website', 'contacts'],
     'data': [
         'security/tutoring_security.xml',
         'security/ir.model.access.csv',
