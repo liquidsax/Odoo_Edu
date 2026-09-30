@@ -1,7 +1,7 @@
 import json
 
 from odoo import _, http
-from odoo.fields import Date
+from odoo.fields import Date, Datetime
 from odoo.http import request
 
 from odoo.addons.portal.controllers.portal import CustomerPortal
@@ -54,7 +54,7 @@ class TutoringPortal(CustomerPortal):
             'exam_avg': student.exam_avg,
             'mistakes': student.mistake_ids[:5],
             'mistake_open_count': student.mistake_open_count,
-            'mistake_sources': dict(request.env['tutoring.mistake']._fields['source'].selection),
+            'difficulty_labels': dict(request.env['tutoring.mistake']._fields['difficulty'].selection),
             'mistake_states': dict(request.env['tutoring.mistake']._fields['state'].selection),
             'points': points,
             'mastery_labels': dict(
@@ -229,6 +229,179 @@ class TutoringPortal(CustomerPortal):
             'exam': exam,
             'exam_types': dict(request.env['tutoring.exam']._fields['exam_type'].selection),
         })
+
+    # ------------------------------------------------------------
+    # 错题
+    # ------------------------------------------------------------
+
+    def _mistake_form_values(self, student, mistake=None, post=None):
+        """错题新增/编辑表单的公共渲染值。form 为回填用的当前值字典。"""
+        Mistake = request.env['tutoring.mistake']
+        post = post or {}
+
+        def _to_int(val):
+            try:
+                return int(val) if val else False
+            except (TypeError, ValueError):
+                return False
+
+        if post:
+            form = {
+                'workbook_id': _to_int(post.get('workbook_id')),
+                'page': post.get('page') or '',
+                'question_no': post.get('question_no') or '',
+                'topic_id': _to_int(post.get('topic_id')),
+                'difficulty': post.get('difficulty') or '3',
+                'date': post.get('date') or '',
+                'note': post.get('note') or '',
+                'state': post.get('state') or 'todo',
+            }
+        elif mistake:
+            form = {
+                'workbook_id': mistake.workbook_id.id or False,
+                'page': mistake.page or '',
+                'question_no': mistake.question_no or '',
+                'topic_id': mistake.topic_id.id or False,
+                'difficulty': mistake.difficulty or '3',
+                'date': str(mistake.date) if mistake.date else '',
+                'note': mistake.note or '',
+                'state': mistake.state or 'todo',
+            }
+        else:
+            form = {'workbook_id': False, 'page': '', 'question_no': '', 'topic_id': False,
+                    'difficulty': '3', 'date': '', 'note': '', 'state': 'todo'}
+
+        return {
+            'page_name': 'tutoring_mistakes',
+            'student': student,
+            'mistake': mistake,
+            'form': form,
+            'workbooks': request.env['tutoring.workbook'].search([]),
+            'topics': request.env['tutoring.topic'].search([]),
+            'difficulties': Mistake._fields['difficulty'].selection,
+            'mistake_states': Mistake._fields['state'].selection,
+        }
+
+    def _mistake_vals_from_post(self, student, kw):
+        """从门户表单提交构造错题 vals；student_id 一律用本人，绝不取表单值。"""
+        def _to_int(name):
+            raw = kw.get(name)
+            try:
+                return int(raw) if raw else False
+            except (TypeError, ValueError):
+                return False
+        vals = {
+            'student_id': student.id,
+            'workbook_id': _to_int('workbook_id'),
+            'page': (kw.get('page') or '').strip() or False,
+            'question_no': (kw.get('question_no') or '').strip() or False,
+            'topic_id': _to_int('topic_id'),
+            'difficulty': kw.get('difficulty') if kw.get('difficulty') in ('2', '3', '4', '5') else '3',
+            'note': (kw.get('note') or '').strip() or False,
+        }
+        if kw.get('date'):
+            vals['date'] = kw.get('date')
+        if kw.get('state') in ('todo', 'done'):
+            vals['state'] = kw.get('state')
+        return vals
+
+    @http.route('/my/learning/mistakes', type='http', auth='user', website=True)
+    def portal_my_mistakes(self, sortby=None, filterby=None, page=1, **kwargs):
+        student = self._tutoring_student()
+        if not student:
+            return request.redirect('/my')
+        searchbar_filters = {
+            'all': {'label': _('全部'), 'domain': []},
+            'todo': {'label': _('待订正'), 'domain': [('state', '=', 'todo')]},
+            'done': {'label': _('已订正'), 'domain': [('state', '=', 'done')]},
+        }
+        if not filterby or filterby not in searchbar_filters:
+            filterby = 'all'
+        records = request.env['tutoring.mistake'].search(
+            [('student_id', '=', student.id)] + searchbar_filters[filterby]['domain'])
+        values = self._tutoring_list_values(
+            records, sortby, page,
+            sortings={
+                'recorded': {
+                    'label': _('最新记录'),
+                    'key': lambda r: (r.create_date or Datetime.MIN, r.id), 'reverse': True,
+                },
+                'date': {
+                    'label': _('发生日期（新→旧）'),
+                    'key': lambda r: (r.date or Date.MIN, r.id), 'reverse': True,
+                },
+                'date_asc': {
+                    'label': _('发生日期（旧→新）'),
+                    'key': lambda r: (r.date or Date.MAX, r.id), 'reverse': False,
+                },
+            },
+            url='/my/learning/mistakes', filterby=filterby, searchbar_filters=searchbar_filters,
+        )
+        values.update({
+            'page_name': 'tutoring_mistakes',
+            'mistake': False,
+            'mistakes': values.pop('records'),
+            'difficulty_labels': dict(request.env['tutoring.mistake']._fields['difficulty'].selection),
+            'mistake_states': dict(request.env['tutoring.mistake']._fields['state'].selection),
+            'can_create': request.env['tutoring.mistake'].has_access('create'),
+        })
+        return request.render('tutoring_center.portal_my_learning_mistakes', values)
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>', type='http', auth='user', website=True)
+    def portal_my_mistake_detail(self, mistake_id, **kwargs):
+        mistake = request.env['tutoring.mistake'].browse(mistake_id).exists()
+        if not mistake or not mistake.has_access('read'):
+            return request.not_found()
+        return request.render('tutoring_center.portal_my_learning_mistake_detail', {
+            'page_name': 'tutoring_mistakes',
+            'mistake': mistake,
+            'difficulty_labels': dict(request.env['tutoring.mistake']._fields['difficulty'].selection),
+            'mistake_states': dict(request.env['tutoring.mistake']._fields['state'].selection),
+            'can_edit': mistake.has_access('write'),
+            'just_saved': bool(kwargs.get('created') or kwargs.get('saved')),
+        })
+
+    @http.route('/my/learning/mistakes/new', type='http', auth='user', website=True,
+                methods=['GET', 'POST'])
+    def portal_my_mistake_new(self, **kw):
+        student = self._tutoring_student()
+        if not student:
+            return request.redirect('/my')
+        if not request.env['tutoring.mistake'].has_access('create'):
+            return request.not_found()
+        error = {}
+        if request.httprequest.method == 'POST':
+            vals = self._mistake_vals_from_post(student, kw)
+            if not vals['workbook_id']:
+                error = {'message': _('请选择练习册。')}
+            else:
+                mistake = request.env['tutoring.mistake'].create(vals)
+                return request.redirect('/my/learning/mistakes/%d?created=1' % mistake.id)
+        values = self._mistake_form_values(student, post=kw)
+        values.update({'error': error, 'mode': 'create'})
+        return request.render('tutoring_center.portal_my_learning_mistake_form', values)
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>/edit', type='http', auth='user',
+                website=True, methods=['GET', 'POST'])
+    def portal_my_mistake_edit(self, mistake_id, **kw):
+        student = self._tutoring_student()
+        if not student:
+            return request.redirect('/my')
+        mistake = request.env['tutoring.mistake'].browse(mistake_id).exists()
+        if not mistake or not mistake.has_access('write'):
+            return request.not_found()
+        error = {}
+        if request.httprequest.method == 'POST':
+            vals = self._mistake_vals_from_post(student, kw)
+            vals.pop('student_id')  # 不允许改归属学生
+            if not vals['workbook_id']:
+                error = {'message': _('请选择练习册。')}
+            else:
+                mistake.write(vals)
+                return request.redirect('/my/learning/mistakes/%d?saved=1' % mistake.id)
+        values = self._mistake_form_values(student, mistake=mistake, post=kw)
+        values.update({'error': error, 'mode': 'edit'})
+        return request.render('tutoring_center.portal_my_learning_mistake_form', values)
 
     # ------------------------------------------------------------
     # 列表页公共准备（排序/筛选/分页）

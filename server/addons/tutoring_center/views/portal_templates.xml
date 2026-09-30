@@ -65,6 +65,14 @@
                 <li t-if="exam and page_name == 'tutoring_exams'" class="breadcrumb-item active">
                     <t t-out="exam.name"/>
                 </li>
+                <li t-if="page_name == 'tutoring_mistakes'"
+                    t-attf-class="breadcrumb-item #{'active' if not mistake else ''}">
+                    <a t-if="mistake" href="/my/learning/mistakes">错题</a>
+                    <t t-else="">错题</t>
+                </li>
+                <li t-if="mistake and page_name == 'tutoring_mistakes'" class="breadcrumb-item active">
+                    <t t-out="mistake.workbook_id.name"/>
+                </li>
             </xpath>
         </template>
 
@@ -171,7 +179,10 @@
                     </div>
                     <div class="col-md-6">
                         <div class="card h-100">
-                            <div class="card-header fw-bold">最近错题</div>
+                            <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+                                <span>最近错题</span>
+                                <a class="btn btn-sm btn-primary" href="/my/learning/mistakes/new">+ 添加</a>
+                            </div>
                             <div class="card-body p-0">
                                 <t t-if="not mistakes">
                                     <p class="text-muted m-3">暂无错题记录，继续保持！</p>
@@ -181,7 +192,15 @@
                                         <tbody>
                                             <tr t-foreach="mistakes" t-as="m" t-key="m.id">
                                                 <td style="width: 1%; white-space: nowrap;" t-out="m.date"/>
-                                                <td t-out="m.topic_id.name or mistake_sources[m.source]"/>
+                                                <td>
+                                                    <a t-attf-href="/my/learning/mistakes/#{m.id}">
+                                                        <t t-out="m.workbook_id.name"/>
+                                                        <span class="text-muted small" t-if="m.page or m.question_no">
+                                                            <t t-if="m.page">P<t t-out="m.page"/></t><t t-if="m.question_no"> · 第<t t-out="m.question_no"/>题</t>
+                                                        </span>
+                                                    </a>
+                                                </td>
+                                                <td style="width: 1%; white-space: nowrap;" t-out="difficulty_labels.get(m.difficulty, '')"/>
                                                 <td style="width: 1%; white-space: nowrap;">
                                                     <span class="badge"
                                                           t-attf-class="#{'text-bg-info' if m.state == 'todo' else 'text-bg-success'}"
@@ -191,6 +210,7 @@
                                         </tbody>
                                     </table>
                                 </t>
+                                <div class="m-3 mb-0"><a href="/my/learning/mistakes">查看全部错题 →</a></div>
                             </div>
                         </div>
                     </div>
@@ -276,7 +296,7 @@
                         </tr>
                     </tbody>
                 </t>
-                <div t-if="sessions" class="o_portal_pager text-center mt-3"><t t-out="pager"/></div>
+                <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3"><t t-call="portal.pager"/></div>
             </t>
         </template>
 
@@ -343,7 +363,7 @@
                         </tr>
                     </tbody>
                 </t>
-                <div t-if="homeworks" class="o_portal_pager text-center mt-3"><t t-out="pager"/></div>
+                <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3"><t t-call="portal.pager"/></div>
             </t>
         </template>
 
@@ -402,7 +422,7 @@
                         </tr>
                     </tbody>
                 </t>
-                <div t-if="exams" class="o_portal_pager text-center mt-3"><t t-out="pager"/></div>
+                <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3"><t t-call="portal.pager"/></div>
             </t>
         </template>
 
@@ -455,6 +475,181 @@
                         <h5 class="mt-4 mb-2">备注</h5>
                         <div t-if="exam.remark" t-out="exam.remark"/>
                         <p t-else="" class="text-muted">暂无备注。</p>
+                    </div>
+                </div>
+            </t>
+        </template>
+        <!-- ===== 错题列表 ===== -->
+        <template id="portal_my_learning_mistakes" name="我的错题">
+            <t t-call="portal.portal_layout">
+                <t t-set="breadcrumbs_searchbar" t-value="True"/>
+                <t t-call="portal.portal_searchbar">
+                    <t t-set="title">错题</t>
+                </t>
+                <div class="d-flex justify-content-end mb-3" t-if="can_create">
+                    <a class="btn btn-primary" href="/my/learning/mistakes/new">+ 添加错题</a>
+                </div>
+                <t t-if="not mistakes">
+                    <p class="alert alert-warning">暂无错题记录，继续保持！</p>
+                </t>
+                <t t-if="mistakes" t-call="portal.portal_table">
+                    <thead>
+                        <tr class="active">
+                            <th>练习册 / 题号</th>
+                            <th class="d-none d-md-table-cell">发生日期</th>
+                            <th class="d-none d-md-table-cell">相关教学内容</th>
+                            <th>难度</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="mistakes" t-as="m" t-key="m.id">
+                            <td>
+                                <a t-attf-href="/my/learning/mistakes/#{m.id}?{{ keep_query() }}">
+                                    <t t-out="m.workbook_id.name"/>
+                                    <span class="text-muted small" t-if="m.page or m.question_no">
+                                        <t t-if="m.page">P<t t-out="m.page"/></t><t t-if="m.question_no"> · 第<t t-out="m.question_no"/>题</t>
+                                    </span>
+                                </a>
+                            </td>
+                            <td class="d-none d-md-table-cell" t-out="m.date"/>
+                            <td class="d-none d-md-table-cell" t-out="m.topic_id.name or '—'"/>
+                            <td style="white-space: nowrap;" t-out="difficulty_labels.get(m.difficulty, '')"/>
+                            <td>
+                                <span class="badge"
+                                      t-attf-class="#{'text-bg-info' if m.state == 'todo' else 'text-bg-success'}"
+                                      t-out="mistake_states[m.state]"/>
+                            </td>
+                        </tr>
+                    </tbody>
+                </t>
+                <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3"><t t-call="portal.pager"/></div>
+            </t>
+        </template>
+
+        <!-- ===== 错题详情 ===== -->
+        <template id="portal_my_learning_mistake_detail" name="错题详情">
+            <t t-call="portal.portal_layout">
+                <div t-if="just_saved" class="alert alert-success mt-3">已保存。</div>
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <h4 class="mb-0">
+                                <t t-out="mistake.workbook_id.name"/>
+                                <span class="text-muted" t-if="mistake.page or mistake.question_no">
+                                    <t t-if="mistake.page">P<t t-out="mistake.page"/></t><t t-if="mistake.question_no"> · 第<t t-out="mistake.question_no"/>题</t>
+                                </span>
+                            </h4>
+                            <a t-if="can_edit" class="btn btn-secondary"
+                               t-attf-href="/my/learning/mistakes/#{mistake.id}/edit">编辑</a>
+                        </div>
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr><td class="text-muted" style="width: 30%;">学生</td><td t-out="mistake.student_id.name"/></tr>
+                                <tr><td class="text-muted">练习册</td><td t-out="mistake.workbook_id.name"/></tr>
+                                <tr t-if="mistake.page"><td class="text-muted">页码</td><td t-out="mistake.page"/></tr>
+                                <tr t-if="mistake.question_no"><td class="text-muted">题号</td><td t-out="mistake.question_no"/></tr>
+                                <tr><td class="text-muted">相关教学内容</td><td t-out="mistake.topic_id.name or '—'"/></tr>
+                                <tr><td class="text-muted">难度</td><td t-out="difficulty_labels.get(mistake.difficulty, '—')"/></tr>
+                                <tr><td class="text-muted">发生日期</td><td t-out="mistake.date"/></tr>
+                                <tr><td class="text-muted">记录时刻</td><td t-out="mistake.recorded_at_text or '—'"/></tr>
+                                <tr><td class="text-muted">状态</td>
+                                    <td><span class="badge"
+                                              t-attf-class="#{'text-bg-info' if mistake.state == 'todo' else 'text-bg-success'}"
+                                              t-out="mistake_states[mistake.state]"/></td></tr>
+                            </tbody>
+                        </table>
+                        <h5 class="mt-4 mb-2">错因/备注</h5>
+                        <p t-if="mistake.note" style="white-space: pre-wrap;" t-out="mistake.note"/>
+                        <p t-else="" class="text-muted">暂无记录。</p>
+                    </div>
+                </div>
+            </t>
+        </template>
+
+        <!-- ===== 错题新增/编辑表单 ===== -->
+        <template id="portal_my_learning_mistake_form" name="添加/编辑错题">
+            <t t-call="portal.portal_layout">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="mb-3"><t t-if="mode == 'edit'">编辑错题</t><t t-else="">添加错题</t></h4>
+                        <div t-if="error and error.get('message')" class="alert alert-danger" t-out="error['message']"/>
+                        <form method="post"
+                              t-attf-action="#{'/my/learning/mistakes/%s/edit' % mistake.id if mode == 'edit' else '/my/learning/mistakes/new'}">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                            <div class="mb-3">
+                                <label class="form-label" for="workbook_id">练习册 <span class="text-danger">*</span></label>
+                                <select class="form-select" name="workbook_id" id="workbook_id" required="required">
+                                    <option value="">请选择…</option>
+                                    <t t-foreach="workbooks" t-as="wb" t-key="wb.id">
+                                        <option t-att-value="wb.id" t-att-selected="wb.id == form['workbook_id']">
+                                            <t t-out="wb.name"/>
+                                        </option>
+                                    </t>
+                                </select>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label" for="page">页码</label>
+                                    <input type="text" class="form-control" name="page" id="page" t-att-value="form['page']"/>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label" for="question_no">题号</label>
+                                    <input type="text" class="form-control" name="question_no" id="question_no" t-att-value="form['question_no']"/>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label" for="topic_id">相关教学内容</label>
+                                    <select class="form-select" name="topic_id" id="topic_id">
+                                        <option value="">（不指定）</option>
+                                        <t t-foreach="topics" t-as="tp" t-key="tp.id">
+                                            <option t-att-value="tp.id" t-att-selected="tp.id == form['topic_id']">
+                                                <t t-out="tp.name"/>
+                                            </option>
+                                        </t>
+                                    </select>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label" for="date">发生日期</label>
+                                    <input type="date" class="form-control" name="date" id="date" t-att-value="form['date']"/>
+                                    <div class="form-text">留空则默认为今天。记录时刻由系统自动保存。</div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">难度（辣椒）</label>
+                                <div>
+                                    <t t-foreach="difficulties" t-as="d" t-key="d[0]">
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="radio" name="difficulty"
+                                                   t-att-id="'diff_%s' % d[0]" t-att-value="d[0]"
+                                                   t-att-checked="d[0] == form['difficulty']"/>
+                                            <label class="form-check-label" t-att-for="'diff_%s' % d[0]" t-out="d[1]"/>
+                                        </div>
+                                    </t>
+                                </div>
+                            </div>
+                            <div class="mb-3" t-if="mode == 'edit'">
+                                <label class="form-label" for="state">状态</label>
+                                <select class="form-select" name="state" id="state">
+                                    <t t-foreach="mistake_states" t-as="st" t-key="st[0]">
+                                        <option t-att-value="st[0]" t-att-selected="st[0] == form['state']">
+                                            <t t-out="st[1]"/>
+                                        </option>
+                                    </t>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="note">错因/备注</label>
+                                <textarea class="form-control" name="note" id="note" rows="3"
+                                          placeholder="这道题错在哪、需要巩固什么……（不记题目内容）"><t t-out="form['note']"/></textarea>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">保存</button>
+                                <a class="btn btn-secondary"
+                                   t-attf-href="#{'/my/learning/mistakes/%s' % mistake.id if mode == 'edit' else '/my/learning/mistakes'}">取消</a>
+                            </div>
+                        </form>
                     </div>
                 </div>
             </t>

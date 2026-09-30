@@ -87,13 +87,18 @@
                             </page>
                             <page string="错题记录" name="mistakes">
                                 <field name="mistake_ids">
-                                    <list string="错题记录">
+                                    <list string="错题记录" editable="bottom">
                                         <field name="date"/>
-                                        <field name="source"/>
+                                        <field name="workbook_id"/>
+                                        <field name="page" optional="show"/>
+                                        <field name="question_no" optional="show"/>
                                         <field name="topic_id" optional="show"/>
+                                        <field name="difficulty" optional="show"/>
                                         <field name="state" widget="badge"
                                                decoration-info="state == 'todo'"
                                                decoration-success="state == 'done'"/>
+                                        <field name="note" optional="hide"/>
+                                        <field name="create_date" string="记录时刻" readonly="1" optional="hide"/>
                                     </list>
                                 </field>
                             </page>
@@ -419,6 +424,106 @@
             </field>
         </record>
 
+        <!-- ===== 练习册 ===== -->
+        <record id="view_tutoring_workbook_list" model="ir.ui.view">
+            <field name="name">tutoring.workbook.list</field>
+            <field name="model">tutoring.workbook</field>
+            <field name="arch" type="xml">
+                <list string="练习册" editable="bottom">
+                    <field name="name"/>
+                    <field name="note" optional="show"/>
+                    <field name="mistake_count" string="错题数" readonly="1" optional="show"/>
+                    <field name="active" widget="boolean_toggle"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_tutoring_workbook_search" model="ir.ui.view">
+            <field name="name">tutoring.workbook.search</field>
+            <field name="model">tutoring.workbook</field>
+            <field name="arch" type="xml">
+                <search string="练习册">
+                    <field name="name"/>
+                    <filter string="已归档" name="inactive" domain="[('active', '=', False)]"/>
+                </search>
+            </field>
+        </record>
+
+        <!-- ===== 错题记录 ===== -->
+        <record id="view_tutoring_mistake_list" model="ir.ui.view">
+            <field name="name">tutoring.mistake.list</field>
+            <field name="model">tutoring.mistake</field>
+            <field name="arch" type="xml">
+                <list string="错题记录" editable="bottom">
+                    <field name="student_id"/>
+                    <field name="date"/>
+                    <field name="workbook_id"/>
+                    <field name="page" optional="show"/>
+                    <field name="question_no" optional="show"/>
+                    <field name="topic_id" optional="show"/>
+                    <field name="difficulty" optional="show"/>
+                    <field name="state" widget="badge"
+                           decoration-info="state == 'todo'"
+                           decoration-success="state == 'done'"/>
+                    <field name="note" optional="hide"/>
+                    <field name="create_date" string="记录时刻" readonly="1" optional="hide"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_tutoring_mistake_form" model="ir.ui.view">
+            <field name="name">tutoring.mistake.form</field>
+            <field name="model">tutoring.mistake</field>
+            <field name="arch" type="xml">
+                <form string="错题记录">
+                    <sheet>
+                        <group>
+                            <group>
+                                <field name="student_id"/>
+                                <field name="date"/>
+                                <field name="workbook_id"/>
+                                <field name="page"/>
+                                <field name="question_no"/>
+                            </group>
+                            <group>
+                                <field name="topic_id"/>
+                                <field name="difficulty"/>
+                                <field name="state" widget="statusbar" options="{'clickable': true}"/>
+                                <field name="create_date" string="记录时刻" readonly="1"/>
+                            </group>
+                        </group>
+                        <group string="错因/备注">
+                            <field name="note" nolabel="1"
+                                   placeholder="这道题错在哪、需要巩固什么……（不记题目内容）"/>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_tutoring_mistake_search" model="ir.ui.view">
+            <field name="name">tutoring.mistake.search</field>
+            <field name="model">tutoring.mistake</field>
+            <field name="arch" type="xml">
+                <search string="错题记录">
+                    <field name="student_id"/>
+                    <field name="workbook_id"/>
+                    <field name="topic_id"/>
+                    <filter string="待订正" name="todo" domain="[('state', '=', 'todo')]"/>
+                    <filter string="已订正" name="done" domain="[('state', '=', 'done')]"/>
+                    <separator/>
+                    <filter string="高难度(4~5🌶)" name="hard" domain="[('difficulty', 'in', ['4', '5'])]"/>
+                    <group>
+                        <filter string="学生" name="group_student" context="{'group_by': 'student_id'}"/>
+                        <filter string="练习册" name="group_workbook" context="{'group_by': 'workbook_id'}"/>
+                        <filter string="相关教学内容" name="group_topic" context="{'group_by': 'topic_id'}"/>
+                        <filter string="状态" name="group_state" context="{'group_by': 'state'}"/>
+                        <filter string="难度" name="group_difficulty" context="{'group_by': 'difficulty'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
         <!-- ===== 动作 ===== -->
         <record id="action_tutoring_student" model="ir.actions.act_window">
             <field name="name">学生</field>
@@ -458,11 +563,35 @@
             <field name="view_mode">list,form,graph</field>
         </record>
 
+        <record id="action_tutoring_mistake" model="ir.actions.act_window">
+            <field name="name">错题</field>
+            <field name="res_model">tutoring.mistake</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">记录第一道错题</p>
+                <p>像 Excel 一样逐行录入：选学生、选练习册、填页码/题号、标辣椒难度（2~5🌶）。也可在某个学生的"错题记录"页签里增量添加。</p>
+            </field>
+        </record>
+
+        <record id="action_tutoring_workbook" model="ir.actions.act_window">
+            <field name="name">练习册</field>
+            <field name="res_model">tutoring.workbook</field>
+            <field name="view_mode">list</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">维护练习册 / 教辅清单</p>
+                <p>例如"五年模拟三年高考""一数课后习题"。录错题时从这里选择，或在错题行内直接新建练习册。</p>
+            </field>
+        </record>
+
         <!-- ===== 菜单 ===== -->
         <menuitem id="menu_tutoring_root" name="数学辅导" sequence="15"/>
         <menuitem id="menu_tutoring_student" name="学生" parent="menu_tutoring_root"
                   action="action_tutoring_student" sequence="10"/>
+        <menuitem id="menu_tutoring_mistake" name="错题" parent="menu_tutoring_root"
+                  action="action_tutoring_mistake" sequence="20"/>
+        <menuitem id="menu_tutoring_workbook" name="练习册" parent="menu_tutoring_root"
+                  action="action_tutoring_workbook" sequence="30"/>
         <menuitem id="menu_tutoring_knowledge" name="知识点" parent="menu_tutoring_root"
-                  action="action_tutoring_knowledge_point" sequence="20"/>
+                  action="action_tutoring_knowledge_point" sequence="40"/>
     </data>
 </odoo>

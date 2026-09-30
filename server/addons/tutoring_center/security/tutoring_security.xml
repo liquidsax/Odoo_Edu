@@ -101,9 +101,20 @@
         </record>
 
         <record id="rule_mistake_portal" model="ir.rule">
-            <field name="name">错题记录：仅门户本人学生</field>
+            <field name="name">错题记录：仅门户本人学生（可新增/编辑自己的）</field>
             <field name="model_id" ref="model_tutoring_mistake"/>
             <field name="domain_force">[('student_id.partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_workbook_portal" model="ir.rule">
+            <field name="name">练习册：门户可读</field>
+            <field name="model_id" ref="model_tutoring_workbook"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
             <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
             <field name="perm_read" eval="True"/>
             <field name="perm_write" eval="False"/>
