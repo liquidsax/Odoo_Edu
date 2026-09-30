@@ -51,6 +51,8 @@
 
 ## 四、维护者高频操作要点
 
+> 服务启停与体检**统一走 Qoder skill `odoo-service-control` 的 `svcctl.ps1`**（命令、UAC 规则、六层 `check`、失败判读见 [service-control.md](service-control.md)），不要手搓 `Start-Service` / `Stop-Service`。
+
 1. **标准升级**（Python 变更必须走）：`svcctl.ps1 stop odoo`（UAC）→ `"E:\Odoo\python\python.exe" "E:\Odoo\server\odoo-bin" -c odoo.conf -d OdooForDB -u tutoring_center --stop-after-init` → `start odoo`。
 2. **纯 XML/数据变更免重启**：`odoo-bin shell -c odoo.conf -d OdooForDB < E:\Odoo\dev\upgrade_via_rpc.py`，脚本内 `button_immediate_upgrade()`，运行中服务经 signaling 自动重载。
 3. **硬限制**：运行中的服务无法加载新增 Python 模型类/控制器，必须重启；纯字段/视图变更无此限制。
@@ -70,7 +72,8 @@
 
 | 文档 | 内容 |
 |---|---|
-| [ONBOARDING.md](ONBOARDING.md) | 协作者安装配置指南（Docker 一键环境 + 自检清单 + 工作流） |
+| [ONBOARDING.md](ONBOARDING.md) | 协作者安装配置指南（原生 Windows 完整步骤 + Docker 备选 + 自检清单 + 工作流） |
+| [service-control.md](service-control.md) | 服务启停与体检 skill（`svcctl.ps1`）：action/target、UAC 规则、六层 `check`、失败判读、红线 |
 | [updates/](updates/) | 按日期的完整更新记录（含维护者原生环境详情、验证记录、陷阱全表） |
 | 根 [README.md](../README.md) | 面向人的项目总览、模块概览、快速开始 |
 | `docs/数学辅导数据中台使用说明.md` | 面向使用者的操作说明 |
