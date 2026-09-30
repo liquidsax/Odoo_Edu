@@ -12,7 +12,8 @@
 
 | 路径 | 内容 |
 |---|---|
-| `server/addons/tutoring_center/` | 核心自定义模块（application，依赖 `portal`、`website`） |
+| `server/addons/tutoring_center/` | 核心自定义模块（application，依赖 `portal`、`website`、`contacts`） |
+| `odoo.conf.example` | 配置模板，复制为 `odoo.conf` 后填密码（真配置含密码，不入库） |
 | `docs/数学辅导数据中台使用说明.md` | 面向使用者的操作说明 |
 | `dev/` | 演示数据脚本、品牌设置、RPC 进程内升级、临时验收账号等运维脚本 |
 | `docker-compose.yml` | 协作者一键开发环境（Odoo 19 + PostgreSQL 18 容器，含热重载） |

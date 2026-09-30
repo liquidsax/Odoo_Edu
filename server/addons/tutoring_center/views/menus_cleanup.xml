@@ -8,5 +8,6 @@
         </record>
 
         <function model="ir.ui.menu" name="_apply_tutoring_menu_cleanup"/>
+        <function model="ir.ui.view" name="_apply_tutoring_view_cleanup"/>
     </data>
 </odoo>
