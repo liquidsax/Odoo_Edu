@@ -9,6 +9,14 @@
             <field name="sequence" type="int">20</field>
         </record>
 
+        <!-- 网站导航"函数图像"入口（顶栏第三位：首页 → 学习平台 → 函数图像） -->
+        <record id="menu_website_function_plot" model="website.menu">
+            <field name="name">函数图像</field>
+            <field name="url">/tools/function-plot</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence" type="int">30</field>
+        </record>
+
         <!-- 首页：教育数据中台门面 -->
         <template id="homepage_tutoring" name="学习平台首页" inherit_id="website.homepage" priority="20">
             <xpath expr="//div[hasclass('oe_structure','oe_empty')]" position="replace">
@@ -81,6 +89,102 @@
                     </section>
                 </div>
             </xpath>
+        </template>
+
+        <!-- 函数图像绘制器（纯前端计算，服务端只出页面） -->
+        <template id="function_plot_page" name="函数图像">
+            <t t-call="website.layout">
+                <div id="wrap" class="bg-100">
+                    <div class="container py-4 py-lg-5">
+                        <h1 class="h3 fw-bold mb-2">函数图像绘制</h1>
+                        <p class="text-muted mb-4">
+                            选好曲线类型、把题目里的数填进去就能出图——圆、椭圆、双曲线、抛物线、直线都可以；
+                            也能像之前那样自己写方程。
+                        </p>
+
+                        <div class="tutoring_plot card border-0 shadow-sm">
+                            <div class="card-body">
+                                <!-- 按类型添加：教师日常主入口 -->
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                                    <span class="text-muted small">加曲线：</span>
+                                    <button type="button" class="btn btn-outline-primary" data-plot-type="circle">圆</button>
+                                    <button type="button" class="btn btn-outline-primary" data-plot-type="ellipse">椭圆</button>
+                                    <button type="button" class="btn btn-outline-primary" data-plot-type="hyperbola">双曲线</button>
+                                    <button type="button" class="btn btn-outline-primary" data-plot-type="parabola">抛物线</button>
+                                    <button type="button" class="btn btn-outline-primary" data-plot-type="line">直线</button>
+                                    <button type="button" class="btn btn-outline-primary" data-plot-type="quadratic">二次函数</button>
+                                    <button type="button" class="btn btn-outline-primary" data-plot-type="inverse">反比例</button>
+                                    <button type="button" class="btn btn-outline-primary" data-plot-type="sine">三角函数</button>
+                                    <button type="button" class="btn btn-link text-muted ms-auto"
+                                            data-plot-clear="1">清空图像</button>
+                                </div>
+
+                                <!-- 高级：自己写方程 -->
+                                <details class="mb-3">
+                                    <summary class="text-muted small">自己输入方程（高级）</summary>
+                                    <div class="row g-2 align-items-center mt-2">
+                                        <div class="col-12 col-lg">
+                                            <input type="text" class="form-control" data-plot-input="1"
+                                                   autocomplete="off" placeholder="例：x^2/4+y^2/9=1 或 y=x^2"/>
+                                        </div>
+                                        <div class="col-auto">
+                                            <button type="button" class="btn btn-primary" data-plot-add="1">绘制</button>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <div class="alert alert-danger py-2 small d-none" data-plot-error="1" role="alert"></div>
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2" data-plot-legend="1"></div>
+
+                                <div class="tutoring_plot_stage position-relative border rounded bg-white"
+                                     style="height: 62vh; min-height: 360px;">
+                                    <canvas data-plot-main="1" class="d-block w-100 h-100"/>
+                                    <canvas data-plot-overlay="1"
+                                            class="position-absolute top-0 start-0 w-100 h-100"/>
+                                    <div class="position-absolute top-0 end-0 m-2 d-flex gap-1">
+                                        <button type="button" class="btn btn-sm btn-light border" title="重置视图"
+                                                data-plot-reset="1"><i class="fa fa-undo" role="img"/></button>
+                                        <button type="button" class="btn btn-sm btn-light border" title="全屏查看"
+                                                data-plot-fullscreen="1"><i class="fa fa-expand" role="img"/></button>
+                                    </div>
+                                    <div class="position-absolute bottom-0 end-0 m-2 px-2 py-1 small text-muted bg-white border rounded pe-none"
+                                         data-plot-readout="1">滚轮缩放 · 拖动平移 · 双击重置</div>
+                                </div>
+
+                                <p class="text-muted small mb-0 mt-3">
+                                    自己写方程时：乘号可以省略（<code>2x</code>、<code>3(x+1)</code>），乘方用 <code>^</code>
+                                    （<code>x^2</code>，也认 <code>x²</code>），函数支持
+                                    <code>sin cos tan asin acos atan sqrt abs exp ln log</code>，常量
+                                    <code>pi</code>、<code>e</code>。参数方程与极坐标暂未支持。
+                                </p>
+                            </div>
+
+                            <!-- 参数填写弹层（手机上呈现为底部抽屉） -->
+                            <div class="tutoring_plot_modal d-none" data-plot-modal="1">
+                                <div class="tutoring_plot_modal_backdrop" data-plot-modal-close="1"/>
+                                <div class="tutoring_plot_modal_panel" role="dialog" aria-modal="true">
+                                    <div class="d-flex align-items-start justify-content-between mb-1">
+                                        <h5 class="mb-0" data-plot-modal-title="1"/>
+                                        <button type="button" class="btn-close"
+                                                data-plot-modal-close="1" aria-label="关闭"/>
+                                    </div>
+                                    <p class="text-muted small mb-2" data-plot-modal-hint="1"/>
+                                    <div class="d-flex flex-wrap gap-1 mb-3" data-plot-modal-modes="1"/>
+                                    <div class="row g-2" data-plot-modal-fields="1"/>
+                                    <div class="mt-3 p-2 bg-100 rounded fs-5"
+                                         data-plot-modal-preview="1"/>
+                                    <div class="d-flex gap-2 mt-3">
+                                        <button type="button" class="btn btn-primary flex-grow-1"
+                                                data-plot-modal-confirm="1">确认添加</button>
+                                        <button type="button" class="btn btn-outline-secondary"
+                                                data-plot-modal-close="1">取消</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </t>
         </template>
     </data>
 </odoo>

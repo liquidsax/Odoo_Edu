@@ -125,7 +125,8 @@ E:\odoo19\venv\Scripts\python E:\odoo19\odoo-bin -c E:\Odoo_Edu\odoo.conf --dev=
 | 改什么 | 生效方式 |
 |---|---|
 | 视图 / 数据 XML | 保存后**刷新浏览器** |
-| QWeb 模板 / 前端 JS | 同上 |
+| QWeb 模板（`views/*.xml` 里的模板） | 同上 |
+| 前端 JS / CSS（`static/src`） | **打包模式下刷新无效**：需 `-u tutoring_center --stop-after-init` 重建资产包；启动时带 `--dev=assets` 则直接读源文件、刷新即可 |
 | Python 模型 / 控制器 | 控制台 Ctrl+C 后重新运行（改模型类/控制器必须重启；纯字段/视图变更可免） |
 | `__manifest__.py`、新增字段后视图报错 | 手动升级：`-u tutoring_center --stop-after-init` 后再启动 |
 
@@ -170,6 +171,7 @@ docker compose up -d        # 自动建库 + 装 tutoring_center + 中文语言�
 4. 学生列表打开正常；任选学生进表单，页签（知识点掌握/学校考试/辅导课次/错题记录）渲染正常；
 5. （灌过演示数据后）门户账号登录 `/my` 自动跳转 `/my/learning`，统计卡与折线图正常绘制；
 6. 热重载验证：改 `views/tutoring_views.xml` 任一字符串保存 → 刷新浏览器可见变化。
+7. 顶栏第三项「函数图像」打开正常：点「椭圆」填分母 5 和 1 → 出 `x^2/5+y^2=1`；点「双曲线」切「系数式」默认值即 `x^2-4y^2=4`（顶点 ±2，两支之间不连线）；点「直线」填 A=1、B=-2、C=-4 → 出 `x-2y-4=0`；`x^2+y^2=4` 必须是**正圆**（两轴等比例）；`y=1/x` 两条分支断开不连线；滚轮缩放、拖动平移、右上角全屏按钮能铺满窗口。
 
 ---
 

@@ -1,0 +1,61 @@
+/* 函数图像绘制页：参数弹层、全屏模式、手机端手势 */
+
+.tutoring_plot_stage {
+    /* 手机上拖动平移时不要顺带滚动页面 */
+    touch-action: none;
+}
+
+.tutoring_plot_stage_fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 1050;
+    width: 100vw;
+    /* 覆盖模板上的内联 height，故用 !important；dvh 适配手机端动态工具栏 */
+    height: 100vh !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+}
+
+body.tutoring_plot_noscroll {
+    overflow: hidden;
+}
+
+.tutoring_plot_modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1060;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+.tutoring_plot_modal_backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.tutoring_plot_modal_panel {
+    position: relative;
+    width: 100%;
+    max-width: 560px;
+    max-height: 92vh;
+    overflow-y: auto;
+    padding: 16px;
+    background: #fff;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18);
+}
+
+@media (min-width: 576px) {
+    .tutoring_plot_modal {
+        align-items: center;
+    }
+
+    .tutoring_plot_modal_panel {
+        border-radius: 14px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.22);
+    }
+}

@@ -27,6 +27,8 @@
     'assets': {
         'web.assets_frontend': [
             'tutoring_center/static/src/learning_charts.js',
+            'tutoring_center/static/src/function_plot.js',
+            'tutoring_center/static/src/function_plot.css',
         ],
     },
     'installable': True,
