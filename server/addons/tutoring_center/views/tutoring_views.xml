@@ -466,9 +466,11 @@
             <field name="name">tutoring.workbook.reader.form</field>
             <field name="model">tutoring.workbook</field>
             <field name="arch" type="xml">
-                <!-- 只读靠逐字段 readonly + 动作 context 的 footer:False；
-                     刻意不写 form 根上的 create/edit/delete="false"：那三个是 activeActions 开关，
-                     与 header 上「修改」按钮的可点性关系未实证，不去赌 -->
+                <!-- 只读靠逐字段 readonly；footer 必须在这里显式声明：
+                     弹窗里 arch 带 <footer> 时核心不再追加默认的"保存/放弃"
+                     （form_compiler.compileFooter 只在 footer@replace 为假值时追加 DefaultButtonsSlot），
+                     而改用动作 context 里的 footer:False 会让 Dialog 连 <footer> 节点都不生成，
+                     表单按钮插槽的 portal 找不到目标 → OWL "invalid portal target" 崩溃（实测） -->
                 <form string="练习册">
                     <header>
                         <button name="action_new_file" type="object" string="上传教材"
@@ -506,6 +508,9 @@
                             </div>
                         </group>
                     </sheet>
+                    <footer>
+                        <button string="关闭" special="cancel" class="btn-secondary" data-hotkey="z"/>
+                    </footer>
                 </form>
             </field>
         </record>
@@ -535,11 +540,11 @@
                             <field name="file_ids" nolabel="1" colspan="2">
                                 <list editable="bottom">
                                     <field name="name" placeholder="如 上册 / 答案册"/>
+                                    <!-- filename 必须留在视图里且不能 readonly：上传组件靠它写文件名，
+                                         只读字段不进保存载荷（实测落库为 NULL） -->
+                                    <field name="filename" column_invisible="1"/>
                                     <field name="content" filename="filename"
                                            options="{'accepted_file_extensions': '.pdf'}"/>
-                                    <field name="filename" readonly="1" optional="show"/>
-                                    <!-- 可编辑网格里单击单元格是"进编辑态"，行 action 不会触发，
-                                         所以这里用显式按钮打开阅读弹窗 -->
                                     <button name="action_open_viewer" type="object" string="看"
                                             icon="fa-book"/>
                                 </list>
@@ -572,13 +577,17 @@
                                 <field name="workbook_id" readonly="1"/>
                             </group>
                             <group>
-                                <field name="filename" readonly="1"/>
                                 <field name="create_date" string="上传时间" readonly="1"/>
                             </group>
                         </group>
                         <div class="text-muted mb-2">
-                            滚轮翻页阅读。传错了就再点一次上传图标重选文件，然后点「保存」写入数据库。
+                            滚轮翻页阅读。新建时选完文件点「保存」即写入数据库；
+                            要更换已上传的文件，请点「修改」后在对应行重新上传。
                         </div>
+                        <!-- 已存在的记录在这个弹窗里是只读的（没有上传键、也没有保存），
+                             换文件走「修改」台；filename 用 invisible 而非 readonly，
+                             否则组件写入不落库（核心 hr_skills / l10n_in 同款写法） -->
+                        <field name="filename" invisible="1"/>
                         <field name="content" widget="pdf_viewer" filename="filename"
                                class="o_workbook_pdf_viewer"/>
                     </sheet>
