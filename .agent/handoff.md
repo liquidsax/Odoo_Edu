@@ -44,11 +44,11 @@
 
 | 对象 | 事实 |
 |---|---|
-| 学生"表弟"（id 2） | 七年级，已**结课**；5 次课、2 场考试（78%/85%）、3 条掌握、2 条错题（演示） |
-| 学生"小明"（id 4） | 七年级，**真实数据**，总课次 20 |
-| 学生"示例学生B"（id 3） | 八年级，隔离验证用，可删 |
+| 学生"表弟"（id 2） | 初一，已**结课**；5 次课、2 场考试（78%/85%）、3 条掌握、2 条错题（演示） |
+| 学生"小明"（id 4） | 初一，**真实数据**，总课次 20 |
+| 学生"示例学生B"（id 3） | 初二，隔离验证用，可删 |
 | portal 账号 | `biaodi`（表弟）、`student02`（示例学生B）；密码见本地密码记录，**不入库** |
-| 知识点 | 七年级 5 个演示数据 |
+| 知识点 | 初一 5 个演示数据 |
 | 练习册 | 仅默认「课内/其他」(id 1)——升级时把存量 2 条错题回填于此；真实练习册（五年模拟三年高考等）待维护者录入 |
 
 容器演示环境的账号由 `dev/seed_data.py` 创建（`biaodi` / `student02`，密码环境变量注入）。
@@ -63,7 +63,7 @@
 4. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
 5. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
 
-## 五、最重要陷阱（Top 10，完整版见 README 与 updates）
+## 五、最重要陷阱（Top 11，完整版见 README 与 updates）
 
 1. `db_template = odoo_template_c` **不可改回 template0**（Windows 上 collate≠ctype 库无法连接，已存在库只能删库重建）；
 2. `_sql_constraints` 在 Odoo 19 已弃用，用 `models.Constraint('unique(...)', '消息')`；
@@ -75,6 +75,7 @@
 8. **画布/交互容器上对 `pointerdown` 调 `preventDefault()` 会抑制浏览器合成的 `mousedown`/`click`/`dblclick`**——容器内按钮会彻底点不动（本项目「函数图像」页的全屏/重置按钮就栽在这）。前端交互控件必须**真实点击**验收，脚本里的 `element.click()` 合成事件会掩盖此问题（细节见 `updates/2026-09-30.md`）。
 9. **用了别人模块的记录就必须声明依赖，否则只有维护者的库能装**——`<record id="contacts.action_contacts">`、`inherit_id="project.*"` 这类写法在**全新库**上直接报 `The ID "…" refers to an uninstalled module` 并中断安装；维护者的库因为从完整 ERP 演示库改造而来，那些模块本来就装着，所以永远发现不了。纯清理/装饰性的跨模块引用不要写死 XML，用容错函数（`env.ref(..., raise_if_not_found=False)`，见 `models/ir_ui_menu.py`、`models/ir_ui_view.py`）。**每次改模块后要用一次性新库跑一次 `-i tutoring_center` 才算验收**（细节见 `updates/2026-09-30.md`）。
 10. **门户 QWeb 表单/分页两个坑**：① 表单取 CSRF 令牌要用 `request.csrf_token()`，裸 `csrf_token()` 未注入上下文会 `KeyError` 直接 500；② 列表分页器写 `<t t-call="portal.pager"/>`（`pager` 走上下文），误用 `<t t-out="pager"/>` 会把 `{'page_count':…}` 字典原样打印到页面底部（错题/课次/作业/考试四处已统一修正）。给已有行的表加**必填**字段时，Odoo 升级只会延迟并降级 NOT NULL 约束（不中断），但要用数据阶段 `<function>` 先回填存量行，收尾约束才干净生效（见 `data/mistake_data.xml`）。
+11. **Selection 键值按字符串排序，选项定义顺序不算数**——`_order` 与 `read_group` 分组都按**值**比较，`'10' < '7'`，所以两位数键值会把「高一」排在「初一」之前（知识点页默认按年级分组，正是用户天天看的那一屏）。年级键值已统一**补零**为 `07~12`（见 `models/tutoring_knowledge.py` 的 `GRADE_SELECTION`，学生与知识点共用一份定义）；改键值必须配 `migrations/<版本>/pre-migrate.py` 把存量行一起补零，`19.0.1.2.0` 已处理 `tutoring_student`、`tutoring_knowledge_point`（细节与实测见 `updates/2026-10-01.md`）。
 
 ## 六、文档索引
 
