@@ -56,7 +56,7 @@
 | **协作者** | 原生 Windows 安装（**优先**） | PostgreSQL 18 + Python 3.12 + Odoo 19 源码，完整步骤见 [ONBOARDING.md](ONBOARDING.md) 路径 A |
 | **协作者（备选）** | Docker（`docker compose up -d`） | ONBOARDING.md 路径 B，容器内 `edu_dev` 库，数据一次性 |
 | **维护者** | 原生 Windows 服务 | Odoo 19 社区版 + PostgreSQL 18（服务 `odoo-server-19.0` / `postgresql-x64-18`），**本机不装 Docker** |
-| **使用端（公网）** | 腾讯云 CVM + Docker | `http://119.91.140.197:8069`，库 `edu_prod`；部署与版本同步见 [deploy-cloud.md](deploy-cloud.md)，与本机完全独立 |
+| **使用端（公网）** | 云服务器 + Docker | 与本机完全独立的一套环境。**地址、目录、口令位置、安全组等细节只记在仓库外的本地笔记里，不入开源仓库**；可复用的技术结论见 `updates/2026-10-01.md` |
 
 两套环境数据完全隔离。维护者环境的详细安装/陷阱见根 README 与 `updates/2026-09-29.md`。
 
@@ -122,7 +122,6 @@
 | [ONBOARDING.md](ONBOARDING.md) | 协作者安装配置指南（原生 Windows 完整步骤 + Docker 备选 + 自检清单 + 工作流） |
 | [MULTI_AGENT.md](MULTI_AGENT.md) | 多 agent 并发协作规范：谁负责部署、独占规则、部署标准动作、版本号礼仪、验收要求、占用声明 |
 | [service-control.md](service-control.md) | 服务启停与体检 skill（`svcctl.ps1`）：action/target、UAC 规则、六层 `check`、失败判读、红线 |
-| [deploy-cloud.md](deploy-cloud.md) | 腾讯云 CVM 生产部署（Docker）：口令文件布局、首次部署、**版本同步流程**、与开发环境差异、9 条实测踩坑 |
 | [updates/](updates/) | 按日期的完整更新记录（含维护者原生环境详情、验证记录、陷阱全表） |
 | 根 [README.md](../README.md) | 面向人的项目总览、模块概览、快速开始 |
 | `docs/数学辅导数据中台使用说明.md` | 面向使用者的操作说明 |
