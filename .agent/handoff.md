@@ -28,7 +28,15 @@
 
 - **错题记录**（学生不会/做错的题）：来源关联**练习册**（可填页码/题号）、**辣椒难度 2~5 🌶**、系统自动的**记录时刻**＋可手填「发生日期」、可选「错因/备注」——**不记题目内容**（不通过平台做题，只记错了哪道题）；**不设订正状态**（这页只用于记录出处，没人会做完一道题再回网站改状态）。后台列表控制栏有常驻「**快速记录**」弹窗：题号可写 `1-5`、`1,3,7` 自动拆成多条，「保存并继续」沿用学生/练习册只清出处；列表为 **Excel 式可编辑网格**，新建行自动沿用上一条的学生与练习册，难度**点辣椒即改**（`chili` 组件，列表未进入编辑态也可点）；门户有错题列表/详情，**学生可自助添加/编辑自己的错题**（记录规则强制只能本人、不可删）。
 
-核心自定义模块：`server/addons/tutoring_center`（11 个模型，含练习册 `tutoring.workbook` 与速记向导 `tutoring.mistake.quickadd`，详见根 README）。
+- **练习册 / 教材**（`feature/workbook-file-reader`，代码级事实）：列表**不再是可编辑网格**——单击整行打开
+  **只读页中页**（原生 `<list type="object" action="…">` 把行点击交给 Python 方法），改数值或加行只能走
+  「新建练习册」/「修改」两个明确按钮；一本书可挂**多份 PDF**（上册/下册/答案），`tutoring.workbook.file.content`
+  用 `Binary(attachment=False)` → **正文本机就是 PostgreSQL 的 bytea 列**，`pg_dump` 即全量备份；
+  阅读用核心 `widget="pdf_viewer"`（pdf.js，滚轮翻页，自带上传/换文件/清除），门户学生可在
+  `/my/learning/workbooks` 只读阅读。**本功能需重启服务 + `-u tutoring_center` 才生效，尚未在本机库升级、未做浏览器验收。**
+
+核心自定义模块：`server/addons/tutoring_center`（12 个模型，含练习册 `tutoring.workbook`、教材文件
+`tutoring.workbook.file` 与速记向导 `tutoring.mistake.quickadd`，详见根 README）。
 
 ## 二、环境与使用方式
 
@@ -49,7 +57,7 @@
 | 学生"示例学生B"（id 3） | 初二，隔离验证用，可删 |
 | portal 账号 | `biaodi`（表弟）、`student02`（示例学生B）；密码见本地密码记录，**不入库** |
 | 知识点 | 初一 5 个演示数据 |
-| 练习册 | 仅默认「课内/其他」(id 1)——升级时把存量 2 条错题回填于此；真实练习册（五年模拟三年高考等）待维护者录入 |
+| 练习册 | 仅默认「课内/其他」(id 1)——升级时把存量 2 条错题回填于此；真实练习册（五年高考三年模拟等）与教材 PDF 待维护者录入（录入入口与阅读页见 `feature/workbook-file-reader`，需先升级模块） |
 
 容器演示环境的账号由 `dev/seed_data.py` 创建（`biaodi` / `student02`，密码环境变量注入）。
 
@@ -80,6 +88,8 @@
 13. **并发时对共享业务库跑 `-u` 会吃掉别人的迁移**：Odoo 执行迁移脚本的区间是 `(ir_module_module.latest_version, 新 manifest 版本]`。两路同时把版本写成 `19.0.1.2.0`、而年级补零迁移挂在 `migrations/19.0.1.2.0/`，本方为验收先升级了 `OdooForDB`，`latest_version` 就越过了那个目录，合并后那次统一升级会**静默跳过**对方的迁移（存量 `'7'/'8'` 不补零 → 新键值 `'07'/'08'` 显示为空、分组乱序）。规则：别人有未合并改动时**不要升级业务库**；必须升级则事后核对 `latest_version`，必要时 `UPDATE` 回退一格（详见 `updates/2026-10-01.md`）。
 
 14. **自定义字段组件的 import 必须写绝对别名**——照抄核心文件里的相对路径（如 `from "../standard_field_props"`）会被 `js_transpiler` 按**你自己的模块**解析成 `@tutoring_center/standard_field_props`，该模块不存在 → 整个组件文件加载失败，页面只留一行 `Missing widget: chili for field of type selection` 的 console 警告并**静默回退成默认 widget**（难度列照样显示 🌶🌶🌶，肉眼看不出差别）。跨模块一律写 `@web/views/fields/standard_field_props`；验收要确认自定义类名（如 `.o_tutoring_chili`）真的出现在 DOM 里，而不是"看起来正常"。另：编译后的资产包是 `ir.attachment` 里的 `web.assets_backend.min.js/.css` 两条缓存，只在收到 assets 失效信号时重建——就地升级 `button_immediate_upgrade()` 会重载 registry 但**不**触发该信号，删掉这两条 attachment 即可让下次请求按磁盘新代码重新生成（纯派生缓存，不用停服）。
+15. **Binary 默认不在库里**：19 里 `fields.Binary` 的 `attachment` 默认 `True` → 正文进 `ir.attachment`，而 `ir.attachment.location` 默认 `file` → **字节在磁盘 filestore，库里只有元数据**。要"文件就在 PostgreSQL"必须写 `attachment=False`（列变 `bytea`）。反面代价：`bin_size` 对非 attachment 列是**先全量读再算体积**，任何"按 content 过滤 / 显示大小"都会把整本 PDF 拉进内存；Binary 默认 `prefetch=False`，所以列表页只显示行数据是安全的。
+16. **后台弹窗的三个原生机制**（省掉一整层自定义 JS，细节见 `updates/2026-10-01.md`）：① `action_service.js` 里 dialog 是**单个槽位**——弹窗中再开动作是**替换**不是叠层，且旧弹窗的 `onClose` 会传给新的（列表 `openRecord` 绑了 `root.load()`），所以"弹窗里改完 → 关闭 → 列表自动刷新"是白捡的，代价是下层只读页被换掉、要看新内容得再点一次行；② 弹窗尺寸与底栏走 context 键 `dialog_size`（`extra-large|large|medium|small`）和 `footer: False`；③ `target='new'` 的表单弹窗里 `viewProps.readonly` 被硬写成 `false`，所以**只读只能逐字段 `readonly="1"`**，`<form>` 根上写 `readonly` 没用。另外：可编辑网格里单击单元格是"进编辑态"，`<list action=… type=…>` 的行点击在那儿**不触发**，要开弹窗必须放显式 `<button>`。
 
 ## 六、文档索引
 
