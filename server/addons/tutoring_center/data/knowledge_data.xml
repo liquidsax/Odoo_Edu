@@ -1,0 +1,489 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        高中数学默认知识点库，由 dev/gen_knowledge_data.py 从「53A数学精讲册-知识点索引.xlsx」生成。
+        树形：年级(高中) -> 专题 -> 考点，考点的 parent_id 指向所属专题。
+        noupdate=1：教师在本库上的改动（改名/归档/挂接）不会被模块升级覆盖。
+    -->
+    <data noupdate="1">
+        <record id="kp_g13_topic_01" model="tutoring.knowledge.point">
+            <field name="name">集合、常用逻辑用语与不等式</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_topic_02" model="tutoring.knowledge.point">
+            <field name="name">函数及其性质</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_topic_03" model="tutoring.knowledge.point">
+            <field name="name">导数及其应用</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_topic_04" model="tutoring.knowledge.point">
+            <field name="name">三角函数与解三角形</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_topic_05" model="tutoring.knowledge.point">
+            <field name="name">平面向量与复数</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_topic_06" model="tutoring.knowledge.point">
+            <field name="name">数列</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_topic_07" model="tutoring.knowledge.point">
+            <field name="name">立体几何与空间向量</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_topic_08" model="tutoring.knowledge.point">
+            <field name="name">平面解析几何</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_topic_09" model="tutoring.knowledge.point">
+            <field name="name">计数原理</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_topic_10" model="tutoring.knowledge.point">
+            <field name="name">概率</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_topic_11" model="tutoring.knowledge.point">
+            <field name="name">统计</field>
+            <field name="grade">13</field>
+        </record>
+        <record id="kp_g13_point_001" model="tutoring.knowledge.point">
+            <field name="name">集合及其关系</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_01"/>
+        </record>
+        <record id="kp_g13_point_002" model="tutoring.knowledge.point">
+            <field name="name">集合的基本运算</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_01"/>
+        </record>
+        <record id="kp_g13_point_003" model="tutoring.knowledge.point">
+            <field name="name">充分条件与必要条件</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_01"/>
+        </record>
+        <record id="kp_g13_point_004" model="tutoring.knowledge.point">
+            <field name="name">全称量词与存在量词</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_01"/>
+        </record>
+        <record id="kp_g13_point_005" model="tutoring.knowledge.point">
+            <field name="name">全称量词命题与存在量词命题真假的判断</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_01"/>
+        </record>
+        <record id="kp_g13_point_006" model="tutoring.knowledge.point">
+            <field name="name">不等式的性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_01"/>
+        </record>
+        <record id="kp_g13_point_007" model="tutoring.knowledge.point">
+            <field name="name">不等式的解法</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_01"/>
+        </record>
+        <record id="kp_g13_point_008" model="tutoring.knowledge.point">
+            <field name="name">基本不等式</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_01"/>
+        </record>
+        <record id="kp_g13_point_009" model="tutoring.knowledge.point">
+            <field name="name">函数的概念及表示</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_010" model="tutoring.knowledge.point">
+            <field name="name">分段函数</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_011" model="tutoring.knowledge.point">
+            <field name="name">函数的单调性</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_012" model="tutoring.knowledge.point">
+            <field name="name">函数的最值</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_013" model="tutoring.knowledge.point">
+            <field name="name">函数单调性的判断</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_014" model="tutoring.knowledge.point">
+            <field name="name">函数单调性的应用</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_015" model="tutoring.knowledge.point">
+            <field name="name">函数的奇偶性</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_016" model="tutoring.knowledge.point">
+            <field name="name">函数的周期性</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_017" model="tutoring.knowledge.point">
+            <field name="name">函数的对称性</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_018" model="tutoring.knowledge.point">
+            <field name="name">函数奇偶性的判断</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_019" model="tutoring.knowledge.point">
+            <field name="name">函数奇偶性的应用</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_020" model="tutoring.knowledge.point">
+            <field name="name">二次函数</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_021" model="tutoring.knowledge.point">
+            <field name="name">幂函数</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_022" model="tutoring.knowledge.point">
+            <field name="name">二次函数的图象及性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_023" model="tutoring.knowledge.point">
+            <field name="name">指数与指数函数</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_024" model="tutoring.knowledge.point">
+            <field name="name">对数及其运算</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_025" model="tutoring.knowledge.point">
+            <field name="name">对数函数</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_026" model="tutoring.knowledge.point">
+            <field name="name">对数函数的图象及应用</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_027" model="tutoring.knowledge.point">
+            <field name="name">对数函数的性质及应用</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_028" model="tutoring.knowledge.point">
+            <field name="name">函数图象</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_029" model="tutoring.knowledge.point">
+            <field name="name">函数的零点</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_030" model="tutoring.knowledge.point">
+            <field name="name">常见函数模型</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_02"/>
+        </record>
+        <record id="kp_g13_point_031" model="tutoring.knowledge.point">
+            <field name="name">导数的概念及几何意义</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_03"/>
+        </record>
+        <record id="kp_g13_point_032" model="tutoring.knowledge.point">
+            <field name="name">导数的运算</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_03"/>
+        </record>
+        <record id="kp_g13_point_033" model="tutoring.knowledge.point">
+            <field name="name">复合函数的导数</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_03"/>
+        </record>
+        <record id="kp_g13_point_034" model="tutoring.knowledge.point">
+            <field name="name">导数与函数的单调性</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_03"/>
+        </record>
+        <record id="kp_g13_point_035" model="tutoring.knowledge.point">
+            <field name="name">导数与函数的极（最）值</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_03"/>
+        </record>
+        <record id="kp_g13_point_036" model="tutoring.knowledge.point">
+            <field name="name">三角函数的概念、同角三角函数的基本关系及诱导公式</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_04"/>
+        </record>
+        <record id="kp_g13_point_037" model="tutoring.knowledge.point">
+            <field name="name">三角恒等变换</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_04"/>
+        </record>
+        <record id="kp_g13_point_038" model="tutoring.knowledge.point">
+            <field name="name">三角函数的图象及其变换</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_04"/>
+        </record>
+        <record id="kp_g13_point_039" model="tutoring.knowledge.point">
+            <field name="name">三角函数的性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_04"/>
+        </record>
+        <record id="kp_g13_point_040" model="tutoring.knowledge.point">
+            <field name="name">正弦定理、余弦定理</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_04"/>
+        </record>
+        <record id="kp_g13_point_041" model="tutoring.knowledge.point">
+            <field name="name">解三角形及其综合应用</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_04"/>
+        </record>
+        <record id="kp_g13_point_042" model="tutoring.knowledge.point">
+            <field name="name">平面向量的概念及线性运算</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_05"/>
+        </record>
+        <record id="kp_g13_point_043" model="tutoring.knowledge.point">
+            <field name="name">平面向量基本定理及坐标表示</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_05"/>
+        </record>
+        <record id="kp_g13_point_044" model="tutoring.knowledge.point">
+            <field name="name">平面向量的夹角</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_05"/>
+        </record>
+        <record id="kp_g13_point_045" model="tutoring.knowledge.point">
+            <field name="name">平面向量的数量积</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_05"/>
+        </record>
+        <record id="kp_g13_point_046" model="tutoring.knowledge.point">
+            <field name="name">复数的概念</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_05"/>
+        </record>
+        <record id="kp_g13_point_047" model="tutoring.knowledge.point">
+            <field name="name">复数的四则运算</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_05"/>
+        </record>
+        <record id="kp_g13_point_048" model="tutoring.knowledge.point">
+            <field name="name">数列的有关概念</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_06"/>
+        </record>
+        <record id="kp_g13_point_049" model="tutoring.knowledge.point">
+            <field name="name">数列的分类</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_06"/>
+        </record>
+        <record id="kp_g13_point_050" model="tutoring.knowledge.point">
+            <field name="name">数列与函数的关系</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_06"/>
+        </record>
+        <record id="kp_g13_point_051" model="tutoring.knowledge.point">
+            <field name="name">等差数列及其前n项和</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_06"/>
+        </record>
+        <record id="kp_g13_point_052" model="tutoring.knowledge.point">
+            <field name="name">等差数列的性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_06"/>
+        </record>
+        <record id="kp_g13_point_053" model="tutoring.knowledge.point">
+            <field name="name">等比数列及其前n项和</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_06"/>
+        </record>
+        <record id="kp_g13_point_054" model="tutoring.knowledge.point">
+            <field name="name">等比数列的性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_06"/>
+        </record>
+        <record id="kp_g13_point_055" model="tutoring.knowledge.point">
+            <field name="name">空间几何体的结构特征</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_07"/>
+        </record>
+        <record id="kp_g13_point_056" model="tutoring.knowledge.point">
+            <field name="name">空间几何体的表面积和体积</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_07"/>
+        </record>
+        <record id="kp_g13_point_057" model="tutoring.knowledge.point">
+            <field name="name">空间点、线、面的位置关系</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_07"/>
+        </record>
+        <record id="kp_g13_point_058" model="tutoring.knowledge.point">
+            <field name="name">直线、平面平行的判定与性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_07"/>
+        </record>
+        <record id="kp_g13_point_059" model="tutoring.knowledge.point">
+            <field name="name">直线与平面垂直的判定与性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_07"/>
+        </record>
+        <record id="kp_g13_point_060" model="tutoring.knowledge.point">
+            <field name="name">平面与平面垂直的判定与性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_07"/>
+        </record>
+        <record id="kp_g13_point_061" model="tutoring.knowledge.point">
+            <field name="name">空间向量的概念及其运算</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_07"/>
+        </record>
+        <record id="kp_g13_point_062" model="tutoring.knowledge.point">
+            <field name="name">用向量法判定空间中的位置关系</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_07"/>
+        </record>
+        <record id="kp_g13_point_063" model="tutoring.knowledge.point">
+            <field name="name">空间角与距离</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_07"/>
+        </record>
+        <record id="kp_g13_point_064" model="tutoring.knowledge.point">
+            <field name="name">直线的方程</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_08"/>
+        </record>
+        <record id="kp_g13_point_065" model="tutoring.knowledge.point">
+            <field name="name">圆的方程</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_08"/>
+        </record>
+        <record id="kp_g13_point_066" model="tutoring.knowledge.point">
+            <field name="name">直线与圆、圆与圆的位置关系</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_08"/>
+        </record>
+        <record id="kp_g13_point_067" model="tutoring.knowledge.point">
+            <field name="name">直线的倾斜角和斜率</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_08"/>
+        </record>
+        <record id="kp_g13_point_068" model="tutoring.knowledge.point">
+            <field name="name">椭圆的定义和标准方程</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_08"/>
+        </record>
+        <record id="kp_g13_point_069" model="tutoring.knowledge.point">
+            <field name="name">椭圆的几何性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_08"/>
+        </record>
+        <record id="kp_g13_point_070" model="tutoring.knowledge.point">
+            <field name="name">双曲线的定义和标准方程</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_08"/>
+        </record>
+        <record id="kp_g13_point_071" model="tutoring.knowledge.point">
+            <field name="name">双曲线的几何性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_08"/>
+        </record>
+        <record id="kp_g13_point_072" model="tutoring.knowledge.point">
+            <field name="name">抛物线的定义和标准方程</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_08"/>
+        </record>
+        <record id="kp_g13_point_073" model="tutoring.knowledge.point">
+            <field name="name">抛物线的几何性质</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_08"/>
+        </record>
+        <record id="kp_g13_point_074" model="tutoring.knowledge.point">
+            <field name="name">两个计数原理</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_09"/>
+        </record>
+        <record id="kp_g13_point_075" model="tutoring.knowledge.point">
+            <field name="name">排列与组合</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_09"/>
+        </record>
+        <record id="kp_g13_point_076" model="tutoring.knowledge.point">
+            <field name="name">二项式定理</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_09"/>
+        </record>
+        <record id="kp_g13_point_077" model="tutoring.knowledge.point">
+            <field name="name">随机事件的概率</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_10"/>
+        </record>
+        <record id="kp_g13_point_078" model="tutoring.knowledge.point">
+            <field name="name">古典概型</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_10"/>
+        </record>
+        <record id="kp_g13_point_079" model="tutoring.knowledge.point">
+            <field name="name">事件的相互独立性</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_10"/>
+        </record>
+        <record id="kp_g13_point_080" model="tutoring.knowledge.point">
+            <field name="name">条件概率与全概率公式</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_10"/>
+        </record>
+        <record id="kp_g13_point_081" model="tutoring.knowledge.point">
+            <field name="name">离散型随机变量及其分布列、均值与方差</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_10"/>
+        </record>
+        <record id="kp_g13_point_082" model="tutoring.knowledge.point">
+            <field name="name">二项分布</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_10"/>
+        </record>
+        <record id="kp_g13_point_083" model="tutoring.knowledge.point">
+            <field name="name">超几何分布</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_10"/>
+        </record>
+        <record id="kp_g13_point_084" model="tutoring.knowledge.point">
+            <field name="name">正态分布</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_10"/>
+        </record>
+        <record id="kp_g13_point_085" model="tutoring.knowledge.point">
+            <field name="name">抽样方法与总体分布的估计</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_11"/>
+        </record>
+        <record id="kp_g13_point_086" model="tutoring.knowledge.point">
+            <field name="name">变量间的相关关系</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_11"/>
+        </record>
+        <record id="kp_g13_point_087" model="tutoring.knowledge.point">
+            <field name="name">独立性检验</field>
+            <field name="grade">13</field>
+            <field name="parent_id" ref="kp_g13_topic_11"/>
+        </record>
+    </data>
+</odoo>

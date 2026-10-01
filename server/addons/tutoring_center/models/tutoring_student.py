@@ -1,6 +1,6 @@
 from odoo import _, api, fields, models
 
-from .tutoring_knowledge import GRADE_SELECTION
+from .tutoring_knowledge import GRADE_SELECTION, SENIOR_HIGH
 
 
 class TutoringStudent(models.Model):
@@ -14,6 +14,7 @@ class TutoringStudent(models.Model):
         'res.partner', string='门户联系人', tracking=True,
         help='学生（或代学生查看的家长）用该联系人的门户账号登录，查看本学生的学习数据。')
     grade = fields.Selection(GRADE_SELECTION, string='年级', default='07', required=True, tracking=True)
+    knowledge_grades = fields.Json('可选知识点年级', compute='_compute_knowledge_grades')
     school = fields.Char('学校')
     status = fields.Selection([
         ('active', '在读'), ('paused', '暂停'), ('done', '结课'),
@@ -69,6 +70,14 @@ class TutoringStudent(models.Model):
             student.point_count = len(student.point_ids)
             student.point_mastered_count = len(
                 student.point_ids.filtered(lambda p: p.mastery == 'mastered'))
+
+    def _compute_knowledge_grades(self):
+        # 供学生表单挑知识点的域使用：高一~高三额外放开整个高中知识点库。
+        for student in self:
+            grades = [student.grade]
+            if student.grade in ('10', '11', '12'):
+                grades.append(SENIOR_HIGH)
+            student.knowledge_grades = grades
 
     def action_view_partner(self):
         self.ensure_one()
