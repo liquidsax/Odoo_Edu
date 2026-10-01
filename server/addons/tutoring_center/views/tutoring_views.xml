@@ -422,15 +422,23 @@
         </record>
 
         <!-- ===== 练习册 ===== -->
+        <!-- 列表刻意不带 editable：点单元格不再就地改库。
+             整行点击交给 action_open_reader（19 原生支持 list 的 action/type 属性），
+             改数值或加行都必须走「新建练习册」/「修改」这两个明确按钮。 -->
         <record id="view_tutoring_workbook_list" model="ir.ui.view">
             <field name="name">tutoring.workbook.list</field>
             <field name="model">tutoring.workbook</field>
             <field name="arch" type="xml">
-                <list string="练习册" editable="bottom">
-                    <field name="name"/>
+                <list string="练习册" type="object" action="action_open_reader" create="false">
+                    <header>
+                        <button name="action_new_workbook" type="object" string="新建练习册"
+                                display="always" icon="fa-plus"
+                                title="弹窗里录入书名；不在这张表里就地加行"/>
+                    </header>
+                    <field name="name" string="练习册"/>
+                    <field name="file_count" string="教材" optional="show"/>
+                    <field name="mistake_count" string="错题数" optional="show"/>
                     <field name="note" optional="show"/>
-                    <field name="mistake_count" string="错题数" readonly="1" optional="show"/>
-                    <field name="active" widget="boolean_toggle"/>
                 </list>
             </field>
         </record>
@@ -443,6 +451,131 @@
                     <field name="name"/>
                     <filter string="已归档" name="inactive" domain="[('active', '=', False)]"/>
                 </search>
+            </field>
+        </record>
+
+        <!-- 页中页①：只读阅读台。全部字段 readonly，弹窗 footer 由动作里 context 关掉 -->
+        <record id="view_tutoring_workbook_form_reader" model="ir.ui.view">
+            <field name="name">tutoring.workbook.reader.form</field>
+            <field name="model">tutoring.workbook</field>
+            <field name="arch" type="xml">
+                <!-- 只读靠逐字段 readonly + 动作 context 的 footer:False；
+                     刻意不写 form 根上的 create/edit/delete="false"：那三个是 activeActions 开关，
+                     与 header 上「修改」按钮的可点性关系未实证，不去赌 -->
+                <form string="练习册">
+                    <header>
+                        <button name="action_new_file" type="object" string="上传教材"
+                                class="btn-primary" icon="fa-upload"
+                                title="选本机 PDF；上传后即可在页中页里滚动阅读"/>
+                        <button name="action_open_edit" type="object" string="修改"
+                                class="btn-secondary" icon="fa-pencil"
+                                title="改书名/备注、增删教材文件都要先进修改"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_title">
+                            <h1><field name="name" readonly="1"/></h1>
+                        </div>
+                        <group>
+                            <group>
+                                <field name="note" readonly="1"/>
+                            </group>
+                            <group>
+                                <field name="file_count" string="教材数" readonly="1"/>
+                                <field name="mistake_count" string="错题数" readonly="1"/>
+                            </group>
+                        </group>
+                        <group string="教材">
+                            <field name="file_ids" nolabel="1" readonly="1" colspan="2">
+                                <list type="object" action="action_open_viewer"
+                                      create="false" delete="false">
+                                    <field name="name"/>
+                                    <field name="filename" optional="show"/>
+                                    <field name="create_date" string="上传时间" optional="show"/>
+                                </list>
+                            </field>
+                            <div class="text-muted" invisible="file_count">
+                                这本书还没有教材文件。点上面「上传教材」，选本机 PDF 后保存；
+                                回到列表再单击这本书，就能滚动阅读。
+                            </div>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- 页中页②：修改台（也用于新建） -->
+        <record id="view_tutoring_workbook_form_edit" model="ir.ui.view">
+            <field name="name">tutoring.workbook.edit.form</field>
+            <field name="model">tutoring.workbook</field>
+            <field name="arch" type="xml">
+                <form string="练习册">
+                    <sheet>
+                        <div class="oe_title">
+                            <h1>
+                                <field name="name" default_focus="1"
+                                       placeholder="如 五年高考三年模拟"/>
+                            </h1>
+                        </div>
+                        <group>
+                            <group>
+                                <field name="note" placeholder="（可不填）"/>
+                            </group>
+                            <group>
+                                <field name="active" widget="boolean_toggle"/>
+                            </group>
+                        </group>
+                        <group string="教材">
+                            <field name="file_ids" nolabel="1" colspan="2">
+                                <list editable="bottom">
+                                    <field name="name" placeholder="如 上册 / 答案册"/>
+                                    <field name="content" filename="filename"
+                                           options="{'accepted_file_extensions': '.pdf'}"/>
+                                    <field name="filename" readonly="1" optional="show"/>
+                                    <!-- 可编辑网格里单击单元格是"进编辑态"，行 action 不会触发，
+                                         所以这里用显式按钮打开阅读弹窗 -->
+                                    <button name="action_open_viewer" type="object" string="看"
+                                            icon="fa-book"/>
+                                </list>
+                            </field>
+                            <div class="text-muted">
+                                一行一份 PDF（上册 / 下册 / 答案册分开传）。
+                                换传错的文件：点该行文件列重新选择，再点「保存」。
+                            </div>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- ===== 教材文件 ===== -->
+        <record id="view_tutoring_workbook_file_form" model="ir.ui.view">
+            <field name="name">tutoring.workbook.file.form</field>
+            <field name="model">tutoring.workbook.file</field>
+            <field name="arch" type="xml">
+                <form string="教材">
+                    <sheet>
+                        <div class="oe_title">
+                            <h1>
+                                <field name="name" readonly="id"
+                                       placeholder="如 2026新高考53A数学精讲册"/>
+                            </h1>
+                        </div>
+                        <group>
+                            <group>
+                                <field name="workbook_id" readonly="1"/>
+                            </group>
+                            <group>
+                                <field name="filename" readonly="1"/>
+                                <field name="create_date" string="上传时间" readonly="1"/>
+                            </group>
+                        </group>
+                        <div class="text-muted mb-2">
+                            滚轮翻页阅读。传错了就再点一次上传图标重选文件，然后点「保存」写入数据库。
+                        </div>
+                        <field name="content" widget="pdf_viewer" filename="filename"
+                               class="o_workbook_pdf_viewer"/>
+                    </sheet>
+                </form>
             </field>
         </record>
 
@@ -622,8 +755,12 @@
             <field name="res_model">tutoring.workbook</field>
             <field name="view_mode">list</field>
             <field name="help" type="html">
-                <p class="o_view_nocontent_smiling_face">维护练习册 / 教辅清单</p>
-                <p>例如"五年模拟三年高考""一数课后习题"。录错题时从这里选择，或在错题行内直接新建练习册。</p>
+                <p class="o_view_nocontent_smiling_face">创建第一本练习册 / 教辅</p>
+                <p>
+                    单击整行打开页中页：看这本书的教材并滚动阅读；
+                    改书名/备注或上传教材请点「修改」「上传教材」。
+                    录错题时从这里选择练习册，也可在错题行内即输即建。
+                </p>
             </field>
         </record>
 

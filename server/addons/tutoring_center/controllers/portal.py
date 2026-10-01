@@ -1,4 +1,5 @@
 import json
+from urllib.parse import quote
 
 from odoo import _, http
 from odoo.fields import Date, Datetime
@@ -32,6 +33,10 @@ class TutoringPortal(CustomerPortal):
             values['tutoring_mistake_count'] = (
                 request.env['tutoring.mistake'].search_count([('student_id', '=', student.id)])
                 if student and request.env['tutoring.mistake'].has_access('read') else 0)
+        if 'tutoring_workbook_count' in counters:
+            values['tutoring_workbook_count'] = (
+                len(self._tutoring_workbooks(student))
+                if student and request.env['tutoring.workbook'].has_access('read') else 0)
         return values
 
     # ------------------------------------------------------------
@@ -394,6 +399,49 @@ class TutoringPortal(CustomerPortal):
         values = self._mistake_form_values(student, mistake=mistake, post=kw)
         values.update({'error': error, 'mode': 'edit'})
         return request.render('tutoring_center.portal_my_learning_mistake_form', values)
+
+    # ------------------------------------------------------------
+    # 教材（练习册 PDF）
+    # ------------------------------------------------------------
+
+    def _tutoring_workbooks(self, student):
+        """该学生用过的练习册（按其错题出处归集），按书名排序。"""
+        return student.mistake_ids.workbook_id.sorted(key=lambda w: w.name or '')
+
+    @http.route('/my/learning/workbooks', type='http', auth='user', website=True)
+    def portal_my_workbooks(self, **kwargs):
+        student = self._tutoring_student()
+        if not student:
+            return request.redirect('/my')
+        return request.render('tutoring_center.portal_my_learning_workbooks', {
+            'page_name': 'tutoring_workbooks',
+            'workbooks': self._tutoring_workbooks(student),
+        })
+
+    @http.route('/my/learning/workbooks/<int:workbook_id>', type='http', auth='user', website=True)
+    def portal_my_workbook(self, workbook_id, **kwargs):
+        workbook = request.env['tutoring.workbook'].browse(workbook_id).exists()
+        if not workbook or not workbook.has_access('read'):
+            return request.not_found()
+        return request.render('tutoring_center.portal_my_learning_workbook', {
+            'page_name': 'tutoring_workbooks',
+            'workbook': workbook,
+            'workbook_files': workbook.file_ids.sorted(key=lambda f: f.name or ''),
+        })
+
+    @http.route('/my/learning/workbook-files/<int:file_id>', type='http',
+                auth='user', website=True)
+    def portal_my_workbook_file(self, file_id, **kwargs):
+        workbook_file = request.env['tutoring.workbook.file'].browse(file_id).exists()
+        if not workbook_file or not workbook_file.has_access('read'):
+            return request.not_found()
+        content_url = '/web/content/tutoring.workbook.file/%d/content' % workbook_file.id
+        return request.render('tutoring_center.portal_my_learning_workbook_file', {
+            'page_name': 'tutoring_workbooks',
+            'workbook_file': workbook_file,
+            # 与后台 pdf_viewer 组件同一个静态查看器；正文走 /web/content，按 read 权限校验
+            'viewer_url': '/web/static/lib/pdfjs/web/viewer.html?file=%s' % quote(content_url, safe=''),
+        })
 
     # ------------------------------------------------------------
     # 列表页公共准备（排序/筛选/分页）
