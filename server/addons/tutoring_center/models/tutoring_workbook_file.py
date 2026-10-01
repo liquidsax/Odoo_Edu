@@ -58,6 +58,13 @@ class TutoringWorkbookFile(models.Model):
                 part for part in (file.workbook_id.name, file.name) if part
             ) or _('未命名教材')
 
+    def write(self, vals):
+        """换过正文或改过页码范围，之前抽的单页就都不作数了。"""
+        res = super().write(vals)
+        if {'content', 'page_from', 'page_to'} & set(vals):
+            self.env['tutoring.workbook.page']._invalidate_for_files(self)
+        return res
+
     @api.model
     def _viewer_action(self, res_id=False, context=None):
         return {

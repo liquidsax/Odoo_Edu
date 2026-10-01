@@ -1,3 +1,5 @@
+import re
+
 from odoo import _, fields, models
 
 
@@ -9,6 +11,18 @@ class TutoringWorkbook(models.Model):
     name = fields.Char('名称', required=True)
     note = fields.Char('备注')
     active = fields.Boolean('启用', default=True)
+
+    page_mode = fields.Selection([
+        ('direct', '记的就是 PDF 页号（封面算第 1 页）'),
+        ('offset', '记书印刷页码，加固定偏移'),
+    ], string='页码模式', default='direct', help="""
+错题里填的页码怎么翻成 PDF 页号：
+ - direct：填 82 就取这份 PDF 的第 82 页；
+ - offset：填 82 指书上印的第 82 页，PDF 页号 = 82 + 下面的偏移。
+""".strip())
+    page_offset = fields.Integer(
+        '页码偏移', default=0,
+        help='例：53 资料印刷第 82 页在 PDF 的第 90 页，这里就填 8。')
 
     mistake_ids = fields.One2many('tutoring.mistake', 'workbook_id', string='错题')
     mistake_count = fields.Integer('错题数', compute='_compute_mistake_count')
@@ -23,6 +37,38 @@ class TutoringWorkbook(models.Model):
     def _compute_file_count(self):
         for workbook in self:
             workbook.file_count = len(workbook.file_ids)
+
+    def _pdf_page_for(self, page_label):
+        """把使用者写的页码翻成"全书连续 PDF 页号"；翻不出来返回 `(0, 说明)`。"""
+        self.ensure_one()
+        found = re.search(r'\d+', page_label or '')
+        if not found:
+            return 0, _('这条没填页码（或页码里没有数字），不知道要展示哪一页。')
+        page = int(found.group()) + (self.page_offset if self.page_mode == 'offset' else 0)
+        if page < 1:
+            return 0, _('第 %s 页不是有效页码。') % page
+        return page, ''
+
+    def _locate_page(self, page_label):
+        """定位到"哪份教材的第几页"，返回 `(file, 该份内的页号, 说明)`。
+
+        找不到就把原因写在第三个返回值里而不是抛异常：调用方是计算字段，
+        抛错会让整个错题弹窗 500。
+        """
+        self.ensure_one()
+        empty = self.env['tutoring.workbook.file']
+        page, hint = self._pdf_page_for(page_label)
+        if not page:
+            return empty, 0, hint
+        if not self.file_ids:
+            return empty, 0, _('《%s》还没上传教材 PDF，只能在「修改练习册」里传。') % self.name
+        parts = self.file_ids.filtered(
+            lambda f: f.page_from and f.page_to and f.page_from <= page <= f.page_to)
+        file = parts[0] if parts else (self.file_ids[0] if len(self.file_ids) == 1 else empty)
+        if not file:
+            return empty, 0, _(
+                '第 %s 页落不到任何一份分册里：多份教材必须先填「起始页/结束页」。') % page
+        return file, page - (file.page_from or 1) + 1, ''
 
     def _form_dialog(self, view_xmlid, name, res_id):
         return {

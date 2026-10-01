@@ -26,6 +26,28 @@ class TutoringMistake(models.Model):
     # create_date 即"记录时刻"（系统自动、不可改）；此字段按用户时区格式化，供门户展示
     recorded_at_text = fields.Char('记录时刻', compute='_compute_recorded_at_text')
 
+    # 只读详情页里展示"出错的那一页"：服务端只抽出那一页成小 PDF，不拉整本教材
+    page_pdf = fields.Binary('这一页', compute='_compute_page_pdf')
+    page_pdf_hint = fields.Char('这一页说明', compute='_compute_page_pdf')
+
+    @api.depends('page', 'workbook_id.page_mode', 'workbook_id.page_offset',
+                 'workbook_id.file_ids.content')
+    def _compute_page_pdf(self):
+        for mistake in self:
+            mistake.page_pdf = False
+            mistake.page_pdf_hint = ''
+            file, local, hint = mistake.workbook_id._locate_page(mistake.page)
+            if not file:
+                mistake.page_pdf_hint = hint
+                continue
+            data = self.env['tutoring.workbook.page']._pdf_for(file, local)
+            if not data:
+                mistake.page_pdf_hint = _(
+                    '《%(book)s》里抽不出这一页：第 %(page)s 页大概超出了这份教材的页数。') % {
+                    'book': mistake.workbook_id.name, 'page': mistake.page}
+                continue
+            mistake.page_pdf = data
+
     @api.model
     def default_get(self, fields_list=None):
         """新建行沿用上一条记录的学生与练习册：连续记同一本练习册时不必反复选。"""
@@ -64,6 +86,41 @@ class TutoringMistake(models.Model):
         而列表按钮 RPC 恒以 [ids] 作为第一个位置参数（空选区时是 [[]]）。
         """
         return self.env['tutoring.mistake.quickadd']._action_window()
+
+    def _form_dialog(self, view_xmlid, name, res_id, size='large'):
+        return {
+            'type': 'ir.actions.act_window',
+            'name': name,
+            'res_model': self._name,
+            'res_id': res_id,
+            'view_mode': 'form',
+            'views': [(self.env.ref('tutoring_center.%s' % view_xmlid).id, 'form')],
+            'target': 'new',
+            'context': {'dialog_size': size},
+        }
+
+    def action_open_reader(self):
+        """列表里单击整行 → 只读详情页：出处 + 出错那一页的教材原页。
+
+        跟练习册页同一套路：行点击不落到单元格编辑，所以不会"一碰就改库"；
+        要改这条记录得点「修改」。
+        """
+        self.ensure_one()
+        return self._form_dialog(
+            'view_tutoring_mistake_form_reader', self.display_name, self.id,
+            size='extra-large')
+
+    def action_open_edit(self):
+        """「修改」→ 同一弹窗位置换成可编辑表单（arch 里没有 <footer>，核心自动补保存/放弃）。"""
+        self.ensure_one()
+        return self._form_dialog('view_tutoring_mistake_form', _('修改错题记录'), self.id)
+
+    def action_new_mistake(self):
+        """控制栏「新建错题」：加记录走明确按钮，不在只读表格里就地加行。
+
+        刻意不加 @api.model：列表按钮 RPC 恒以 [ids] 作为第一个位置参数（空选区是 [[]]）。
+        """
+        return self._form_dialog('view_tutoring_mistake_form', _('新建错题记录'), False)
 
     @api.model
     def _migration_backfill_workbook(self):

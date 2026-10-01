@@ -23,7 +23,7 @@
 
 ## 模块概览（tutoring_center）
 
-数据模型：`tutoring.student`（学生档案）、`tutoring.knowledge.point`（知识点，`parent_id` 自关联成树：年级 → 专题 → 考点）、`tutoring.student.point`（掌握度四档）、`tutoring.session`（辅导课次）、`tutoring.topic`（教学内容标签）、`tutoring.exam` + `tutoring.exam.line`（学校考试）、`tutoring.workbook`（练习册/教辅清单）、`tutoring.workbook.file`（练习册的教材 PDF）、`tutoring.mistake`（错题记录，只记出处不记题目）、`tutoring.mistake.quickadd`（速记向导，TransientModel）；`tutoring.homework` 模型保留但已全面退出界面。
+数据模型：`tutoring.student`（学生档案）、`tutoring.knowledge.point`（知识点，`parent_id` 自关联成树：年级 → 专题 → 考点）、`tutoring.student.point`（掌握度四档）、`tutoring.session`（辅导课次）、`tutoring.topic`（教学内容标签）、`tutoring.exam` + `tutoring.exam.line`（学校考试）、`tutoring.workbook`（练习册/教辅清单，带 `page_mode`/`page_offset` 定义"书页码怎么翻成 PDF 页号"）、`tutoring.workbook.file`（练习册的教材 PDF）、`tutoring.workbook.page`（服务端抽出来的**单页**缓存，只看一页不必拉整本）、`tutoring.mistake`（错题记录，只记出处不记题目）、`tutoring.mistake.quickadd`（速记向导，TransientModel）；`tutoring.homework` 模型保留但已全面退出界面。
 
 主要改造点：
 
@@ -34,6 +34,7 @@
 - 网站顶栏第三项「函数图像」（`/tools/function-plot`，公开页面）：选曲线类型（圆 / 椭圆 / 双曲线 / 抛物线 / 直线 / 二次函数 / 反比例 / 三角函数）后照题目填参数即可出图——椭圆/双曲线支持「分母式」与「系数式」两种填法（`x²-4y²=4` 就填 1、-4、4），也能直接写方程；弹层预览与曲线图例按数学写法渲染（上标、π、去多余括号，如 `(y-1)²=4(x-1)`）；画布支持滚轮缩放、拖动平移、悬停读数与全屏；纯前端计算，无第三方依赖；
 - 可通过安全组恢复被隐藏的 Odoo 原生应用菜单。
 - 「练习册」页防误触 + 教材在线阅读：列表不再是就地编辑网格，单击整行打开**只读页中页**（列出教材，点进去用滚轮阅读 PDF），改书名/备注或增删教材必须点「新建练习册」「修改」；一本书可挂多份教材（上册/下册/答案册），PDF 以 `bytea` 列**直接存在 PostgreSQL 里**（`pg_dump` 即全量备份），传错可在阅读弹窗里重新上传。受 Odoo 上传上限约束单个文件约 96MB，所以厚书**按页拆成几份、逻辑上仍是一册**：每份记全书连续页号，阅读台的「按页码定位」输一个页号就自动打开对应那份并跳到那一页；门户学生在 `/my/learning/workbooks` 只读阅读自己用过的教材。
+- 「错题」页同款防误触，并且**只看那一页**：列表只读，单击任意一行进只读详情页中页，右下角直接显示这道题所在的那一页教材原页；要改内容（含难度辣椒）必须点详情页里的「修改」。练习册上先告诉系统书页码与 PDF 页号的关系（`page_mode` + `page_offset`，53 资料实测"印刷页 + 8 ＝ PDF 页"），系统就把这一页从整本里抽出来单独存成小 PDF（同页多题共用一份缓存）——因为核心 `/web/content` 不支持 Range 请求，直接指整本文件等于为了看一页把几十 MB 全拉进浏览器。逐行连填的需求仍在学生档案的「错题记录」页签（可编辑网格）。
 
 ## 快速开始（协作者）
 

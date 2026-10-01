@@ -538,6 +538,9 @@
                             </group>
                             <group>
                                 <field name="active" widget="boolean_toggle"/>
+                                <field name="page_mode"/>
+                                <field name="page_offset" invisible="page_mode != 'offset'"
+                                       placeholder="如 8"/>
                             </group>
                         </group>
                         <group string="教材">
@@ -632,29 +635,85 @@
         </record>
 
         <!-- ===== 错题记录 ===== -->
+        <!-- 只读列表：单击行进详情页中页（和练习册页同一套路）。辣椒在这里必须
+             readonly="1"——chili 组件在列表里默认"未进入编辑态也可点并立即保存"
+             （见 static/src/fields/chili_field.js 的 extractProps），不写死就绕过了「修改」。 -->
         <record id="view_tutoring_mistake_list" model="ir.ui.view">
             <field name="name">tutoring.mistake.list</field>
             <field name="model">tutoring.mistake</field>
             <field name="arch" type="xml">
-                <list string="错题记录" editable="bottom">
+                <list string="错题记录" type="object" action="action_open_reader" create="false">
                     <header>
                         <button name="action_open_quickadd" type="object" string="快速记录"
                                 display="always" icon="fa-magic"
                                 title="弹窗里连续记：题号可写 1-5 或 1,3,7，会自动拆成多条"/>
+                        <button name="action_new_mistake" type="object" string="新建错题"
+                                display="always" icon="fa-plus"
+                                title="弹窗里记一条；学生档案页签里仍可以像 Excel 一样逐行填"/>
                     </header>
                     <field name="student_id"/>
                     <field name="date"/>
                     <field name="workbook_id"/>
-                    <field name="page" optional="show" placeholder="页码"/>
-                    <field name="question_no" optional="show" placeholder="题号"/>
-                    <field name="difficulty" widget="chili" optional="show"/>
-                    <field name="note" optional="show" placeholder="错因（可不填）"/>
+                    <field name="page" optional="show"/>
+                    <field name="question_no" optional="show"/>
+                    <field name="difficulty" widget="chili" readonly="1" optional="show"/>
+                    <field name="note" optional="show"/>
                     <field name="topic_id" optional="hide"/>
                     <field name="create_date" string="记录时刻" readonly="1" optional="hide"/>
                 </list>
             </field>
         </record>
 
+        <!-- 页中页①：只读详情。单击列表行进这里，右下是这道题所在的那一页教材
+             （服务端只抽这一页，不整本下载，见 models/tutoring_workbook_page.py） -->
+        <record id="view_tutoring_mistake_form_reader" model="ir.ui.view">
+            <field name="name">tutoring.mistake.reader.form</field>
+            <field name="model">tutoring.mistake</field>
+            <field name="arch" type="xml">
+                <form string="错题记录">
+                    <header>
+                        <button name="action_open_edit" type="object" string="修改"
+                                class="btn-secondary" icon="fa-pencil"
+                                title="改页码/题号/难度/错因都要先进修改"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_title">
+                            <h1><field name="workbook_id" readonly="1"/></h1>
+                        </div>
+                        <group>
+                            <group string="出处">
+                                <field name="student_id" readonly="1"/>
+                                <field name="date" readonly="1"/>
+                                <field name="page" readonly="1"/>
+                                <field name="question_no" readonly="1"/>
+                            </group>
+                            <group string="标记">
+                                <field name="difficulty" widget="chili" readonly="1"/>
+                                <field name="topic_id" readonly="1"/>
+                                <field name="create_date" string="记录时刻" readonly="1"/>
+                            </group>
+                        </group>
+                        <group string="错因/备注">
+                            <field name="note" nolabel="1" colspan="2" readonly="1"/>
+                        </group>
+                        <group string="出错的那一页">
+                            <field name="page_pdf" widget="pdf_viewer" readonly="1"
+                                   nolabel="1" colspan="2" class="o_mistake_page_viewer"
+                                   invisible="not page_pdf"/>
+                            <field name="page_pdf_hint" nolabel="1" colspan="2" readonly="1"
+                                   class="text-muted" invisible="page_pdf"/>
+                        </group>
+                    </sheet>
+                    <!-- 显式 footer：只读台不想要核心的"保存/放弃"，但完全不给 footer 节点
+                         会让按钮插槽的 portal 找不到目标（handoff 陷阱，实测崩） -->
+                    <footer>
+                        <button string="关闭" special="cancel" class="btn-secondary" data-hotkey="z"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+        <!-- 页中页②：修改台（也用于新建）。arch 里不写 footer，核心自动给保存/放弃 -->
         <record id="view_tutoring_mistake_form" model="ir.ui.view">
             <field name="name">tutoring.mistake.form</field>
             <field name="model">tutoring.mistake</field>
@@ -797,7 +856,8 @@
             <field name="view_mode">list,form</field>
             <field name="help" type="html">
                 <p class="o_view_nocontent_smiling_face">记录第一道错题</p>
-                <p>用「快速记录」一次记一道或一串题（页码 + 题号支持 <code>1-5</code>、<code>1,3,7</code>）；也可以像 Excel 一样直接点「新建」逐行填。难度点辣椒即可切换（2~5🌶）。</p>
+                <p>用「快速记录」一次记一道或一串题（页码 + 题号支持 <code>1-5</code>、<code>1,3,7</code>），或点「新建错题」逐条填；要像 Excel 一样逐行连填，去学生档案的错题页签。</p>
+                <p>这张表只读：<b>单击任意一行</b>进详情，能看到这道题所在的教材原页（只加载那一页）；要改内容（含难度辣椒 2~5🌶）请点详情页里的「修改」。</p>
                 <p>只记出处（练习册/页码/题号），不抄题目内容；学生也可以在自己的门户里自助添加。</p>
             </field>
         </record>

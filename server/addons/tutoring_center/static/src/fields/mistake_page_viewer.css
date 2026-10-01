@@ -1,0 +1,8 @@
+/* 错题详情页里的"这一页"阅读器。
+   核心把 pdf.js 框写死 450px（fields.scss: .o_field_widget.o_field_pdf_viewer .o_pdfview_iframe），
+   这里按错题详情的版面抬高一些：上面还有出处/错因，留 62vh 给正文。
+   选择器只依赖 arch 上亲手写的 o_mistake_page_viewer + 元素名，理由同 workbook_pdf_viewer.css。 */
+.o_field_widget.o_mistake_page_viewer iframe.o_pdfview_iframe {
+    height: 62vh;
+    min-height: 420px;
+}
