@@ -23,11 +23,12 @@
 
 ## 模块概览（tutoring_center）
 
-数据模型：`tutoring.student`（学生档案）、`tutoring.knowledge.point`（知识点）、`tutoring.student.point`（掌握度四档）、`tutoring.session`（辅导课次）、`tutoring.topic`（教学内容标签）、`tutoring.exam` + `tutoring.exam.line`（学校考试）、`tutoring.workbook`（练习册/教辅清单）、`tutoring.workbook.file`（练习册的教材 PDF）、`tutoring.mistake`（错题记录，只记出处不记题目）、`tutoring.mistake.quickadd`（速记向导，TransientModel）；`tutoring.homework` 模型保留但已全面退出界面。
+数据模型：`tutoring.student`（学生档案）、`tutoring.knowledge.point`（知识点，`parent_id` 自关联成树：年级 → 专题 → 考点）、`tutoring.student.point`（掌握度四档）、`tutoring.session`（辅导课次）、`tutoring.topic`（教学内容标签）、`tutoring.exam` + `tutoring.exam.line`（学校考试）、`tutoring.workbook`（练习册/教辅清单）、`tutoring.workbook.file`（练习册的教材 PDF）、`tutoring.mistake`（错题记录，只记出处不记题目）、`tutoring.mistake.quickadd`（速记向导，TransientModel）；`tutoring.homework` 模型保留但已全面退出界面。
 
 主要改造点：
 
 - 教师后台顶栏只保留「学生」「知识点」两个菜单，全部操作从学生档案页签进入；
+- 知识点用「上级」自关联成树（年级 → 专题 → 考点），列表平铺 + 「完整路径」列；年级多一个 `'13'` 高中作为跨高一~高三的知识点层，高中学生在挑选域里连它一起可见；
 - 联系人（res.partner）全局简化视图，`tutoring_school` 字段与学生档案双向联动；
 - 门户 `/my` 对绑定学生档案的账号直跳 `/my/learning`，门户数据按联系人隔离；
 - 网站顶栏第三项「函数图像」（`/tools/function-plot`，公开页面）：选曲线类型（圆 / 椭圆 / 双曲线 / 抛物线 / 直线 / 二次函数 / 反比例 / 三角函数）后照题目填参数即可出图——椭圆/双曲线支持「分母式」与「系数式」两种填法（`x²-4y²=4` 就填 1、-4、4），也能直接写方程；弹层预览与曲线图例按数学写法渲染（上标、π、去多余括号，如 `(y-1)²=4(x-1)`）；画布支持滚轮缩放、拖动平移、悬停读数与全屏；纯前端计算，无第三方依赖；
@@ -81,6 +82,9 @@ docker compose restart odoo
 4. 教师后台用 admin 登录，门户账号由教师在「学生档案 → 门户账号 → 授权门户访问」创建并直接设置初始密码（平台未开放自助注册）。
 
 运行 `dev/seed_data.py`（在 `odoo-bin shell` 中执行）可生成演示学生、知识点、课次、考试与错题数据；演示账号密码通过环境变量 `TUTOR_DEMO_PW_A` / `TUTOR_DEMO_PW_B` 注入。
+
+知识点库随模块自带一套高中数据（`data/knowledge_data.xml`，11 专题 / 87 考点，取自《53A 数学精讲册》目录，
+`noupdate=1` 故教师改动不会被升级还原）。换书重导用 `dev/gen_knowledge_data.py`（读 xlsx「知识点索引(总表)」表）。
 
 ## 安全约定
 

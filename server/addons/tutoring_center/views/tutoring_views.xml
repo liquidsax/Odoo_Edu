@@ -40,6 +40,8 @@
                             <group>
                                 <field name="partner_id"/>
                                 <field name="grade"/>
+                                <!-- 挑知识点的域要读 parent.knowledge_grades，字段得在表单里（不可见）加载出来 -->
+                                <field name="knowledge_grades" invisible="1"/>
                                 <field name="school"/>
                             </group>
                             <group>
@@ -53,7 +55,7 @@
                                 <field name="point_ids">
                                     <list string="知识点掌握" editable="bottom">
                                         <field name="point_id" string="知识点"
-                                               domain="[('grade', '=', parent.grade)]"
+                                               domain="[('grade', 'in', parent.knowledge_grades)]"
                                                context="{'default_grade': parent.grade}"/>
                                         <field name="mastery" widget="badge"
                                                decoration-info="mastery == 'learning'"
@@ -388,8 +390,10 @@
             <field name="model">tutoring.knowledge.point</field>
             <field name="arch" type="xml">
                 <list string="知识点" editable="bottom">
-                    <field name="grade"/>
+                    <field name="grade" optional="hide"/>
+                    <field name="parent_id" string="上级" domain="[('grade', '=', grade)]"/>
                     <field name="name"/>
+                    <field name="full_name" string="完整路径"/>
                     <field name="note"/>
                     <field name="active" widget="boolean_toggle"/>
                 </list>
@@ -403,8 +407,10 @@
                 <search string="知识点">
                     <field name="name"/>
                     <field name="grade"/>
+                    <field name="parent_id" string="上级"/>
                     <group>
                         <filter string="年级" name="group_grade" context="{'group_by': 'grade'}"/>
+                        <filter string="上级" name="group_parent" context="{'group_by': 'parent_id'}"/>
                     </group>
                 </search>
             </field>
@@ -417,7 +423,9 @@
             <field name="context">{'search_default_group_grade': 1}</field>
             <field name="help" type="html">
                 <p class="o_view_nocontent_smiling_face">按年级维护知识点库</p>
-                <p>例如初一的"一元一次方程"、"有理数运算"。在学生档案的"知识点掌握"页签中，可直接从本库挑选该生需要掌握的知识点。</p>
+                <p>知识点可用「上级」挂成树，完整路径形如「高中 / 集合、常用逻辑用语与不等式 / 不等式的解法」。
+                   模块自带一套高中知识点（11 个专题下 87 个考点），新装的库开箱就有；
+                   在学生档案的「知识点掌握」页签中可直接挑选，高一~高三的学生都能看到整个高中库。</p>
             </field>
         </record>
 

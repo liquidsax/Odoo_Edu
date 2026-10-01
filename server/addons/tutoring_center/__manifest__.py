@@ -19,6 +19,7 @@
         'security/tutoring_security.xml',
         'security/ir.model.access.csv',
         'data/mistake_data.xml',
+        'data/knowledge_data.xml',
         'views/tutoring_views.xml',
         'views/partner_views.xml',
         'views/portal_templates.xml',
