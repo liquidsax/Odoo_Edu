@@ -118,3 +118,5 @@ ls server/addons/tutoring_center/migrations/
 |---|---|---|---|
 | 2026-10-01 13:49–17:35 | `feature/workbook-file-reader` | 同步副本 + 两次 `-u`（19.0.1.4.0 → 19.0.1.5.0）+ 真机验收 | 已完成并释放 |
 | 2026-10-01 19:32–19:55 | `feature/mistake-page-detail` | 同步副本 + 停服 `-u`（19.0.1.5.0 → 19.0.1.6.0，新增模型 `tutoring.workbook.page`）+ 真机验收 | 已完成并释放 |
+| 2026-10-01 22:35–22:52 | 云服务器部署线（`fix/docker-pg18-mount-and-cloud-deploy`） | **只动云机，不碰本机 `OdooForDB`**：clone 切 main、`-u tutoring_center`（19.0.1.0.0 → 19.0.1.7.0，跑 `19.0.1.2.0` pre-migrate）、容器内验收后 stop 下线 | 已完成并释放 |
+| 2026-10-01 23:19–23:26 | 部署线（`fix/docker-pg18-mount-and-deploy-notes`） | **共享 `OdooForDB`**：本地 main 快进到 `cdca6cd` 后磁盘代码领先库，走方式一 `-u tutoring_center`（19.0.1.6.0 → 19.0.1.7.0，无迁移区间）、`check` 六层全绿 | 已完成并释放；PR #17 的勾选框**未真机点击验收**（浏览器面板 hidden） |

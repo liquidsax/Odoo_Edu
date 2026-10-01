@@ -17,7 +17,9 @@ services:
       POSTGRES_PASSWORD: odoo        # 仅限本地开发容器
       POSTGRES_DB: postgres
     volumes:
-      - edu_db:/var/lib/postgresql/data
+      # PostgreSQL 18 官方镜像要求数据目录挂在 /var/lib/postgresql（其内部再按版本建子目录）。
+      # 挂到 /var/lib/postgresql/data 会被 entrypoint 判为"卷里已有旧数据"，容器无限重启。
+      - edu_db:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U odoo"]
       interval: 5s
