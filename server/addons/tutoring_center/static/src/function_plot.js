@@ -879,6 +879,15 @@ const CURVE_TYPES = {
             }
             return `y=${coefficientText(v.A)}sin(${omegaPart}${phase})`;
         },
+        // 勾选后坐标轴刻度、悬停读数、与两轴的交点都改用 π 表示（数学书上的弧度制写法）
+        extras: () => [{ key: "radianTicks", label: "坐标轴与交点用弧度制（π）表示", value: false }],
+        describe: (mode, v, extras) => {
+            if (!extras.radianTicks) {
+                return null;
+            }
+            const omega = mode === "period" ? (2 * Math.PI) / v.T : v.w;
+            return { radian: true, sine: { amplitude: v.A, omega, phi: v.phi || 0 } };
+        },
     },
 };
 
@@ -912,6 +921,32 @@ function formatTick(value, step) {
     const decimals = Math.max(0, Math.min(6, -Math.floor(Math.log10(step))));
     const text = value.toFixed(decimals);
     return text === "-0" ? "0" : text;
+}
+
+// 弧度制下的刻度间隔：只在 π 的有理分数里挑（π/12、π/6、π/4、π/3、π/2、π、2π…），
+// 这样落点一定是 π 的整数倍或简单分数，标签才写得成 π/2、3π/2 这种课本样子。
+function piStep(range, targetCount) {
+    const fractions = [
+        1 / 12, 1 / 6, 1 / 4, 1 / 3, 1 / 2, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64,
+    ];
+    const raw = range / Math.max(1, targetCount);
+    for (const fraction of fractions) {
+        if (Math.PI * fraction >= raw) {
+            return Math.PI * fraction;
+        }
+    }
+    return Math.PI * 64;
+}
+
+// 数值写成 π 形式（π/2、3π/2、−π、0）；不是 π 的简单倍数时退回小数
+function piTick(value) {
+    if (!Number.isFinite(value)) {
+        return "—";
+    }
+    if (Math.abs(value) < 1e-9) {
+        return "0";
+    }
+    return piText(value).replace(/pi/g, "π").replace(/-/g, "−");
 }
 
 function escapeHtml(text) {
@@ -1100,6 +1135,9 @@ class PlotSurface {
             wrap.appendChild(label);
 
             const info = curve.meta || {};
+            if (info.radian) {
+                wrap.appendChild(infoBadge("弧度制 π", "坐标轴刻度、读数与交点都用 π 表示"));
+            }
             if (info.eccentricity) {
                 wrap.appendChild(infoBadge(`e = ${info.eccentricity.text}`, "离心率 e = c/a"));
             }
@@ -1180,25 +1218,41 @@ class PlotSurface {
                 this.strokeVertical(context, curve.model.F);
             }
         }
+        // 交点最后画，压在曲线上面
+        for (const curve of this.curves) {
+            if (curve.visible && curve.meta?.radian && curve.meta.sine) {
+                this.drawIntercepts(context, curve);
+            }
+        }
+    }
+
+    // 只要有任意一条可见曲线开了弧度制，坐标轴就改用 π 刻度（轴是整块画布共用的一把尺子）
+    radianTicks() {
+        return this.curves.some((curve) => curve.visible && curve.meta?.radian);
     }
 
     drawGrid(context) {
-        const step = niceStep(2 * this.view.hw, 12);
-        const firstX = Math.ceil(this.xmin / step) * step;
-        const firstY = Math.ceil(this.ymin / step) * step;
-        const columns = Math.floor((this.xmax - firstX) / step) + 1;
-        const rows = Math.floor((this.ymax - firstY) / step) + 1;
+        const radian = this.radianTicks();
+        // 弧度制下横竖两轴各按自己的跨度挑 π 步长（y 方向通常短得多，用同一个步长会让刻度只剩两三条）
+        const stepY = radian ? piStep(this.ymax - this.ymin, 8) : niceStep(2 * this.view.hw, 12);
+        const stepX = radian ? piStep(this.xmax - this.xmin, 14) : stepY;
+        const tickX = (value) => (radian ? piTick(value) : formatTick(value, stepX));
+        const tickY = (value) => (radian ? piTick(value) : formatTick(value, stepY));
+        const firstX = Math.ceil(this.xmin / stepX) * stepX;
+        const firstY = Math.ceil(this.ymin / stepY) * stepY;
+        const columns = Math.floor((this.xmax - firstX) / stepX) + 1;
+        const rows = Math.floor((this.ymax - firstY) / stepY) + 1;
 
         context.lineWidth = 1;
         context.strokeStyle = "#e7e7ec";
         context.beginPath();
         for (let index = 0; index < columns; index++) {
-            const pixelX = Math.round(this.toPixelX(firstX + index * step)) + 0.5;
+            const pixelX = Math.round(this.toPixelX(firstX + index * stepX)) + 0.5;
             context.moveTo(pixelX, 0);
             context.lineTo(pixelX, this.height);
         }
         for (let index = 0; index < rows; index++) {
-            const pixelY = Math.round(this.toPixelY(firstY + index * step)) + 0.5;
+            const pixelY = Math.round(this.toPixelY(firstY + index * stepY)) + 0.5;
             context.moveTo(0, pixelY);
             context.lineTo(this.width, pixelY);
         }
@@ -1226,12 +1280,12 @@ class PlotSurface {
         context.textBaseline = "top";
         const labelY = Math.min(showAxisX ? axisY + 4 : this.height - 16, this.height - 14);
         for (let index = 0; index < columns; index++) {
-            const value = firstX + index * step;
-            if (Math.abs(value) < step / 1000) {
+            const value = firstX + index * stepX;
+            if (Math.abs(value) < stepX / 1000) {
                 continue;
             }
             context.fillText(
-                formatTick(value, step),
+                tickX(value),
                 Math.min(Math.max(this.toPixelX(value), 14), this.width - 14),
                 labelY
             );
@@ -1239,13 +1293,64 @@ class PlotSurface {
         context.textAlign = "right";
         context.textBaseline = "middle";
         for (let index = 0; index < rows; index++) {
-            const value = firstY + index * step;
-            if (Math.abs(value) < step / 1000) {
+            const value = firstY + index * stepY;
+            if (Math.abs(value) < stepY / 1000) {
                 continue;
             }
             const labelX = showAxisY ? axisX - 6 : this.width - 6;
-            context.fillText(formatTick(value, step), Math.max(16, labelX), this.toPixelY(value));
+            context.fillText(tickY(value), Math.max(16, labelX), this.toPixelY(value));
         }
+    }
+
+    // 弧度制下把三角函数与两轴的交点标出来：与 x 轴是 ωx+φ=nπ（零点），与 y 轴是 x=0 处
+    drawIntercepts(context, curve) {
+        const { amplitude, omega, phi } = curve.meta.sine;
+        if (!Number.isFinite(omega) || Math.abs(omega) < 1e-12) {
+            return;
+        }
+        const marks = [];
+        const nFrom = Math.ceil((omega * this.xmin + phi) / Math.PI);
+        const nTo = Math.floor((omega * this.xmax + phi) / Math.PI);
+        for (let n = nFrom; n <= nTo && marks.length < 16; n++) {
+            marks.push({ x: (n * Math.PI - phi) / omega, y: 0, text: `(${piTick((n * Math.PI - phi) / omega)}, 0)` });
+        }
+        const yAtZero = amplitude * Math.sin(phi);
+        if (
+            Math.abs(yAtZero) > 1e-12 &&
+            this.xmin <= 0 &&
+            this.xmax >= 0 &&
+            yAtZero >= this.ymin &&
+            yAtZero <= this.ymax
+        ) {
+            marks.push({ x: 0, y: yAtZero, text: `(0, ${piTick(yAtZero)})` });
+        }
+
+        context.save();
+        context.font = "12px system-ui, -apple-system, 'Segoe UI', sans-serif";
+        context.textBaseline = "middle";
+        let lastLabelX = -Infinity; // ω 很大时零点密集，标签挤在一起就只画点不写字
+        for (const mark of marks) {
+            const pixelX = this.toPixelX(mark.x);
+            const pixelY = this.toPixelY(mark.y);
+            context.fillStyle = curve.color;
+            context.beginPath();
+            context.arc(pixelX, pixelY, 3.5, 0, Math.PI * 2);
+            context.fill();
+            if (Math.abs(pixelX - lastLabelX) < 58) {
+                continue;
+            }
+            lastLabelX = pixelX;
+            const atRight = pixelX > this.width - 110;
+            context.textAlign = atRight ? "right" : "left";
+            const labelX = Math.min(Math.max(pixelX + (atRight ? -7 : 7), 6), this.width - 6);
+            const labelY = Math.min(Math.max(pixelY - 10, 14), this.height - 8);
+            context.lineWidth = 3;
+            context.strokeStyle = "#ffffff";
+            context.strokeText(mark.text, labelX, labelY); // 白描边压住网格线与曲线
+            context.fillStyle = curve.color;
+            context.fillText(mark.text, labelX, labelY);
+        }
+        context.restore();
     }
 
     // 渐近线：过中心的两条虚线，只画视口内的一段（斜率大时不让坐标爆到画布外）
@@ -1483,7 +1588,9 @@ class PlotSurface {
             context.fill();
         }
 
-        const label = `(${formatNumber(dataX)}, ${formatNumber(dataY)})`;
+        const radian = this.radianTicks();
+        const text = (value) => (radian ? piTick(value) : formatNumber(value));
+        const label = `(${text(dataX)}, ${text(dataY)})`;
         context.font = "12px system-ui, -apple-system, 'Segoe UI', sans-serif";
         const textWidth = context.measureText(label).width;
         const boxX = pixelX + textWidth + 20 > this.width ? pixelX - textWidth - 12 : pixelX + 8;
@@ -1811,6 +1918,9 @@ export class FunctionPlot extends Interaction {
                 `离心率 e = ${info.eccentricity.text}${info.eccentricity.circle ? "（这是圆）" : ""}`
             );
         }
+        if (info.radian) {
+            texts.push("坐标轴刻度、读数与交点改用 π 表示");
+        }
         if (info.asymptotes && info.asymptotes.length) {
             texts.push(`渐近线 ${asymptoteSummaryText(info.asymptotes)}`);
             texts.push(
@@ -1975,7 +2085,8 @@ export class FunctionPlot extends Interaction {
         }
         const x = this.surface.toDataX(hover.pixelX);
         const y = this.surface.toDataY(hover.pixelY);
-        this.surface.readout.textContent = `x = ${formatNumber(x)}　y = ${formatNumber(y)}`;
+        const text = (value) => (this.surface.radianTicks() ? piTick(value) : formatNumber(value));
+        this.surface.readout.textContent = `x = ${text(x)}　y = ${text(y)}`;
     }
 
     readoutDefault() {
