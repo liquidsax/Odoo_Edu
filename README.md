@@ -17,7 +17,7 @@
 | `docs/数学辅导数据中台使用说明.md` | 面向使用者的操作说明 |
 | `dev/` | 演示数据脚本、品牌设置、RPC 进程内升级、临时验收账号等运维脚本 |
 | `docker-compose.yml` | 协作者一键开发环境（Odoo 19 + PostgreSQL 18 容器，含热重载） |
-| `.agent/` | 协作须知：[handoff](.agent/handoff.md)（交接要点+协作规则）、[ONBOARDING](.agent/ONBOARDING.md)（安装配置指南）、[service-control](.agent/service-control.md)（服务启停与体检 skill）、[updates](.agent/updates)（按日期的更新记录） |
+| `.agent/` | 协作须知：[handoff](.agent/handoff.md)（交接要点+协作规则）、[MULTI_AGENT](.agent/MULTI_AGENT.md)（多 agent 并发协作规范：谁部署、怎么独占、什么才算交付完）、[ONBOARDING](.agent/ONBOARDING.md)（安装配置指南）、[service-control](.agent/service-control.md)（服务启停与体检 skill）、[updates](.agent/updates)（按日期的更新记录） |
 
 > Odoo 本体源码、Python 运行时、数据库备份、`odoo.conf`、日志等本机安装产物**不入库**，见 [.gitignore](.gitignore)。
 
@@ -33,7 +33,7 @@
 - 门户 `/my` 对绑定学生档案的账号直跳 `/my/learning`，门户数据按联系人隔离；
 - 网站顶栏第三项「函数图像」（`/tools/function-plot`，公开页面）：选曲线类型（圆 / 椭圆 / 双曲线 / 抛物线 / 直线 / 二次函数 / 反比例 / 三角函数）后照题目填参数即可出图——椭圆/双曲线支持「分母式」与「系数式」两种填法（`x²-4y²=4` 就填 1、-4、4），也能直接写方程；弹层预览与曲线图例按数学写法渲染（上标、π、去多余括号，如 `(y-1)²=4(x-1)`）；画布支持滚轮缩放、拖动平移、悬停读数与全屏；纯前端计算，无第三方依赖；
 - 可通过安全组恢复被隐藏的 Odoo 原生应用菜单。
-- 「练习册」页防误触 + 教材在线阅读：列表不再是就地编辑网格，单击整行打开**只读页中页**（列出教材，点进去用滚轮阅读 PDF），改书名/备注或增删教材必须点「新建练习册」「修改」；一本书可挂多份教材（上册/下册/答案册），PDF 以 `bytea` 列**直接存在 PostgreSQL 里**（`pg_dump` 即全量备份），传错可在阅读弹窗里重新上传；门户学生在 `/my/learning/workbooks` 只读阅读自己用过的教材。
+- 「练习册」页防误触 + 教材在线阅读：列表不再是就地编辑网格，单击整行打开**只读页中页**（列出教材，点进去用滚轮阅读 PDF），改书名/备注或增删教材必须点「新建练习册」「修改」；一本书可挂多份教材（上册/下册/答案册），PDF 以 `bytea` 列**直接存在 PostgreSQL 里**（`pg_dump` 即全量备份），传错可在阅读弹窗里重新上传。受 Odoo 上传上限约束单个文件约 96MB，所以厚书**按页拆成几份、逻辑上仍是一册**：每份记全书连续页号，阅读台的「按页码定位」输一个页号就自动打开对应那份并跳到那一页；门户学生在 `/my/learning/workbooks` 只读阅读自己用过的教材。
 
 ## 快速开始（协作者）
 

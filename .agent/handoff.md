@@ -14,7 +14,10 @@
 3. 提交信息用中文，说明"改了什么、为什么"；
 4. 完成后 push 自己的分支并开 **Pull Request**，由**管理员（liquidsax）审查后合并**；
 5. **仓库卫生红线**：不提交真实密码 / 数据库凭据 / `odoo.conf` / 数据库备份 / 学生真实数据 / 截图素材；不硬编码本机绝对路径（用相对路径，文档中用 `%USERPROFILE%` / `%LOCALAPPDATA%` 写法）；
-6. 密码类参数一律走环境变量注入（参考 `dev/seed_data.py` 的 `TUTOR_DEMO_PW_A/B`）。
+6. 密码类参数一律走环境变量注入（参考 `dev/seed_data.py` 的 `TUTOR_DEMO_PW_A/B`）；
+7. **多 agent 并发时先读 [MULTI_AGENT.md](MULTI_AGENT.md)**：核心一条——自己写的功能要自己
+   在本机部署 + 真机验完再交出去，不要攒到最后一起测；共享实例（服务、业务库、部署副本）
+   同一时刻只允许一个 agent 动，别人占用期间只写不部署。
 
 ## 一、项目定位
 
@@ -30,13 +33,16 @@
 
 - **知识点是树**：`tutoring.knowledge.point.parent_id` 自关联挂上级（年级 → 专题 → 考点），列表页用「完整路径」列读成 `高中 / 集合、常用逻辑用语与不等式 / 不等式的解法`；社区版列表没有树形折叠控件，所以是平铺 + 路径列。**模块自带一套高中知识点**（`data/knowledge_data.xml`，11 专题 / 87 考点，取自 53A 精讲册目录，`noupdate=1` 所以老师改动不会被升级还原），新装的库开箱就有；年级键值多一个 `'13'` 高中（跨高一~高三的一层），高一/高二/高三学生的挑选域连 `'13'` 一起放开。
 
-- **练习册 / 教材**（`feature/workbook-file-reader`，代码级事实）：列表**不再是可编辑网格**——单击整行打开
-  **只读页中页**（原生 `<list type="object" action="…">` 把行点击交给 Python 方法），改数值或加行只能走
-  「新建练习册」/「修改」两个明确按钮；一本书可挂**多份 PDF**（上册/下册/答案），`tutoring.workbook.file.content`
-  用 `Binary(attachment=False)` → **正文本机就是 PostgreSQL 的 bytea 列**，`pg_dump` 即全量备份；
-  阅读用核心 `widget="pdf_viewer"`（pdf.js，滚轮翻页，自带上传/换文件/清除），门户学生可在
-  `/my/learning/workbooks` 只读阅读。**已在本机库升级生效（manifest `19.0.1.4.0`）并完成后台真机点击验收；
-  门户学生端登录点击、以及 170MB 精讲册的实际上传（受 `web.max_file_upload_size` 默认 128MB 限制）仍待验。**
+- **练习册 / 教材**：列表**不再是可编辑网格**——单击整行打开**只读页中页**（原生 `<list type="object" action="…">`
+  把行点击交给 Python 方法），改数值或加行只能走「新建练习册」/「修改」两个明确按钮；一本书可挂**多份 PDF**，
+  `tutoring.workbook.file.content` 用 `Binary(attachment=False)` → **正文本机就是 PostgreSQL 的 bytea 列**。
+  阅读用核心 `widget="pdf_viewer"`（pdf.js 滚轮翻页，自带上传/换文件/清除），门户学生在
+  `/my/learning/workbooks` 只读阅读自己用过的教材。**已在本机库升级生效（`19.0.1.5.0`）并完成真机验收。**
+- **大 PDF 要"物理拆、逻辑不拆"**：Odoo 的上传上限实际卡在 **128MiB 请求体**（见陷阱 15），
+  base64 换算后**单个文件约 96MB** 就到顶。所以一本厚书按页切成几份挂进同一本书，
+  `page_from`/`page_to` 记全书连续页号，阅读台头部「按页码定位」输一个页号 → 自动挑出那份分册
+  并跳到它的局部页号（靠 `content_page` 这个核心钩子字段，见 `updates/2026-10-01.md`）。
+  《五年高考三年模拟》已按 1–55 / 56–110 / 111–164 页存成 3 份，是这套流程的样板。
 
 核心自定义模块：`server/addons/tutoring_center`（12 个模型，含练习册 `tutoring.workbook`、教材文件
 `tutoring.workbook.file` 与速记向导 `tutoring.mistake.quickadd`，详见根 README）。
@@ -92,7 +98,7 @@
 13. **并发时对共享业务库跑 `-u` 会吃掉别人的迁移**：Odoo 执行迁移脚本的区间是 `(ir_module_module.latest_version, 新 manifest 版本]`。两路同时把版本写成 `19.0.1.2.0`、而年级补零迁移挂在 `migrations/19.0.1.2.0/`，本方为验收先升级了 `OdooForDB`，`latest_version` 就越过了那个目录，合并后那次统一升级会**静默跳过**对方的迁移（存量 `'7'/'8'` 不补零 → 新键值 `'07'/'08'` 显示为空、分组乱序）。规则：别人有未合并改动时**不要升级业务库**；必须升级则事后核对 `latest_version`，必要时 `UPDATE` 回退一格（详见 `updates/2026-10-01.md`）。
 
 14. **自定义字段组件的 import 必须写绝对别名**——照抄核心文件里的相对路径（如 `from "../standard_field_props"`）会被 `js_transpiler` 按**你自己的模块**解析成 `@tutoring_center/standard_field_props`，该模块不存在 → 整个组件文件加载失败，页面只留一行 `Missing widget: chili for field of type selection` 的 console 警告并**静默回退成默认 widget**（难度列照样显示 🌶🌶🌶，肉眼看不出差别）。跨模块一律写 `@web/views/fields/standard_field_props`；验收要确认自定义类名（如 `.o_tutoring_chili`）真的出现在 DOM 里，而不是"看起来正常"。另：编译后的资产包是 `ir.attachment` 里的 `web.assets_backend.min.js/.css` 两条缓存，只在收到 assets 失效信号时重建——就地升级 `button_immediate_upgrade()` 会重载 registry 但**不**触发该信号，删掉这两条 attachment 即可让下次请求按磁盘新代码重新生成（纯派生缓存，不用停服）。
-15. **Binary 默认不在库里，且进库也是 base64**：19 里 `fields.Binary` 的 `attachment` 默认 `True` → 正文进 `ir.attachment`，而 `ir.attachment.location` 默认 `file` → **字节在磁盘 filestore，库里只有元数据**。要"文件就在 PostgreSQL"必须写 `attachment=False`（列变 `bytea`）——但 bytea 列里存的是 **base64 文本**，实测 7497 字节的 PDF 占 `octet_length=9996`，即**库体积 ≈ 文件大小的 4/3**，`pg_dump` 同步放大。反面代价还有：`bin_size` 对非 attachment 列是**先全量读再算体积**，任何"按 content 过滤 / 显示大小"都会把整本 PDF 拉进内存；Binary 默认 `prefetch=False`，所以列表页只显示行数据是安全的。
+15. **Binary 默认不在库里、进库也是 base64、上传天花板是 96MB 而不是 128MB**：19 里 `fields.Binary` 的 `attachment` 默认 `True` → 正文进 `ir.attachment`，而 `ir.attachment.location` 默认 `file` → **字节在磁盘 filestore，库里只有元数据**；要"文件就在 PostgreSQL"必须写 `attachment=False`（列变 `bytea`），但 bytea 里存的是 **base64 文本**，实测 7497 字节的 PDF 占 `octet_length=9996`，**库体积 ≈ 文件的 4/3**。更坑的是上传上限：`odoo/http.py` 给每个请求硬设 `max_content_length = 128MiB`，而请求体是在 `_serve_db` 判定只读性时就被读掉的（`web/controllers/dataset.py` → `request.get_json_data()`），**早于** `base/ir_http._pre_dispatch` 里用 `web.max_file_upload_size` 覆盖上限的那句——所以**这个系统参数对 `/web/dataset/*` 的写无效**，只抬得动浏览器第一道检查。结论：单个文件超过 **≈96MB**（128MiB ÷ 4/3）就必须拆，且几份不能攒在一次保存里一起提交。反面代价另记：`bin_size` 对非 attachment 列是**先全量读再算体积**，任何"按 content 过滤 / 显示大小"都会把整本 PDF 拉进内存；Binary 默认 `prefetch=False`，列表页只显示行数据是安全的。
 16. **后台弹窗的四个原生机制**（省掉一整层自定义 JS，细节见 `updates/2026-10-01.md`）：① 列表整行点击可直接交给 Python 方法——`<list type="object" action="方法名">`（19 原生，`base/rng/list_view.rng` 已声明这两个属性），方法返回 `target='new'` 即"页中页"，且列表在弹窗关闭后会自动 `root.load()`（实测上传完计数列自己变了）；但**弹窗叠几层不可依赖**：点文件行是叠在下层之上、点「上传教材」是替换掉下层，按"关掉可能回下层也可能回列表"来测；② 弹窗尺寸走 context 键 `dialog_size`（`extra-large|large|medium|small`），**但 context 的 `footer: False` 只能配 client action**——给表单弹窗用它，Dialog 连 `<footer>` 节点都不生成，表单按钮插槽的 portal 找不到目标，直接 `OwlError: invalid portal target`，而且服务端全是 200、只能看浏览器 console；想让表单弹窗不出"保存/放弃"，就在 arch 里写显式 `<footer>`（`form_compiler.compileFooter` 只有在 `footer@replace` 为假值时才追加 `DefaultButtonsSlot`）；③ `target='new'` 的表单弹窗里**已存在记录默认按只读渲染**（上传键与保存都不出现），改脏后才出现保存/放弃——"打开就是看、要动就动手"是天然分层的；④ 上传组件的配套 `filename` 字段**必须 `invisible="1"`（列表里 `column_invisible="1"`）**，写成 `readonly="1"` 就不进保存载荷、落库 NULL（核心 `hr_skills`/`l10n_in` 同款写法）。另外：可编辑网格里单击单元格是"进编辑态"，`<list action=… type=…>` 的行点击在那儿**不触发**，要开弹窗必须放显式 `<button>`。
 
 17. **SQL 判重约束：换定义可以，换属性名会留幽灵**——Odoo 19 的 `Constraint.apply_to_database` 拿库里的定义与代码比对，不同就 `DROP` 再 `ADD`（知识点判重从 `unique(name, grade)` 换成含 `parent_id` 已实测生效）；但它只遍历模型**当前声明**的表对象，属性名一改旧约束就没人认领、永久留在库里继续拦数据，所以改定义时保持 `_name_grade_uniq` 这个名字别动。另注意 `unique(..., parent_id)` 里 NULL 互相视为不同——**枝干层（无上级）重名数据库不管**。
@@ -102,6 +108,7 @@
 | 文档 | 内容 |
 |---|---|
 | [ONBOARDING.md](ONBOARDING.md) | 协作者安装配置指南（原生 Windows 完整步骤 + Docker 备选 + 自检清单 + 工作流） |
+| [MULTI_AGENT.md](MULTI_AGENT.md) | 多 agent 并发协作规范：谁负责部署、独占规则、部署标准动作、版本号礼仪、验收要求、占用声明 |
 | [service-control.md](service-control.md) | 服务启停与体检 skill（`svcctl.ps1`）：action/target、UAC 规则、六层 `check`、失败判读、红线 |
 | [updates/](updates/) | 按日期的完整更新记录（含维护者原生环境详情、验证记录、陷阱全表） |
 | 根 [README.md](../README.md) | 面向人的项目总览、模块概览、快速开始 |
