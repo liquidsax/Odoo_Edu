@@ -35,7 +35,8 @@
   「新建练习册」/「修改」两个明确按钮；一本书可挂**多份 PDF**（上册/下册/答案），`tutoring.workbook.file.content`
   用 `Binary(attachment=False)` → **正文本机就是 PostgreSQL 的 bytea 列**，`pg_dump` 即全量备份；
   阅读用核心 `widget="pdf_viewer"`（pdf.js，滚轮翻页，自带上传/换文件/清除），门户学生可在
-  `/my/learning/workbooks` 只读阅读。**本功能需重启服务 + `-u tutoring_center` 才生效，尚未在本机库升级、未做浏览器验收。**
+  `/my/learning/workbooks` 只读阅读。**已在本机库升级生效（manifest `19.0.1.4.0`）并完成后台真机点击验收；
+  门户学生端登录点击、以及 170MB 精讲册的实际上传（受 `web.max_file_upload_size` 默认 128MB 限制）仍待验。**
 
 核心自定义模块：`server/addons/tutoring_center`（12 个模型，含练习册 `tutoring.workbook`、教材文件
 `tutoring.workbook.file` 与速记向导 `tutoring.mistake.quickadd`，详见根 README）。
@@ -59,7 +60,7 @@
 | 学生"示例学生B"（id 3） | 初二，隔离验证用，可删 |
 | portal 账号 | `biaodi`（表弟）、`student02`（示例学生B）；密码见本地密码记录，**不入库** |
 | 知识点 | 初一 5 个演示数据；模块另自带高中库 98 条（11 专题 / 87 考点）——**业务库尚未升级，升级后才落库** |
-| 练习册 | 仅默认「课内/其他」(id 1)——升级时把存量 2 条错题回填于此；真实练习册（五年高考三年模拟等）与教材 PDF 待维护者录入（录入入口与阅读页见 `feature/workbook-file-reader`，需先升级模块） |
+| 练习册 | 「53」「一数」「课内/其他」3 本（错题数 0/7/1）；教材文件 0 份——教材上传与阅读功能已升级生效，等维护者传真实 PDF（170MB 那本受默认 128MB 上传上限拦，见 `updates/2026-10-01.md`） |
 
 容器演示环境的账号由 `dev/seed_data.py` 创建（`biaodi` / `student02`，密码环境变量注入）。
 
@@ -67,11 +68,12 @@
 
 > 服务启停与体检**统一走 Qoder skill `odoo-service-control` 的 `svcctl.ps1`**（命令、UAC 规则、六层 `check`、失败判读见 [service-control.md](service-control.md)），不要手搓 `Start-Service` / `Stop-Service`。
 
-1. **标准升级**（Python 变更必须走）：`svcctl.ps1 stop odoo`（UAC）→ `"E:\Odoo\python\python.exe" "E:\Odoo\server\odoo-bin" -c odoo.conf -d OdooForDB -u tutoring_center --stop-after-init` → `start odoo`。
-2. **纯 XML/数据变更免重启**：`odoo-bin shell -c odoo.conf -d OdooForDB < E:\Odoo\dev\upgrade_via_rpc.py`，脚本内 `button_immediate_upgrade()`，运行中服务经 signaling 自动重载。
-3. **硬限制**：运行中的服务无法加载新增 Python 模型类/控制器，必须重启；纯字段/视图变更无此限制。
-4. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
-5. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
+1. **先同步部署副本，再谈升级**：`addons_path` 是 `E:\Odoo\server\odoo\addons,E:\Odoo\server\addons`，而 `E:\Odoo\server\addons\tutoring_center` 是**手抄副本、不是仓库的实时映射**（合并到 main 不会自动生效）。同步前先把它备份到 `E:\Odoo\backup\` 下（**别备份进 addons_path 目录**，带 `__manifest__.py` 的副本会被当模块扫出来），并用 `diff --strip-trailing-cr` 确认副本没有只改在部署侧的手改，再整份覆盖。
+2. **标准升级**（Python 变更必须走）：`svcctl.ps1 stop odoo`（UAC）→ `"E:\Odoo\python\python.exe" "E:\Odoo\server\odoo-bin" -c odoo.conf -d OdooForDB -u tutoring_center --stop-after-init` → `start odoo`。
+3. **纯 XML/数据变更免重启**：`PYTHONUTF8=1 odoo-bin shell -c odoo.conf -d OdooForDB < E:\Odoo\dev\upgrade_via_rpc.py`，脚本内 `button_immediate_upgrade()`，运行中服务经 signaling 自动重载。**必须带 `PYTHONUTF8=1`**：脚本有中文注释，默认按控制台代码页读 stdin 会 `UnicodeEncodeError: surrogates not allowed`。
+4. **硬限制**：运行中的服务无法加载新增 Python 模型类/控制器，必须重启；纯字段/视图变更无此限制。
+5. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
+6. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
 
 ## 五、最重要陷阱（Top 17，完整版见 README 与 updates）
 
@@ -90,8 +92,8 @@
 13. **并发时对共享业务库跑 `-u` 会吃掉别人的迁移**：Odoo 执行迁移脚本的区间是 `(ir_module_module.latest_version, 新 manifest 版本]`。两路同时把版本写成 `19.0.1.2.0`、而年级补零迁移挂在 `migrations/19.0.1.2.0/`，本方为验收先升级了 `OdooForDB`，`latest_version` 就越过了那个目录，合并后那次统一升级会**静默跳过**对方的迁移（存量 `'7'/'8'` 不补零 → 新键值 `'07'/'08'` 显示为空、分组乱序）。规则：别人有未合并改动时**不要升级业务库**；必须升级则事后核对 `latest_version`，必要时 `UPDATE` 回退一格（详见 `updates/2026-10-01.md`）。
 
 14. **自定义字段组件的 import 必须写绝对别名**——照抄核心文件里的相对路径（如 `from "../standard_field_props"`）会被 `js_transpiler` 按**你自己的模块**解析成 `@tutoring_center/standard_field_props`，该模块不存在 → 整个组件文件加载失败，页面只留一行 `Missing widget: chili for field of type selection` 的 console 警告并**静默回退成默认 widget**（难度列照样显示 🌶🌶🌶，肉眼看不出差别）。跨模块一律写 `@web/views/fields/standard_field_props`；验收要确认自定义类名（如 `.o_tutoring_chili`）真的出现在 DOM 里，而不是"看起来正常"。另：编译后的资产包是 `ir.attachment` 里的 `web.assets_backend.min.js/.css` 两条缓存，只在收到 assets 失效信号时重建——就地升级 `button_immediate_upgrade()` 会重载 registry 但**不**触发该信号，删掉这两条 attachment 即可让下次请求按磁盘新代码重新生成（纯派生缓存，不用停服）。
-15. **Binary 默认不在库里**：19 里 `fields.Binary` 的 `attachment` 默认 `True` → 正文进 `ir.attachment`，而 `ir.attachment.location` 默认 `file` → **字节在磁盘 filestore，库里只有元数据**。要"文件就在 PostgreSQL"必须写 `attachment=False`（列变 `bytea`）。反面代价：`bin_size` 对非 attachment 列是**先全量读再算体积**，任何"按 content 过滤 / 显示大小"都会把整本 PDF 拉进内存；Binary 默认 `prefetch=False`，所以列表页只显示行数据是安全的。
-16. **后台弹窗的三个原生机制**（省掉一整层自定义 JS，细节见 `updates/2026-10-01.md`）：① `action_service.js` 里 dialog 是**单个槽位**——弹窗中再开动作是**替换**不是叠层，且旧弹窗的 `onClose` 会传给新的（列表 `openRecord` 绑了 `root.load()`），所以"弹窗里改完 → 关闭 → 列表自动刷新"是白捡的，代价是下层只读页被换掉、要看新内容得再点一次行；② 弹窗尺寸与底栏走 context 键 `dialog_size`（`extra-large|large|medium|small`）和 `footer: False`；③ `target='new'` 的表单弹窗里 `viewProps.readonly` 被硬写成 `false`，所以**只读只能逐字段 `readonly="1"`**，`<form>` 根上写 `readonly` 没用。另外：可编辑网格里单击单元格是"进编辑态"，`<list action=… type=…>` 的行点击在那儿**不触发**，要开弹窗必须放显式 `<button>`。
+15. **Binary 默认不在库里，且进库也是 base64**：19 里 `fields.Binary` 的 `attachment` 默认 `True` → 正文进 `ir.attachment`，而 `ir.attachment.location` 默认 `file` → **字节在磁盘 filestore，库里只有元数据**。要"文件就在 PostgreSQL"必须写 `attachment=False`（列变 `bytea`）——但 bytea 列里存的是 **base64 文本**，实测 7497 字节的 PDF 占 `octet_length=9996`，即**库体积 ≈ 文件大小的 4/3**，`pg_dump` 同步放大。反面代价还有：`bin_size` 对非 attachment 列是**先全量读再算体积**，任何"按 content 过滤 / 显示大小"都会把整本 PDF 拉进内存；Binary 默认 `prefetch=False`，所以列表页只显示行数据是安全的。
+16. **后台弹窗的四个原生机制**（省掉一整层自定义 JS，细节见 `updates/2026-10-01.md`）：① 列表整行点击可直接交给 Python 方法——`<list type="object" action="方法名">`（19 原生，`base/rng/list_view.rng` 已声明这两个属性），方法返回 `target='new'` 即"页中页"，且列表在弹窗关闭后会自动 `root.load()`（实测上传完计数列自己变了）；但**弹窗叠几层不可依赖**：点文件行是叠在下层之上、点「上传教材」是替换掉下层，按"关掉可能回下层也可能回列表"来测；② 弹窗尺寸走 context 键 `dialog_size`（`extra-large|large|medium|small`），**但 context 的 `footer: False` 只能配 client action**——给表单弹窗用它，Dialog 连 `<footer>` 节点都不生成，表单按钮插槽的 portal 找不到目标，直接 `OwlError: invalid portal target`，而且服务端全是 200、只能看浏览器 console；想让表单弹窗不出"保存/放弃"，就在 arch 里写显式 `<footer>`（`form_compiler.compileFooter` 只有在 `footer@replace` 为假值时才追加 `DefaultButtonsSlot`）；③ `target='new'` 的表单弹窗里**已存在记录默认按只读渲染**（上传键与保存都不出现），改脏后才出现保存/放弃——"打开就是看、要动就动手"是天然分层的；④ 上传组件的配套 `filename` 字段**必须 `invisible="1"`（列表里 `column_invisible="1"`）**，写成 `readonly="1"` 就不进保存载荷、落库 NULL（核心 `hr_skills`/`l10n_in` 同款写法）。另外：可编辑网格里单击单元格是"进编辑态"，`<list action=… type=…>` 的行点击在那儿**不触发**，要开弹窗必须放显式 `<button>`。
 
 17. **SQL 判重约束：换定义可以，换属性名会留幽灵**——Odoo 19 的 `Constraint.apply_to_database` 拿库里的定义与代码比对，不同就 `DROP` 再 `ADD`（知识点判重从 `unique(name, grade)` 换成含 `parent_id` 已实测生效）；但它只遍历模型**当前声明**的表对象，属性名一改旧约束就没人认领、永久留在库里继续拦数据，所以改定义时保持 `_name_grade_uniq` 这个名字别动。另注意 `unique(..., parent_id)` 里 NULL 互相视为不同——**枝干层（无上级）重名数据库不管**。
 
