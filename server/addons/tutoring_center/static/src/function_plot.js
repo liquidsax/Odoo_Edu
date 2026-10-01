@@ -440,6 +440,175 @@ function conicCombination(terms) {
         .join("");
 }
 
+// 把数值尽量写成课本里的根式/分数（√3/2、2√5/3、1/2）；写不出就返回 null 由调用方退回小数
+function radicalText(value) {
+    if (!Number.isFinite(value) || value <= 0) {
+        return null;
+    }
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    const square = value * value;
+    for (let denominator = 1; denominator <= 64; denominator++) {
+        const numerator = Math.round(square * denominator);
+        if (numerator <= 0 || numerator > 100000) {
+            continue;
+        }
+        if (Math.abs(square - numerator / denominator) > 1e-9 * Math.max(1, square)) {
+            continue;
+        }
+        // value = √(numerator/denominator) = √(numerator·denominator)/denominator
+        // 把根号里能开出来的因数提到根号外：√12/4 → 2√3/4 → √3/2
+        let rest = numerator * denominator;
+        let outside = 1;
+        for (let divisor = 2; divisor * divisor <= rest; divisor++) {
+            while (rest % (divisor * divisor) === 0) {
+                rest /= divisor * divisor;
+                outside *= divisor;
+            }
+        }
+        const common = gcd(outside, denominator) || 1;
+        const head = outside / common;
+        const tail = denominator / common;
+        if (rest === 1) {
+            return tail === 1 ? String(head) : `${head}/${tail}`;
+        }
+        const radical = `${head === 1 ? "" : head}√${rest}`;
+        return tail === 1 ? radical : `${radical}/${tail}`;
+    }
+    return null;
+}
+
+// 课本写法优先，化不出就退回小数：√3/2 ≈ 0.866
+function exactNumberText(value) {
+    if (!Number.isFinite(value)) {
+        return "—";
+    }
+    if (value === 0) {
+        return "0";
+    }
+    const radical = radicalText(value);
+    return radical ? `${radical} ≈ ${formatNumber(value)}` : formatNumber(value);
+}
+
+// 椭圆离心率 e = c/a = √(1 - b²/a²)（a 长半轴、b 短半轴）；两轴相等时是圆，e=0
+function eccentricityInfo(semiAxisX2, semiAxisY2) {
+    if (!(semiAxisX2 > 0) || !(semiAxisY2 > 0)) {
+        return null;
+    }
+    const major2 = Math.max(semiAxisX2, semiAxisY2);
+    const minor2 = Math.min(semiAxisX2, semiAxisY2);
+    const value = Math.sqrt(Math.max(0, 1 - minor2 / major2));
+    return { value, text: exactNumberText(value), circle: value <= 1e-12 };
+}
+
+// 双曲线渐近线：过中心 (h,k) 的两条直线 y-k = ±slope·(x-h)。
+// 实轴在 x 轴是 y-k = ±(b/a)(x-h)，在 y 轴是 y-k = ±(a/b)(x-h)。
+function hyperbolaAsymptotes(mode, v) {
+    let transverse2; // a²
+    let conjugate2; // b²
+    let transverseY = false;
+    if (mode === "coefficient") {
+        // Ax²+By²=N：先按 N 的符号归一化，正系数那一项就是实轴
+        const sign = v.N > 0 ? 1 : -1;
+        const coefficientX = sign * v.A;
+        const coefficientY = sign * v.B;
+        const total = Math.abs(v.N);
+        if (coefficientX > 0) {
+            transverse2 = total / coefficientX;
+            conjugate2 = total / Math.abs(coefficientY);
+        } else {
+            transverse2 = total / coefficientY;
+            conjugate2 = total / Math.abs(coefficientX);
+            transverseY = true;
+        }
+    } else {
+        transverse2 = v.a2;
+        conjugate2 = v.b2;
+        transverseY = mode === "y";
+    }
+    if (!(transverse2 > 0) || !(conjugate2 > 0)) {
+        return [];
+    }
+    const transverse = Math.sqrt(transverse2);
+    const conjugate = Math.sqrt(conjugate2);
+    const slope = transverseY ? transverse / conjugate : conjugate / transverse;
+    const h = v.h || 0;
+    const k = v.k || 0;
+    return [
+        { h, k, slope },
+        { h, k, slope: -slope },
+    ].map((line) => ({
+        ...line,
+        text: asymptoteLineText(line),
+        slopeIntercept: asymptoteSlopeIntercept(line),
+    }));
+}
+
+// ---- 渐近线方程的课本写法 ----
+// 系数先试根式/分数（3/2、√5/2、2√3/3），化不出才退回四位小数；±1 返回空串（省掉系数）
+function slopeCoefficientText(value) {
+    const abs = Math.abs(value);
+    if (Math.abs(abs - 1) < 1e-12) {
+        return "";
+    }
+    return radicalText(abs) || formatNumber(abs);
+}
+
+// 带符号的斜率片段：2 → 2、3/2 → (3/2)、−√2 → −(√2)、−1 → −（配括号读成 y = −(x−h)）
+function signedSlopeText(slope) {
+    const body = slopeCoefficientText(slope);
+    const sign = slope < 0 ? "−" : "";
+    if (!body) {
+        return sign;
+    }
+    return body.includes("/") || body.includes("√") ? `${sign}(${body})` : `${sign}${body}`;
+}
+
+// 常数项写法：2 → 2、−3/2 → −(3/2)
+function constantText(value) {
+    if (Math.abs(value) < 1e-12) {
+        return "0";
+    }
+    const abs = Math.abs(value);
+    return `${value < 0 ? "−" : ""}${radicalText(abs) || formatNumber(abs)}`;
+}
+
+// 变量与中心偏移的组合：k=2 → "y − 2"、k=−2 → "y + 2"、k=0 → "y"
+function shiftedTerm(variable, value) {
+    if (Math.abs(value) < 1e-12) {
+        return variable;
+    }
+    return `${variable} ${value > 0 ? "−" : "+"} ${constantText(Math.abs(value))}`;
+}
+
+// 单条渐近线：过中心 (h,k) 写成 y − k = m(x − h)，中心在原点时简写成 y = m x
+function asymptoteLineText({ h, k, slope }) {
+    const m = signedSlopeText(slope);
+    if (Math.abs(h) < 1e-12 && Math.abs(k) < 1e-12) {
+        return `y = ${m}x`;
+    }
+    return `${shiftedTerm("y", k)} = ${m}(${shiftedTerm("x", h)})`;
+}
+
+// 两条合并的简写：y − k = ±m(x − h)
+function asymptoteSummaryText(lines) {
+    const { h, k, slope } = lines[0];
+    const m = signedSlopeText(Math.abs(slope));
+    if (Math.abs(h) < 1e-12 && Math.abs(k) < 1e-12) {
+        return `y = ±${m}x`;
+    }
+    return `${shiftedTerm("y", k)} = ±${m}(${shiftedTerm("x", h)})`;
+}
+
+// 斜截式 y = m x + b（b = k − m·h），给悬浮提示补全用
+function asymptoteSlopeIntercept({ h, k, slope }) {
+    const intercept = k - slope * h;
+    const m = signedSlopeText(slope);
+    if (Math.abs(intercept) < 1e-12) {
+        return `y = ${m}x`;
+    }
+    return `y = ${m}x ${intercept > 0 ? "+ " : "− "}${constantText(Math.abs(intercept))}`;
+}
+
 // 每个类型：字段默认值可直接用；fields 随"写法"切换；compose 抛错即校验失败
 const CURVE_TYPES = {
     circle: {
@@ -517,6 +686,14 @@ const CURVE_TYPES = {
             }
             return `${squaredTerm("x", v.h, v.a2)}+${squaredTerm("y", v.k, v.b2)}=1`;
         },
+        // 离心率 e = c/a：分母式直接是两分母，系数式先换算成 x²/(N/A)+y²/(N/B)=1
+        describe: (mode, v) => {
+            const info =
+                mode === "coefficient"
+                    ? eccentricityInfo(v.N / v.A, v.N / v.B)
+                    : eccentricityInfo(v.a2, v.b2);
+            return info ? { eccentricity: info } : null;
+        },
     },
     hyperbola: {
         label: "双曲线",
@@ -566,6 +743,10 @@ const CURVE_TYPES = {
             const negative = focusY ? squaredTerm("x", v.h, v.b2) : squaredTerm("y", v.k, v.b2);
             return `${positive}-${negative}=1`;
         },
+        // 勾选后才带渐近线；三种写法都从 a、b 反推斜率
+        extras: () => [{ key: "showAsymptotes", label: "画出渐近线（虚线）", value: false }],
+        describe: (mode, v, extras) =>
+            extras.showAsymptotes ? { asymptotes: hyperbolaAsymptotes(mode, v) } : null,
     },
     parabola: {
         label: "抛物线",
@@ -698,6 +879,15 @@ const CURVE_TYPES = {
             }
             return `y=${coefficientText(v.A)}sin(${omegaPart}${phase})`;
         },
+        // 勾选后坐标轴刻度、悬停读数、与两轴的交点都改用 π 表示（数学书上的弧度制写法）
+        extras: () => [{ key: "radianTicks", label: "坐标轴与交点用弧度制（π）表示", value: false }],
+        describe: (mode, v, extras) => {
+            if (!extras.radianTicks) {
+                return null;
+            }
+            const omega = mode === "period" ? (2 * Math.PI) / v.T : v.w;
+            return { radian: true, sine: { amplitude: v.A, omega, phi: v.phi || 0 } };
+        },
     },
 };
 
@@ -733,6 +923,32 @@ function formatTick(value, step) {
     return text === "-0" ? "0" : text;
 }
 
+// 弧度制下的刻度间隔：只在 π 的有理分数里挑（π/12、π/6、π/4、π/3、π/2、π、2π…），
+// 这样落点一定是 π 的整数倍或简单分数，标签才写得成 π/2、3π/2 这种课本样子。
+function piStep(range, targetCount) {
+    const fractions = [
+        1 / 12, 1 / 6, 1 / 4, 1 / 3, 1 / 2, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64,
+    ];
+    const raw = range / Math.max(1, targetCount);
+    for (const fraction of fractions) {
+        if (Math.PI * fraction >= raw) {
+            return Math.PI * fraction;
+        }
+    }
+    return Math.PI * 64;
+}
+
+// 数值写成 π 形式（π/2、3π/2、−π、0）；不是 π 的简单倍数时退回小数
+function piTick(value) {
+    if (!Number.isFinite(value)) {
+        return "—";
+    }
+    if (Math.abs(value) < 1e-9) {
+        return "0";
+    }
+    return piText(value).replace(/pi/g, "π").replace(/-/g, "−");
+}
+
 function escapeHtml(text) {
     return String(text ?? "")
         .replace(/&/g, "&amp;")
@@ -762,6 +978,15 @@ function prettyEquation(text) {
     // 字母相邻时省掉点号：π·x → πx（π/2·x 保留点号，避免被读成分母里带 x）
     out = out.replace(/([a-zA-Zπ])·([a-zA-Z])/g, "$1$2");
     return out;
+}
+
+// 图例里挂在曲线后面的小标签（离心率、渐近线这类附带信息）
+function infoBadge(text, title) {
+    const badge = document.createElement("span");
+    badge.className = "badge bg-light text-dark border fw-normal";
+    badge.textContent = text;
+    badge.title = title;
+    return badge;
 }
 
 class PlotSurface {
@@ -855,13 +1080,15 @@ class PlotSurface {
 
     /* -------------------------------- 曲线管理 ------------------------------- */
 
-    addCurve(expression) {
+    // meta 是"这条曲线的附带信息"：椭圆的离心率、双曲线勾选的渐近线
+    addCurve(expression, meta = null) {
         const model = buildModel(expression);
         const curve = {
             expression,
             model,
             color: PALETTE[this.curves.length % PALETTE.length],
             visible: true,
+            meta,
         };
         this.curves.push(curve);
         this.renderLegend();
@@ -906,6 +1133,25 @@ class PlotSurface {
                 label.className = "fw-semibold";
             }
             wrap.appendChild(label);
+
+            const info = curve.meta || {};
+            if (info.radian) {
+                wrap.appendChild(infoBadge("弧度制 π", "坐标轴刻度、读数与交点都用 π 表示"));
+            }
+            if (info.eccentricity) {
+                wrap.appendChild(infoBadge(`e = ${info.eccentricity.text}`, "离心率 e = c/a"));
+            }
+            if (info.asymptotes && info.asymptotes.length) {
+                const detail = info.asymptotes
+                    .map((line) => `${line.text}　（斜截式 ${line.slopeIntercept}）`)
+                    .join("\n");
+                wrap.appendChild(
+                    infoBadge(
+                        `渐近线 ${asymptoteSummaryText(info.asymptotes)}`,
+                        `${detail}\n虚线是这条双曲线的两条渐近线`
+                    )
+                );
+            }
 
             const toggle = document.createElement("button");
             toggle.type = "button";
@@ -962,6 +1208,8 @@ class PlotSurface {
             context.lineWidth = 2;
             context.lineJoin = "round";
             context.lineCap = "round";
+            // 渐近线先画（在曲线下面），再画曲线本身
+            this.strokeAsymptotes(context, curve);
             if (curve.model.kind === "explicit") {
                 this.strokeExplicit(context, curve.model.explicit);
             } else if (curve.model.kind === "implicit") {
@@ -970,25 +1218,41 @@ class PlotSurface {
                 this.strokeVertical(context, curve.model.F);
             }
         }
+        // 交点最后画，压在曲线上面
+        for (const curve of this.curves) {
+            if (curve.visible && curve.meta?.radian && curve.meta.sine) {
+                this.drawIntercepts(context, curve);
+            }
+        }
+    }
+
+    // 只要有任意一条可见曲线开了弧度制，坐标轴就改用 π 刻度（轴是整块画布共用的一把尺子）
+    radianTicks() {
+        return this.curves.some((curve) => curve.visible && curve.meta?.radian);
     }
 
     drawGrid(context) {
-        const step = niceStep(2 * this.view.hw, 12);
-        const firstX = Math.ceil(this.xmin / step) * step;
-        const firstY = Math.ceil(this.ymin / step) * step;
-        const columns = Math.floor((this.xmax - firstX) / step) + 1;
-        const rows = Math.floor((this.ymax - firstY) / step) + 1;
+        const radian = this.radianTicks();
+        // 弧度制下横竖两轴各按自己的跨度挑 π 步长（y 方向通常短得多，用同一个步长会让刻度只剩两三条）
+        const stepY = radian ? piStep(this.ymax - this.ymin, 8) : niceStep(2 * this.view.hw, 12);
+        const stepX = radian ? piStep(this.xmax - this.xmin, 14) : stepY;
+        const tickX = (value) => (radian ? piTick(value) : formatTick(value, stepX));
+        const tickY = (value) => (radian ? piTick(value) : formatTick(value, stepY));
+        const firstX = Math.ceil(this.xmin / stepX) * stepX;
+        const firstY = Math.ceil(this.ymin / stepY) * stepY;
+        const columns = Math.floor((this.xmax - firstX) / stepX) + 1;
+        const rows = Math.floor((this.ymax - firstY) / stepY) + 1;
 
         context.lineWidth = 1;
         context.strokeStyle = "#e7e7ec";
         context.beginPath();
         for (let index = 0; index < columns; index++) {
-            const pixelX = Math.round(this.toPixelX(firstX + index * step)) + 0.5;
+            const pixelX = Math.round(this.toPixelX(firstX + index * stepX)) + 0.5;
             context.moveTo(pixelX, 0);
             context.lineTo(pixelX, this.height);
         }
         for (let index = 0; index < rows; index++) {
-            const pixelY = Math.round(this.toPixelY(firstY + index * step)) + 0.5;
+            const pixelY = Math.round(this.toPixelY(firstY + index * stepY)) + 0.5;
             context.moveTo(0, pixelY);
             context.lineTo(this.width, pixelY);
         }
@@ -1016,12 +1280,12 @@ class PlotSurface {
         context.textBaseline = "top";
         const labelY = Math.min(showAxisX ? axisY + 4 : this.height - 16, this.height - 14);
         for (let index = 0; index < columns; index++) {
-            const value = firstX + index * step;
-            if (Math.abs(value) < step / 1000) {
+            const value = firstX + index * stepX;
+            if (Math.abs(value) < stepX / 1000) {
                 continue;
             }
             context.fillText(
-                formatTick(value, step),
+                tickX(value),
                 Math.min(Math.max(this.toPixelX(value), 14), this.width - 14),
                 labelY
             );
@@ -1029,13 +1293,141 @@ class PlotSurface {
         context.textAlign = "right";
         context.textBaseline = "middle";
         for (let index = 0; index < rows; index++) {
-            const value = firstY + index * step;
-            if (Math.abs(value) < step / 1000) {
+            const value = firstY + index * stepY;
+            if (Math.abs(value) < stepY / 1000) {
                 continue;
             }
             const labelX = showAxisY ? axisX - 6 : this.width - 6;
-            context.fillText(formatTick(value, step), Math.max(16, labelX), this.toPixelY(value));
+            context.fillText(tickY(value), Math.max(16, labelX), this.toPixelY(value));
         }
+    }
+
+    // 弧度制下把三角函数与两轴的交点标出来：与 x 轴是 ωx+φ=nπ（零点），与 y 轴是 x=0 处
+    drawIntercepts(context, curve) {
+        const { amplitude, omega, phi } = curve.meta.sine;
+        if (!Number.isFinite(omega) || Math.abs(omega) < 1e-12) {
+            return;
+        }
+        const marks = [];
+        const nFrom = Math.ceil((omega * this.xmin + phi) / Math.PI);
+        const nTo = Math.floor((omega * this.xmax + phi) / Math.PI);
+        for (let n = nFrom; n <= nTo && marks.length < 16; n++) {
+            marks.push({ x: (n * Math.PI - phi) / omega, y: 0, text: `(${piTick((n * Math.PI - phi) / omega)}, 0)` });
+        }
+        const yAtZero = amplitude * Math.sin(phi);
+        if (
+            Math.abs(yAtZero) > 1e-12 &&
+            this.xmin <= 0 &&
+            this.xmax >= 0 &&
+            yAtZero >= this.ymin &&
+            yAtZero <= this.ymax
+        ) {
+            marks.push({ x: 0, y: yAtZero, text: `(0, ${piTick(yAtZero)})` });
+        }
+
+        context.save();
+        context.font = "12px system-ui, -apple-system, 'Segoe UI', sans-serif";
+        context.textBaseline = "middle";
+        let lastLabelX = -Infinity; // ω 很大时零点密集，标签挤在一起就只画点不写字
+        for (const mark of marks) {
+            const pixelX = this.toPixelX(mark.x);
+            const pixelY = this.toPixelY(mark.y);
+            context.fillStyle = curve.color;
+            context.beginPath();
+            context.arc(pixelX, pixelY, 3.5, 0, Math.PI * 2);
+            context.fill();
+            if (Math.abs(pixelX - lastLabelX) < 58) {
+                continue;
+            }
+            lastLabelX = pixelX;
+            const atRight = pixelX > this.width - 110;
+            context.textAlign = atRight ? "right" : "left";
+            const labelX = Math.min(Math.max(pixelX + (atRight ? -7 : 7), 6), this.width - 6);
+            const labelY = Math.min(Math.max(pixelY - 10, 14), this.height - 8);
+            context.lineWidth = 3;
+            context.strokeStyle = "#ffffff";
+            context.strokeText(mark.text, labelX, labelY); // 白描边压住网格线与曲线
+            context.fillStyle = curve.color;
+            context.fillText(mark.text, labelX, labelY);
+        }
+        context.restore();
+    }
+
+    // 渐近线：过中心的两条虚线，只画视口内的一段（斜率大时不让坐标爆到画布外）
+    strokeAsymptotes(context, curve) {
+        const lines = curve.meta?.asymptotes || [];
+        if (!lines.length) {
+            return;
+        }
+        context.save();
+        context.setLineDash([7, 5]);
+        context.globalAlpha = 0.55;
+        context.strokeStyle = curve.color;
+        context.lineWidth = 1.5;
+        context.beginPath();
+        for (const { h, k, slope } of lines) {
+            const segment = this.clipLineToView(h, k, 1, slope);
+            if (!segment) {
+                continue;
+            }
+            context.moveTo(this.toPixelX(segment[0][0]), this.toPixelY(segment[0][1]));
+            context.lineTo(this.toPixelX(segment[1][0]), this.toPixelY(segment[1][1]));
+        }
+        context.stroke();
+        // 顺手把方程标在虚线旁边：取视口内那段 72% 处，靠右边界时改成右对齐
+        context.setLineDash([]);
+        context.globalAlpha = 0.9;
+        context.font = "12px system-ui, -apple-system, 'Segoe UI', sans-serif";
+        context.textBaseline = "middle";
+        for (const line of lines) {
+            const segment = this.clipLineToView(line.h, line.k, 1, line.slope);
+            if (!segment) {
+                continue;
+            }
+            const x = segment[0][0] + (segment[1][0] - segment[0][0]) * 0.72;
+            const y = segment[0][1] + (segment[1][1] - segment[0][1]) * 0.72;
+            const pixelX = this.toPixelX(x);
+            const pixelY = this.toPixelY(y);
+            const atRight = pixelX > this.width - 130;
+            context.textAlign = atRight ? "right" : "left";
+            const labelX = Math.min(Math.max(pixelX + (atRight ? -8 : 8), 6), this.width - 6);
+            const labelY = Math.min(Math.max(pixelY - 9, 14), this.height - 8);
+            context.lineWidth = 3;
+            context.strokeStyle = "#ffffff";
+            context.strokeText(line.text, labelX, labelY); // 白描边压住网格线，保证读得清
+            context.fillStyle = curve.color;
+            context.fillText(line.text, labelX, labelY);
+        }
+        context.restore();
+    }
+
+    // 参数式直线 (x0,y0)+t·(dx,dy) 与当前视口矩形的交段，不相交返回 null
+    clipLineToView(x0, y0, dx, dy) {
+        let tStart = -Infinity;
+        let tEnd = Infinity;
+        const slabs = [
+            [this.xmin, this.xmax, x0, dx],
+            [this.ymin, this.ymax, y0, dy],
+        ];
+        for (const [min, max, start, delta] of slabs) {
+            if (Math.abs(delta) < 1e-12) {
+                if (start < min || start > max) {
+                    return null;
+                }
+                continue;
+            }
+            const first = (min - start) / delta;
+            const second = (max - start) / delta;
+            tStart = Math.max(tStart, Math.min(first, second));
+            tEnd = Math.min(tEnd, Math.max(first, second));
+        }
+        if (!(tStart < tEnd)) {
+            return null;
+        }
+        return [
+            [x0 + dx * tStart, y0 + dy * tStart],
+            [x0 + dx * tEnd, y0 + dy * tEnd],
+        ];
     }
 
     strokeExplicit(context, explicit) {
@@ -1196,7 +1588,9 @@ class PlotSurface {
             context.fill();
         }
 
-        const label = `(${formatNumber(dataX)}, ${formatNumber(dataY)})`;
+        const radian = this.radianTicks();
+        const text = (value) => (radian ? piTick(value) : formatNumber(value));
+        const label = `(${text(dataX)}, ${text(dataY)})`;
         context.font = "12px system-ui, -apple-system, 'Segoe UI', sans-serif";
         const textWidth = context.measureText(label).width;
         const boxX = pixelX + textWidth + 20 > this.width ? pixelX - textWidth - 12 : pixelX + 8;
@@ -1271,8 +1665,12 @@ export class FunctionPlot extends Interaction {
         this.modalModes = this.el.querySelector("[data-plot-modal-modes]");
         this.modalFields = this.el.querySelector("[data-plot-modal-fields]");
         this.modalPreview = this.el.querySelector("[data-plot-modal-preview]");
+        this.modalExtrasEl = this.el.querySelector("[data-plot-modal-extras]");
+        this.modalMeta = this.el.querySelector("[data-plot-modal-meta]");
         this.modal = null;
         this.modalFieldInputs = [];
+        this.modalExtraInputs = [];
+        this.modalExtras = {};
         this.lastPointerDownAt = 0;
         for (const button of this.el.querySelectorAll("[data-plot-type]")) {
             button.addEventListener("click", () => this.openTypeModal(button.dataset.plotType), { signal });
@@ -1334,7 +1732,8 @@ export class FunctionPlot extends Interaction {
 
     presetDefault() {
         try {
-            this.surface.addCurve("x^2/4+y^2/9=1");
+            // 预置的椭圆也带上离心率（x²/4+y²/9=1 → a=3、b=2）
+            this.surface.addCurve("x^2/4+y^2/9=1", { eccentricity: eccentricityInfo(4, 9) });
         } catch {
             // 预置示例失败不影响使用
         }
@@ -1364,10 +1763,15 @@ export class FunctionPlot extends Interaction {
             return;
         }
         this.modal = { spec, mode: spec.modes ? spec.modes[0].key : null };
+        this.modalExtras = {};
+        for (const extra of spec.extras ? spec.extras(this.modal.mode) : []) {
+            this.modalExtras[extra.key] = !!extra.value;
+        }
         this.modalTitle.textContent = spec.label;
         this.updateModalHint();
         this.renderModalModes();
         this.renderModalFields();
+        this.renderModalExtras();
         this.updateModalPreview();
         this.modalEl.classList.remove("d-none");
     }
@@ -1400,6 +1804,7 @@ export class FunctionPlot extends Interaction {
                 this.updateModalHint();
                 this.renderModalModes();
                 this.renderModalFields();
+                this.renderModalExtras();
                 this.updateModalPreview();
             });
             this.modalModes.appendChild(button);
@@ -1433,6 +1838,44 @@ export class FunctionPlot extends Interaction {
         }
     }
 
+    // 复选项（目前只有双曲线的"画出渐近线"）：切换写法时保留已勾的状态
+    renderModalExtras() {
+        const { spec, mode } = this.modal;
+        const container = this.modalExtrasEl;
+        container.textContent = "";
+        this.modalExtraInputs = [];
+        const extras = spec.extras ? spec.extras(mode) : [];
+        if (!extras.length) {
+            container.classList.add("d-none");
+            return;
+        }
+        container.classList.remove("d-none");
+        for (const extra of extras) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "form-check mb-1";
+
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.className = "form-check-input";
+            input.id = `tutoring_plot_extra_${extra.key}`;
+            input.checked = !!this.modalExtras[extra.key];
+            input.addEventListener("change", () => {
+                this.modalExtras[extra.key] = input.checked;
+                this.updateModalPreview();
+            });
+
+            const label = document.createElement("label");
+            label.className = "form-check-label small";
+            label.setAttribute("for", input.id);
+            label.textContent = extra.label;
+
+            wrapper.appendChild(input);
+            wrapper.appendChild(label);
+            container.appendChild(wrapper);
+            this.modalExtraInputs.push({ key: extra.key, el: input });
+        }
+    }
+
     readModalValues() {
         const values = {};
         for (const field of this.modalFieldInputs) {
@@ -1445,35 +1888,59 @@ export class FunctionPlot extends Interaction {
         return values;
     }
 
-    composeModalEquation() {
-        const { spec, mode } = this.modal;
-        return spec.compose(mode, this.readModalValues());
-    }
-
     updateModalPreview() {
         if (!this.modal) {
             return;
         }
+        const { spec, mode } = this.modal;
         try {
-            const equation = this.composeModalEquation();
+            const values = this.readModalValues();
+            const equation = spec.compose(mode, values);
             buildModel(equation); // 顺便验证能不能画出来
             this.modalPreview.innerHTML = prettyEquation(equation);
             this.modalPreview.classList.remove("text-danger");
             this.modalPreview.classList.add("text-muted");
+            this.renderModalMeta(spec.describe ? spec.describe(mode, values, this.modalExtras) : null);
         } catch (error) {
             this.modalPreview.textContent = error.message;
             this.modalPreview.classList.add("text-danger");
             this.modalPreview.classList.remove("text-muted");
+            this.renderModalMeta(null);
         }
+    }
+
+    // 预览区下面那一行小字：椭圆的离心率、双曲线的渐近线说明
+    renderModalMeta(meta) {
+        const info = meta || {};
+        const texts = [];
+        if (info.eccentricity) {
+            texts.push(
+                `离心率 e = ${info.eccentricity.text}${info.eccentricity.circle ? "（这是圆）" : ""}`
+            );
+        }
+        if (info.radian) {
+            texts.push("坐标轴刻度、读数与交点改用 π 表示");
+        }
+        if (info.asymptotes && info.asymptotes.length) {
+            texts.push(`渐近线 ${asymptoteSummaryText(info.asymptotes)}`);
+            texts.push(
+                `　即 ${info.asymptotes.map((line) => line.slopeIntercept).join(" 与 ")}`
+            );
+        }
+        this.modalMeta.innerHTML = texts.map((text) => escapeHtml(text)).join("<br/>");
+        this.modalMeta.classList.toggle("d-none", texts.length === 0);
     }
 
     confirmTypeModal() {
         if (!this.modal) {
             return;
         }
+        const { spec, mode } = this.modal;
         try {
-            const equation = this.composeModalEquation();
-            this.surface.addCurve(equation);
+            const values = this.readModalValues();
+            const equation = spec.compose(mode, values);
+            const meta = spec.describe ? spec.describe(mode, values, this.modalExtras) : null;
+            this.surface.addCurve(equation, meta);
             this.surface.clearError();
             this.closeTypeModal();
         } catch (error) {
@@ -1618,7 +2085,8 @@ export class FunctionPlot extends Interaction {
         }
         const x = this.surface.toDataX(hover.pixelX);
         const y = this.surface.toDataY(hover.pixelY);
-        this.surface.readout.textContent = `x = ${formatNumber(x)}　y = ${formatNumber(y)}`;
+        const text = (value) => (this.surface.radianTicks() ? piTick(value) : formatNumber(value));
+        this.surface.readout.textContent = `x = ${text(x)}　y = ${text(y)}`;
     }
 
     readoutDefault() {

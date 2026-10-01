@@ -99,7 +99,9 @@
                         <h1 class="h3 fw-bold mb-2">函数图像绘制</h1>
                         <p class="text-muted mb-4">
                             选好曲线类型、把题目里的数填进去就能出图——圆、椭圆、双曲线、抛物线、直线都可以；
-                            也能像之前那样自己写方程。
+                            也能像之前那样自己写方程。双曲线可以勾选画出它的渐近线（虚线旁会标出渐近线方程，图例里也能看到），
+                            椭圆会直接给出离心率 e。三角函数可以勾选「用弧度制表示」，
+                            勾选后坐标轴刻度、读数与交点都写成 π/2、3π/2 这种课本形式。
                         </p>
 
                         <div class="tutoring_plot card border-0 shadow-sm">
@@ -171,8 +173,10 @@
                                     <p class="text-muted small mb-2" data-plot-modal-hint="1"/>
                                     <div class="d-flex flex-wrap gap-1 mb-3" data-plot-modal-modes="1"/>
                                     <div class="row g-2" data-plot-modal-fields="1"/>
+                                    <div data-plot-modal-extras="1"/>
                                     <div class="mt-3 p-2 bg-100 rounded fs-5"
                                          data-plot-modal-preview="1"/>
+                                    <div class="small text-muted mt-1" data-plot-modal-meta="1"/>
                                     <div class="d-flex gap-2 mt-3">
                                         <button type="button" class="btn btn-primary flex-grow-1"
                                                 data-plot-modal-confirm="1">确认添加</button>
