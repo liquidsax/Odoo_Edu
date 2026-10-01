@@ -31,6 +31,9 @@
             'tutoring_center/static/src/function_plot.js',
             'tutoring_center/static/src/function_plot.css',
         ],
+        'web.assets_backend': [
+            'tutoring_center/static/src/fields/**/*',
+        ],
     },
     'installable': True,
     'application': True,

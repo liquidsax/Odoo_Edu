@@ -111,10 +111,8 @@
                     <div class="col-6 col-md-4">
                         <div class="card h-100 border-0 bg-100">
                             <div class="card-body text-center">
-                                <div class="fs-2 fw-bold" t-attf-class="#{'text-danger' if mistake_open_count else 'text-success'}">
-                                    <t t-out="mistake_open_count"/>
-                                </div>
-                                <div class="text-muted small">待订正错题</div>
+                                <div class="fs-2 fw-bold text-primary"><t t-out="mistake_count"/></div>
+                                <div class="text-muted small">错题记录</div>
                             </div>
                         </div>
                     </div>
@@ -201,11 +199,6 @@
                                                     </a>
                                                 </td>
                                                 <td style="width: 1%; white-space: nowrap;" t-out="difficulty_labels.get(m.difficulty, '')"/>
-                                                <td style="width: 1%; white-space: nowrap;">
-                                                    <span class="badge"
-                                                          t-attf-class="#{'text-bg-info' if m.state == 'todo' else 'text-bg-success'}"
-                                                          t-out="mistake_states[m.state]"/>
-                                                </td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -499,7 +492,6 @@
                             <th class="d-none d-md-table-cell">发生日期</th>
                             <th class="d-none d-md-table-cell">相关教学内容</th>
                             <th>难度</th>
-                            <th>状态</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -515,11 +507,6 @@
                             <td class="d-none d-md-table-cell" t-out="m.date"/>
                             <td class="d-none d-md-table-cell" t-out="m.topic_id.name or '—'"/>
                             <td style="white-space: nowrap;" t-out="difficulty_labels.get(m.difficulty, '')"/>
-                            <td>
-                                <span class="badge"
-                                      t-attf-class="#{'text-bg-info' if m.state == 'todo' else 'text-bg-success'}"
-                                      t-out="mistake_states[m.state]"/>
-                            </td>
                         </tr>
                     </tbody>
                 </t>
@@ -553,10 +540,6 @@
                                 <tr><td class="text-muted">难度</td><td t-out="difficulty_labels.get(mistake.difficulty, '—')"/></tr>
                                 <tr><td class="text-muted">发生日期</td><td t-out="mistake.date"/></tr>
                                 <tr><td class="text-muted">记录时刻</td><td t-out="mistake.recorded_at_text or '—'"/></tr>
-                                <tr><td class="text-muted">状态</td>
-                                    <td><span class="badge"
-                                              t-attf-class="#{'text-bg-info' if mistake.state == 'todo' else 'text-bg-success'}"
-                                              t-out="mistake_states[mistake.state]"/></td></tr>
                             </tbody>
                         </table>
                         <h5 class="mt-4 mb-2">错因/备注</h5>
@@ -628,16 +611,6 @@
                                         </div>
                                     </t>
                                 </div>
-                            </div>
-                            <div class="mb-3" t-if="mode == 'edit'">
-                                <label class="form-label" for="state">状态</label>
-                                <select class="form-select" name="state" id="state">
-                                    <t t-foreach="mistake_states" t-as="st" t-key="st[0]">
-                                        <option t-att-value="st[0]" t-att-selected="st[0] == form['state']">
-                                            <t t-out="st[1]"/>
-                                        </option>
-                                    </t>
-                                </select>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label" for="note">错因/备注</label>
