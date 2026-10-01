@@ -24,7 +24,7 @@ class TutoringWorkbook(models.Model):
         for workbook in self:
             workbook.file_count = len(workbook.file_ids)
 
-    def _form_dialog(self, view_xmlid, name, res_id, context=None):
+    def _form_dialog(self, view_xmlid, name, res_id):
         return {
             'type': 'ir.actions.act_window',
             'name': name,
@@ -33,19 +33,18 @@ class TutoringWorkbook(models.Model):
             'view_mode': 'form',
             'views': [(self.env.ref('tutoring_center.%s' % view_xmlid).id, 'form')],
             'target': 'new',
-            'context': dict({'dialog_size': 'large'}, **(context or {})),
+            'context': {'dialog_size': 'large'},
         }
 
     def action_open_reader(self):
         """列表里单击整行 → 只读页中页：看这本书有哪些教材、点进去滚动阅读。
 
-        行点击不再落到单元格编辑，所以不会"一碰就改库"。
-        footer 关掉：只读页不该出现保存/放弃按钮。
+        行点击不再落到单元格编辑，所以不会"一碰就改库"。阅读台不出现保存/放弃，
+        靠视图里显式的 <footer>：动作 context 里写 footer:False 会让 Dialog 连
+        <footer> 节点都不生成，表单按钮插槽的 portal 找不到目标，实测直接崩。
         """
         self.ensure_one()
-        return self._form_dialog(
-            'view_tutoring_workbook_form_reader', self.display_name, self.id,
-            context={'footer': False})
+        return self._form_dialog('view_tutoring_workbook_form_reader', self.display_name, self.id)
 
     def action_open_edit(self):
         """「修改」→ 同一弹窗位置换成可编辑表单（改书名/备注、增删教材文件）。"""
@@ -67,3 +66,16 @@ class TutoringWorkbook(models.Model):
             context={'default_workbook_id': self.id})
         action['name'] = _('上传教材')
         return action
+
+    def action_open_goto(self):
+        """「按页码定位」→ 问一个全书页号，再翻译成"哪份分册的第几页"打开。"""
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('按页码定位'),
+            'res_model': 'tutoring.workbook.goto',
+            'view_mode': 'form',
+            'views': [(self.env.ref('tutoring_center.view_tutoring_workbook_goto_form').id, 'form')],
+            'target': 'new',
+            'context': {'default_workbook_id': self.id, 'dialog_size': 'small'},
+        }

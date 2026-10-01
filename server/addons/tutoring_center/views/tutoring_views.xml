@@ -466,14 +466,19 @@
             <field name="name">tutoring.workbook.reader.form</field>
             <field name="model">tutoring.workbook</field>
             <field name="arch" type="xml">
-                <!-- 只读靠逐字段 readonly + 动作 context 的 footer:False；
-                     刻意不写 form 根上的 create/edit/delete="false"：那三个是 activeActions 开关，
-                     与 header 上「修改」按钮的可点性关系未实证，不去赌 -->
+                <!-- 只读靠逐字段 readonly；footer 必须在这里显式声明：
+                     弹窗里 arch 带 <footer> 时核心不再追加默认的"保存/放弃"
+                     （form_compiler.compileFooter 只在 footer@replace 为假值时追加 DefaultButtonsSlot），
+                     而改用动作 context 里的 footer:False 会让 Dialog 连 <footer> 节点都不生成，
+                     表单按钮插槽的 portal 找不到目标 → OWL "invalid portal target" 崩溃（实测） -->
                 <form string="练习册">
                     <header>
                         <button name="action_new_file" type="object" string="上传教材"
                                 class="btn-primary" icon="fa-upload"
                                 title="选本机 PDF；上传后即可在页中页里滚动阅读"/>
+                        <button name="action_open_goto" type="object" string="按页码定位"
+                                class="btn-secondary" icon="fa-crosshairs"
+                                title="输整本书的页号，自动打开含这一页的分册并跳到那一页"/>
                         <button name="action_open_edit" type="object" string="修改"
                                 class="btn-secondary" icon="fa-pencil"
                                 title="改书名/备注、增删教材文件都要先进修改"/>
@@ -496,6 +501,7 @@
                                 <list type="object" action="action_open_viewer"
                                       create="false" delete="false">
                                     <field name="name"/>
+                                    <field name="page_range" string="本书页码"/>
                                     <field name="filename" optional="show"/>
                                     <field name="create_date" string="上传时间" optional="show"/>
                                 </list>
@@ -506,6 +512,9 @@
                             </div>
                         </group>
                     </sheet>
+                    <footer>
+                        <button string="关闭" special="cancel" class="btn-secondary" data-hotkey="z"/>
+                    </footer>
                 </form>
             </field>
         </record>
@@ -535,11 +544,15 @@
                             <field name="file_ids" nolabel="1" colspan="2">
                                 <list editable="bottom">
                                     <field name="name" placeholder="如 上册 / 答案册"/>
-                                    <field name="content" filename="filename"
+                                    <field name="page_from" string="起始页" placeholder="1"/>
+                                    <field name="page_to" string="结束页" placeholder="82"/>
+                                    <!-- filename 必须留在视图里且不能 readonly：上传组件靠它写文件名，
+                                         只读字段不进保存载荷（实测落库为 NULL） -->
+                                    <field name="filename" column_invisible="1"/>
+                                    <!-- 视图级必填：实测能存出一条没正文的空教材行，阅读页点进去是空壳。
+                                         不动模型层 required 是为了免重启（改 .py 必须重启服务） -->
+                                    <field name="content" required="1" filename="filename"
                                            options="{'accepted_file_extensions': '.pdf'}"/>
-                                    <field name="filename" readonly="1" optional="show"/>
-                                    <!-- 可编辑网格里单击单元格是"进编辑态"，行 action 不会触发，
-                                         所以这里用显式按钮打开阅读弹窗 -->
                                     <button name="action_open_viewer" type="object" string="看"
                                             icon="fa-book"/>
                                 </list>
@@ -572,16 +585,48 @@
                                 <field name="workbook_id" readonly="1"/>
                             </group>
                             <group>
-                                <field name="filename" readonly="1"/>
                                 <field name="create_date" string="上传时间" readonly="1"/>
                             </group>
                         </group>
                         <div class="text-muted mb-2">
-                            滚轮翻页阅读。传错了就再点一次上传图标重选文件，然后点「保存」写入数据库。
+                            滚轮翻页阅读。新建时选完文件点「保存」即写入数据库；
+                            要更换已上传的文件，请点「修改」后在对应行重新上传。
                         </div>
-                        <field name="content" widget="pdf_viewer" filename="filename"
+                        <!-- 已存在的记录在这个弹窗里是只读的（没有上传键、也没有保存），
+                             换文件走「修改」台；filename 用 invisible 而非 readonly，
+                             否则组件写入不落库（核心 hr_skills / l10n_in 同款写法） -->
+                        <field name="filename" invisible="1"/>
+                        <!-- pdf_viewer 组件按 `<字段名>_page` 取页号拼进 pdf.js 的 #page=N，
+                             所以「按页码定位」是靠这个钩子字段把全书页号送进阅读器的 -->
+                        <field name="content_page" invisible="1"/>
+                        <field name="content" required="1" widget="pdf_viewer" filename="filename"
                                class="o_workbook_pdf_viewer"/>
                     </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- 按页码定位：一本厚书按页切成几份后，使用者只需要说"这本书第 80 页" -->
+        <record id="view_tutoring_workbook_goto_form" model="ir.ui.view">
+            <field name="name">tutoring.workbook.goto.form</field>
+            <field name="model">tutoring.workbook.goto</field>
+            <field name="arch" type="xml">
+                <form string="按页码定位">
+                    <sheet>
+                        <group>
+                            <field name="workbook_id"/>
+                            <field name="page" default_focus="1" placeholder="如 80"/>
+                        </group>
+                        <div class="text-muted">
+                            页号按整本书连续计算（封面算第 1 页）。
+                            系统会打开含这一页的分册，并直接跳到那一页。
+                        </div>
+                    </sheet>
+                    <footer>
+                        <button name="action_goto" type="object" string="定位"
+                                class="btn-primary" data-hotkey="q"/>
+                        <button string="取消" special="cancel" class="btn-secondary" data-hotkey="z"/>
+                    </footer>
                 </form>
             </field>
         </record>

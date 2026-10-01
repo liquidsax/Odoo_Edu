@@ -695,7 +695,12 @@
                                 <a t-foreach="workbook_files" t-as="f" t-key="f.id"
                                    t-attf-href="/my/learning/workbook-files/#{f.id}"
                                    class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                                    <span t-out="f.name"/>
+                                    <span>
+                                        <t t-out="f.name"/>
+                                        <span class="text-muted small" t-if="f.page_range">
+                                            （<t t-out="f.page_range"/>）
+                                        </span>
+                                    </span>
                                     <span class="badge text-bg-light" t-out="f.filename or 'PDF'"/>
                                 </a>
                             </div>
