@@ -1,6 +1,6 @@
 {
     'name': '数学辅导数据中台',
-    'version': '19.0.1.2.0',
+    'version': '19.0.1.3.0',
     'category': 'Services',
     'summary': '一对一个性化数学辅导：学生档案、课次、作业、考试记录与学生/家长门户',
     'description': """
@@ -19,6 +19,7 @@
         'security/tutoring_security.xml',
         'security/ir.model.access.csv',
         'data/mistake_data.xml',
+        'data/knowledge_data.xml',
         'views/tutoring_views.xml',
         'views/partner_views.xml',
         'views/portal_templates.xml',
