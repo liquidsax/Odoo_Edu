@@ -9,6 +9,7 @@ access_tutoring_knowledge_point_teacher,tutoring.knowledge.point.teacher,model_t
 access_tutoring_student_point_teacher,tutoring.student.point.teacher,model_tutoring_student_point,group_teacher,1,1,1,1
 access_tutoring_mistake_teacher,tutoring.mistake.teacher,model_tutoring_mistake,group_teacher,1,1,1,1
 access_tutoring_workbook_teacher,tutoring.workbook.teacher,model_tutoring_workbook,group_teacher,1,1,1,1
+access_tutoring_workbook_file_teacher,tutoring.workbook.file.teacher,model_tutoring_workbook_file,group_teacher,1,1,1,1
 access_tutoring_mistake_quickadd_teacher,tutoring.mistake.quickadd.teacher,model_tutoring_mistake_quickadd,group_teacher,1,1,1,1
 access_tutoring_student_portal,tutoring.student.portal,model_tutoring_student,base.group_portal,1,0,0,0
 access_tutoring_topic_portal,tutoring.topic.portal,model_tutoring_topic,base.group_portal,1,0,0,0
@@ -20,3 +21,4 @@ access_tutoring_knowledge_point_portal,tutoring.knowledge.point.portal,model_tut
 access_tutoring_student_point_portal,tutoring.student.point.portal,model_tutoring_student_point,base.group_portal,1,0,0,0
 access_tutoring_mistake_portal,tutoring.mistake.portal,model_tutoring_mistake,base.group_portal,1,1,1,0
 access_tutoring_workbook_portal,tutoring.workbook.portal,model_tutoring_workbook,base.group_portal,1,0,0,0
+access_tutoring_workbook_file_portal,tutoring.workbook.file.portal,model_tutoring_workbook_file,base.group_portal,1,0,0,0

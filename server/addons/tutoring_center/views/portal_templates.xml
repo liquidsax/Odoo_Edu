@@ -10,6 +10,12 @@
                     <t t-set="text">查看上课安排、考试成绩与错题订正</t>
                     <t t-set="placeholder_count" t-value="'tutoring_session_count'"/>
                 </t>
+                <t t-call="portal.portal_docs_entry">
+                    <t t-set="title">教材</t>
+                    <t t-set="url" t-value="'/my/learning/workbooks'"/>
+                    <t t-set="text">在线滚动阅读老师上传的练习册 / 教辅 PDF</t>
+                    <t t-set="placeholder_count" t-value="'tutoring_workbook_count'"/>
+                </t>
             </div>
         </template>
 
@@ -72,6 +78,17 @@
                 </li>
                 <li t-if="mistake and page_name == 'tutoring_mistakes'" class="breadcrumb-item active">
                     <t t-out="mistake.workbook_id.name"/>
+                </li>
+                <li t-if="page_name == 'tutoring_workbooks'"
+                    t-attf-class="breadcrumb-item #{'active' if not (workbook or workbook_file) else ''}">
+                    <a t-if="workbook or workbook_file" href="/my/learning/workbooks">教材</a>
+                    <t t-else="">教材</t>
+                </li>
+                <li t-if="workbook and page_name == 'tutoring_workbooks'" class="breadcrumb-item active">
+                    <t t-out="workbook.name"/>
+                </li>
+                <li t-if="workbook_file and page_name == 'tutoring_workbooks'" class="breadcrumb-item active">
+                    <t t-out="workbook_file.name"/>
                 </li>
             </xpath>
         </template>
@@ -545,6 +562,11 @@
                         <h5 class="mt-4 mb-2">错因/备注</h5>
                         <p t-if="mistake.note" style="white-space: pre-wrap;" t-out="mistake.note"/>
                         <p t-else="" class="text-muted">暂无记录。</p>
+                        <p t-if="mistake.workbook_id.file_count" class="mb-0">
+                            <a t-attf-href="/my/learning/workbooks/#{mistake.workbook_id.id}">
+                                看《<t t-out="mistake.workbook_id.name"/>》的教材 →
+                            </a>
+                        </p>
                     </div>
                 </div>
             </t>
@@ -625,6 +647,78 @@
                         </form>
                     </div>
                 </div>
+            </t>
+        </template>
+
+        <!-- ===== 教材：练习册列表 ===== -->
+        <template id="portal_my_learning_workbooks" name="我的教材">
+            <t t-call="portal.portal_layout">
+                <t t-set="breadcrumbs_searchbar" t-value="True"/>
+                <t t-call="portal.portal_searchbar">
+                    <t t-set="title">教材</t>
+                </t>
+                <t t-if="not workbooks">
+                    <p class="alert alert-warning">还没有可阅读的教材。老师在练习册里上传 PDF 后会出现在这里。</p>
+                </t>
+                <t t-if="workbooks" t-call="portal.portal_table">
+                    <thead>
+                        <tr class="active">
+                            <th>练习册</th>
+                            <th class="text-end">教材份数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="workbooks" t-as="wb" t-key="wb.id">
+                            <td><a t-attf-href="/my/learning/workbooks/#{wb.id}" t-out="wb.name"/></td>
+                            <td class="text-end" t-out="wb.file_count"/>
+                        </tr>
+                    </tbody>
+                </t>
+            </t>
+        </template>
+
+        <!-- ===== 教材：某本练习册的文件清单 ===== -->
+        <template id="portal_my_learning_workbook" name="教材清单">
+            <t t-call="portal.portal_layout">
+                <div class="card">
+                    <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+                        <span t-out="workbook.name"/>
+                        <a class="btn btn-sm btn-secondary" href="/my/learning/workbooks">全部教材</a>
+                    </div>
+                    <div class="card-body">
+                        <p t-if="workbook.note" class="text-muted" t-out="workbook.note"/>
+                        <t t-if="not workbook_files">
+                            <p class="text-muted mb-0">这本书还没有上传教材文件。</p>
+                        </t>
+                        <t t-else="">
+                            <div class="list-group">
+                                <a t-foreach="workbook_files" t-as="f" t-key="f.id"
+                                   t-attf-href="/my/learning/workbook-files/#{f.id}"
+                                   class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                    <span t-out="f.name"/>
+                                    <span class="badge text-bg-light" t-out="f.filename or 'PDF'"/>
+                                </a>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </t>
+        </template>
+
+        <!-- ===== 教材：滚动阅读页（pdf.js，与后台同一查看器） ===== -->
+        <template id="portal_my_learning_workbook_file" name="阅读教材">
+            <t t-call="portal.portal_layout">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h4 class="mb-0">
+                        <t t-out="workbook_file.workbook_id.name"/> · <t t-out="workbook_file.name"/>
+                    </h4>
+                    <a class="btn btn-sm btn-secondary"
+                       t-attf-href="/my/learning/workbooks/#{workbook_file.workbook_id.id}">返回</a>
+                </div>
+                <iframe class="w-100 border-0" style="height: 78vh;"
+                        t-att-src="viewer_url" t-att-title="workbook_file.name">
+                    当前浏览器不支持内嵌阅读。
+                </iframe>
             </t>
         </template>
     </data>

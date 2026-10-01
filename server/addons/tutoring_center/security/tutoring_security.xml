@@ -122,6 +122,19 @@
             <field name="perm_unlink" eval="False"/>
         </record>
 
+        <record id="rule_workbook_file_portal" model="ir.rule">
+            <!-- 教材 PDF 与练习册同类：共享教辅资料，门户只读；
+                 /web/content 出图与 pdf.js 取流都走这条规则的 read 校验 -->
+            <field name="name">教材文件：门户可读</field>
+            <field name="model_id" ref="model_tutoring_workbook_file"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
         <record id="rule_knowledge_point_portal" model="ir.rule">
             <field name="name">知识点：门户可读</field>
             <field name="model_id" ref="model_tutoring_knowledge_point"/>

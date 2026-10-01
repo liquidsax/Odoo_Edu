@@ -1,0 +1,8 @@
+/* 核心把 pdf.js 阅读框写死成 450px（fields.scss: .o_field_widget.o_field_pdf_viewer .o_pdfview_iframe）。
+   页中页里要滚轮读整本书，这里抬到接近整屏。
+   选择器只依赖 arch 上亲手写的 o_workbook_pdf_viewer（field.js 把它并到字段根节点）+ 一个元素名，
+   不依赖 widget 自动类名——pdf_viewer 没声明 additionalClasses，那个类未必出现在 DOM 里。 */
+.o_field_widget.o_workbook_pdf_viewer iframe.o_pdfview_iframe {
+    height: 74vh;
+    min-height: 460px;
+}

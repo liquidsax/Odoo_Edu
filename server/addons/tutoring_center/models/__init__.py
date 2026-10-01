@@ -5,6 +5,7 @@ from . import tutoring_session
 from . import tutoring_homework
 from . import tutoring_exam
 from . import tutoring_workbook
+from . import tutoring_workbook_file
 from . import tutoring_mistake
 from . import tutoring_mistake_quickadd
 from . import ir_ui_menu
