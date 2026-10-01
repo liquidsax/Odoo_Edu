@@ -31,11 +31,11 @@ for n in TOPIC_NAMES:
     topics[n] = Topic.search([('name', '=', n)], limit=1) or Topic.create({'name': n})
 
 # 学生 A（演示数据，名称可改）
-student_a = Student.create({'name': '学生A', 'grade': '7', 'school': '示例中学', 'status': 'active'})
+student_a = Student.create({'name': '学生A', 'grade': '07', 'school': '示例中学', 'status': 'active'})
 user_a = make_user('biaodi', DEMO_PW_A, '学生A', student_a.partner_id)
 
 # 学生 B（隔离验证用，验收后可删）
-student_b = Student.create({'name': '示例学生B', 'grade': '8', 'school': '示例中学', 'status': 'active'})
+student_b = Student.create({'name': '示例学生B', 'grade': '08', 'school': '示例中学', 'status': 'active'})
 user_b = make_user('student02', DEMO_PW_B, '示例学生B', student_b.partner_id)
 
 D = datetime.date

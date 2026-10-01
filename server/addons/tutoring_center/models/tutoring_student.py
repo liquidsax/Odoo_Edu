@@ -1,5 +1,7 @@
 from odoo import _, api, fields, models
 
+from .tutoring_knowledge import GRADE_SELECTION
+
 
 class TutoringStudent(models.Model):
     _name = 'tutoring.student'
@@ -11,9 +13,7 @@ class TutoringStudent(models.Model):
     partner_id = fields.Many2one(
         'res.partner', string='门户联系人', tracking=True,
         help='学生（或代学生查看的家长）用该联系人的门户账号登录，查看本学生的学习数据。')
-    grade = fields.Selection([
-        ('7', '七年级'), ('8', '八年级'), ('9', '九年级'),
-    ], string='年级', default='7', required=True, tracking=True)
+    grade = fields.Selection(GRADE_SELECTION, string='年级', default='07', required=True, tracking=True)
     school = fields.Char('学校')
     status = fields.Selection([
         ('active', '在读'), ('paused', '暂停'), ('done', '结课'),

@@ -420,7 +420,7 @@
             <field name="context">{'search_default_group_grade': 1}</field>
             <field name="help" type="html">
                 <p class="o_view_nocontent_smiling_face">按年级维护知识点库</p>
-                <p>例如七年级的"一元一次方程"、"有理数运算"。在学生档案的"知识点掌握"页签中，可直接从本库挑选该生需要掌握的知识点。</p>
+                <p>例如初一的"一元一次方程"、"有理数运算"。在学生档案的"知识点掌握"页签中，可直接从本库挑选该生需要掌握的知识点。</p>
             </field>
         </record>
 

@@ -1,5 +1,13 @@
 from odoo import fields, models
 
+# 初中 7~9 年级按国内习惯叫初一/初二/初三，另备高中 10~12（高一/高二/高三）。
+# 键值补零为两位（'07' 而非 '7'）：Selection 在库里存字符串，知识点列表的
+# _order 与「按年级分组」都按字符串比较，不补零会让高一/高二/高三排在初一之前。
+GRADE_SELECTION = [
+    ('07', '初一'), ('08', '初二'), ('09', '初三'),
+    ('10', '高一'), ('11', '高二'), ('12', '高三'),
+]
+
 
 class TutoringKnowledgePoint(models.Model):
     _name = 'tutoring.knowledge.point'
@@ -7,9 +15,7 @@ class TutoringKnowledgePoint(models.Model):
     _order = 'grade, name'
 
     name = fields.Char('知识点', required=True)
-    grade = fields.Selection([
-        ('7', '七年级'), ('8', '八年级'), ('9', '九年级'),
-    ], string='年级', required=True, index=True)
+    grade = fields.Selection(GRADE_SELECTION, string='年级', required=True, index=True)
     note = fields.Char('说明')
     active = fields.Boolean('有效', default=True)
 
