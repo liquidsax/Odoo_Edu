@@ -66,3 +66,16 @@ class TutoringWorkbook(models.Model):
             context={'default_workbook_id': self.id})
         action['name'] = _('上传教材')
         return action
+
+    def action_open_goto(self):
+        """「按页码定位」→ 问一个全书页号，再翻译成"哪份分册的第几页"打开。"""
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('按页码定位'),
+            'res_model': 'tutoring.workbook.goto',
+            'view_mode': 'form',
+            'views': [(self.env.ref('tutoring_center.view_tutoring_workbook_goto_form').id, 'form')],
+            'target': 'new',
+            'context': {'default_workbook_id': self.id, 'dialog_size': 'small'},
+        }
