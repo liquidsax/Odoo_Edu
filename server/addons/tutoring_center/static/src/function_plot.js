@@ -440,6 +440,105 @@ function conicCombination(terms) {
         .join("");
 }
 
+// 把数值尽量写成课本里的根式/分数（√3/2、2√5/3、1/2）；写不出就返回 null 由调用方退回小数
+function radicalText(value) {
+    if (!Number.isFinite(value) || value <= 0) {
+        return null;
+    }
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    const square = value * value;
+    for (let denominator = 1; denominator <= 64; denominator++) {
+        const numerator = Math.round(square * denominator);
+        if (numerator <= 0 || numerator > 100000) {
+            continue;
+        }
+        if (Math.abs(square - numerator / denominator) > 1e-9 * Math.max(1, square)) {
+            continue;
+        }
+        // value = √(numerator/denominator) = √(numerator·denominator)/denominator
+        // 把根号里能开出来的因数提到根号外：√12/4 → 2√3/4 → √3/2
+        let rest = numerator * denominator;
+        let outside = 1;
+        for (let divisor = 2; divisor * divisor <= rest; divisor++) {
+            while (rest % (divisor * divisor) === 0) {
+                rest /= divisor * divisor;
+                outside *= divisor;
+            }
+        }
+        const common = gcd(outside, denominator) || 1;
+        const head = outside / common;
+        const tail = denominator / common;
+        if (rest === 1) {
+            return tail === 1 ? String(head) : `${head}/${tail}`;
+        }
+        const radical = `${head === 1 ? "" : head}√${rest}`;
+        return tail === 1 ? radical : `${radical}/${tail}`;
+    }
+    return null;
+}
+
+// 课本写法优先，化不出就退回小数：√3/2 ≈ 0.866
+function exactNumberText(value) {
+    if (!Number.isFinite(value)) {
+        return "—";
+    }
+    if (value === 0) {
+        return "0";
+    }
+    const radical = radicalText(value);
+    return radical ? `${radical} ≈ ${formatNumber(value)}` : formatNumber(value);
+}
+
+// 椭圆离心率 e = c/a = √(1 - b²/a²)（a 长半轴、b 短半轴）；两轴相等时是圆，e=0
+function eccentricityInfo(semiAxisX2, semiAxisY2) {
+    if (!(semiAxisX2 > 0) || !(semiAxisY2 > 0)) {
+        return null;
+    }
+    const major2 = Math.max(semiAxisX2, semiAxisY2);
+    const minor2 = Math.min(semiAxisX2, semiAxisY2);
+    const value = Math.sqrt(Math.max(0, 1 - minor2 / major2));
+    return { value, text: exactNumberText(value), circle: value <= 1e-12 };
+}
+
+// 双曲线渐近线：过中心 (h,k) 的两条直线 y-k = ±slope·(x-h)。
+// 实轴在 x 轴是 y-k = ±(b/a)(x-h)，在 y 轴是 y-k = ±(a/b)(x-h)。
+function hyperbolaAsymptotes(mode, v) {
+    let transverse2; // a²
+    let conjugate2; // b²
+    let transverseY = false;
+    if (mode === "coefficient") {
+        // Ax²+By²=N：先按 N 的符号归一化，正系数那一项就是实轴
+        const sign = v.N > 0 ? 1 : -1;
+        const coefficientX = sign * v.A;
+        const coefficientY = sign * v.B;
+        const total = Math.abs(v.N);
+        if (coefficientX > 0) {
+            transverse2 = total / coefficientX;
+            conjugate2 = total / Math.abs(coefficientY);
+        } else {
+            transverse2 = total / coefficientY;
+            conjugate2 = total / Math.abs(coefficientX);
+            transverseY = true;
+        }
+    } else {
+        transverse2 = v.a2;
+        conjugate2 = v.b2;
+        transverseY = mode === "y";
+    }
+    if (!(transverse2 > 0) || !(conjugate2 > 0)) {
+        return [];
+    }
+    const transverse = Math.sqrt(transverse2);
+    const conjugate = Math.sqrt(conjugate2);
+    const slope = transverseY ? transverse / conjugate : conjugate / transverse;
+    const h = v.h || 0;
+    const k = v.k || 0;
+    return [
+        { h, k, slope },
+        { h, k, slope: -slope },
+    ];
+}
+
 // 每个类型：字段默认值可直接用；fields 随"写法"切换；compose 抛错即校验失败
 const CURVE_TYPES = {
     circle: {
@@ -517,6 +616,14 @@ const CURVE_TYPES = {
             }
             return `${squaredTerm("x", v.h, v.a2)}+${squaredTerm("y", v.k, v.b2)}=1`;
         },
+        // 离心率 e = c/a：分母式直接是两分母，系数式先换算成 x²/(N/A)+y²/(N/B)=1
+        describe: (mode, v) => {
+            const info =
+                mode === "coefficient"
+                    ? eccentricityInfo(v.N / v.A, v.N / v.B)
+                    : eccentricityInfo(v.a2, v.b2);
+            return info ? { eccentricity: info } : null;
+        },
     },
     hyperbola: {
         label: "双曲线",
@@ -566,6 +673,10 @@ const CURVE_TYPES = {
             const negative = focusY ? squaredTerm("x", v.h, v.b2) : squaredTerm("y", v.k, v.b2);
             return `${positive}-${negative}=1`;
         },
+        // 勾选后才带渐近线；三种写法都从 a、b 反推斜率
+        extras: () => [{ key: "showAsymptotes", label: "画出渐近线（虚线）", value: false }],
+        describe: (mode, v, extras) =>
+            extras.showAsymptotes ? { asymptotes: hyperbolaAsymptotes(mode, v) } : null,
     },
     parabola: {
         label: "抛物线",
@@ -764,6 +875,15 @@ function prettyEquation(text) {
     return out;
 }
 
+// 图例里挂在曲线后面的小标签（离心率、渐近线这类附带信息）
+function infoBadge(text, title) {
+    const badge = document.createElement("span");
+    badge.className = "badge bg-light text-dark border fw-normal";
+    badge.textContent = text;
+    badge.title = title;
+    return badge;
+}
+
 class PlotSurface {
     constructor(root) {
         this.root = root;
@@ -855,13 +975,15 @@ class PlotSurface {
 
     /* -------------------------------- 曲线管理 ------------------------------- */
 
-    addCurve(expression) {
+    // meta 是"这条曲线的附带信息"：椭圆的离心率、双曲线勾选的渐近线
+    addCurve(expression, meta = null) {
         const model = buildModel(expression);
         const curve = {
             expression,
             model,
             color: PALETTE[this.curves.length % PALETTE.length],
             visible: true,
+            meta,
         };
         this.curves.push(curve);
         this.renderLegend();
@@ -906,6 +1028,14 @@ class PlotSurface {
                 label.className = "fw-semibold";
             }
             wrap.appendChild(label);
+
+            const info = curve.meta || {};
+            if (info.eccentricity) {
+                wrap.appendChild(infoBadge(`e = ${info.eccentricity.text}`, "离心率 e = c/a"));
+            }
+            if (info.asymptotes && info.asymptotes.length) {
+                wrap.appendChild(infoBadge("含渐近线", "虚线是这条双曲线的两条渐近线"));
+            }
 
             const toggle = document.createElement("button");
             toggle.type = "button";
@@ -962,6 +1092,8 @@ class PlotSurface {
             context.lineWidth = 2;
             context.lineJoin = "round";
             context.lineCap = "round";
+            // 渐近线先画（在曲线下面），再画曲线本身
+            this.strokeAsymptotes(context, curve);
             if (curve.model.kind === "explicit") {
                 this.strokeExplicit(context, curve.model.explicit);
             } else if (curve.model.kind === "implicit") {
@@ -1036,6 +1168,59 @@ class PlotSurface {
             const labelX = showAxisY ? axisX - 6 : this.width - 6;
             context.fillText(formatTick(value, step), Math.max(16, labelX), this.toPixelY(value));
         }
+    }
+
+    // 渐近线：过中心的两条虚线，只画视口内的一段（斜率大时不让坐标爆到画布外）
+    strokeAsymptotes(context, curve) {
+        const lines = curve.meta?.asymptotes || [];
+        if (!lines.length) {
+            return;
+        }
+        context.save();
+        context.setLineDash([7, 5]);
+        context.globalAlpha = 0.55;
+        context.strokeStyle = curve.color;
+        context.lineWidth = 1.5;
+        context.beginPath();
+        for (const { h, k, slope } of lines) {
+            const segment = this.clipLineToView(h, k, 1, slope);
+            if (!segment) {
+                continue;
+            }
+            context.moveTo(this.toPixelX(segment[0][0]), this.toPixelY(segment[0][1]));
+            context.lineTo(this.toPixelX(segment[1][0]), this.toPixelY(segment[1][1]));
+        }
+        context.stroke();
+        context.restore();
+    }
+
+    // 参数式直线 (x0,y0)+t·(dx,dy) 与当前视口矩形的交段，不相交返回 null
+    clipLineToView(x0, y0, dx, dy) {
+        let tStart = -Infinity;
+        let tEnd = Infinity;
+        const slabs = [
+            [this.xmin, this.xmax, x0, dx],
+            [this.ymin, this.ymax, y0, dy],
+        ];
+        for (const [min, max, start, delta] of slabs) {
+            if (Math.abs(delta) < 1e-12) {
+                if (start < min || start > max) {
+                    return null;
+                }
+                continue;
+            }
+            const first = (min - start) / delta;
+            const second = (max - start) / delta;
+            tStart = Math.max(tStart, Math.min(first, second));
+            tEnd = Math.min(tEnd, Math.max(first, second));
+        }
+        if (!(tStart < tEnd)) {
+            return null;
+        }
+        return [
+            [x0 + dx * tStart, y0 + dy * tStart],
+            [x0 + dx * tEnd, y0 + dy * tEnd],
+        ];
     }
 
     strokeExplicit(context, explicit) {
@@ -1271,8 +1456,12 @@ export class FunctionPlot extends Interaction {
         this.modalModes = this.el.querySelector("[data-plot-modal-modes]");
         this.modalFields = this.el.querySelector("[data-plot-modal-fields]");
         this.modalPreview = this.el.querySelector("[data-plot-modal-preview]");
+        this.modalExtrasEl = this.el.querySelector("[data-plot-modal-extras]");
+        this.modalMeta = this.el.querySelector("[data-plot-modal-meta]");
         this.modal = null;
         this.modalFieldInputs = [];
+        this.modalExtraInputs = [];
+        this.modalExtras = {};
         this.lastPointerDownAt = 0;
         for (const button of this.el.querySelectorAll("[data-plot-type]")) {
             button.addEventListener("click", () => this.openTypeModal(button.dataset.plotType), { signal });
@@ -1334,7 +1523,8 @@ export class FunctionPlot extends Interaction {
 
     presetDefault() {
         try {
-            this.surface.addCurve("x^2/4+y^2/9=1");
+            // 预置的椭圆也带上离心率（x²/4+y²/9=1 → a=3、b=2）
+            this.surface.addCurve("x^2/4+y^2/9=1", { eccentricity: eccentricityInfo(4, 9) });
         } catch {
             // 预置示例失败不影响使用
         }
@@ -1364,10 +1554,15 @@ export class FunctionPlot extends Interaction {
             return;
         }
         this.modal = { spec, mode: spec.modes ? spec.modes[0].key : null };
+        this.modalExtras = {};
+        for (const extra of spec.extras ? spec.extras(this.modal.mode) : []) {
+            this.modalExtras[extra.key] = !!extra.value;
+        }
         this.modalTitle.textContent = spec.label;
         this.updateModalHint();
         this.renderModalModes();
         this.renderModalFields();
+        this.renderModalExtras();
         this.updateModalPreview();
         this.modalEl.classList.remove("d-none");
     }
@@ -1400,6 +1595,7 @@ export class FunctionPlot extends Interaction {
                 this.updateModalHint();
                 this.renderModalModes();
                 this.renderModalFields();
+                this.renderModalExtras();
                 this.updateModalPreview();
             });
             this.modalModes.appendChild(button);
@@ -1433,6 +1629,44 @@ export class FunctionPlot extends Interaction {
         }
     }
 
+    // 复选项（目前只有双曲线的"画出渐近线"）：切换写法时保留已勾的状态
+    renderModalExtras() {
+        const { spec, mode } = this.modal;
+        const container = this.modalExtrasEl;
+        container.textContent = "";
+        this.modalExtraInputs = [];
+        const extras = spec.extras ? spec.extras(mode) : [];
+        if (!extras.length) {
+            container.classList.add("d-none");
+            return;
+        }
+        container.classList.remove("d-none");
+        for (const extra of extras) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "form-check mb-1";
+
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.className = "form-check-input";
+            input.id = `tutoring_plot_extra_${extra.key}`;
+            input.checked = !!this.modalExtras[extra.key];
+            input.addEventListener("change", () => {
+                this.modalExtras[extra.key] = input.checked;
+                this.updateModalPreview();
+            });
+
+            const label = document.createElement("label");
+            label.className = "form-check-label small";
+            label.setAttribute("for", input.id);
+            label.textContent = extra.label;
+
+            wrapper.appendChild(input);
+            wrapper.appendChild(label);
+            container.appendChild(wrapper);
+            this.modalExtraInputs.push({ key: extra.key, el: input });
+        }
+    }
+
     readModalValues() {
         const values = {};
         for (const field of this.modalFieldInputs) {
@@ -1445,35 +1679,53 @@ export class FunctionPlot extends Interaction {
         return values;
     }
 
-    composeModalEquation() {
-        const { spec, mode } = this.modal;
-        return spec.compose(mode, this.readModalValues());
-    }
-
     updateModalPreview() {
         if (!this.modal) {
             return;
         }
+        const { spec, mode } = this.modal;
         try {
-            const equation = this.composeModalEquation();
+            const values = this.readModalValues();
+            const equation = spec.compose(mode, values);
             buildModel(equation); // 顺便验证能不能画出来
             this.modalPreview.innerHTML = prettyEquation(equation);
             this.modalPreview.classList.remove("text-danger");
             this.modalPreview.classList.add("text-muted");
+            this.renderModalMeta(spec.describe ? spec.describe(mode, values, this.modalExtras) : null);
         } catch (error) {
             this.modalPreview.textContent = error.message;
             this.modalPreview.classList.add("text-danger");
             this.modalPreview.classList.remove("text-muted");
+            this.renderModalMeta(null);
         }
+    }
+
+    // 预览区下面那一行小字：椭圆的离心率、双曲线的渐近线说明
+    renderModalMeta(meta) {
+        const info = meta || {};
+        const texts = [];
+        if (info.eccentricity) {
+            texts.push(
+                `离心率 e = ${info.eccentricity.text}${info.eccentricity.circle ? "（这是圆）" : ""}`
+            );
+        }
+        if (info.asymptotes && info.asymptotes.length) {
+            texts.push("虚线为两条渐近线");
+        }
+        this.modalMeta.textContent = texts.join("　");
+        this.modalMeta.classList.toggle("d-none", texts.length === 0);
     }
 
     confirmTypeModal() {
         if (!this.modal) {
             return;
         }
+        const { spec, mode } = this.modal;
         try {
-            const equation = this.composeModalEquation();
-            this.surface.addCurve(equation);
+            const values = this.readModalValues();
+            const equation = spec.compose(mode, values);
+            const meta = spec.describe ? spec.describe(mode, values, this.modalExtras) : null;
+            this.surface.addCurve(equation, meta);
             this.surface.clearError();
             this.closeTypeModal();
         } catch (error) {
