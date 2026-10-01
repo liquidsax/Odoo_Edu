@@ -117,3 +117,4 @@ ls server/addons/tutoring_center/migrations/
 | 时间（本地） | 分支 / agent | 动作 | 状态 |
 |---|---|---|---|
 | 2026-10-01 13:49–17:35 | `feature/workbook-file-reader` | 同步副本 + 两次 `-u`（19.0.1.4.0 → 19.0.1.5.0）+ 真机验收 | 已完成并释放 |
+| 2026-10-01 19:32–19:55 | `feature/mistake-page-detail` | 同步副本 + 停服 `-u`（19.0.1.5.0 → 19.0.1.6.0，新增模型 `tutoring.workbook.page`）+ 真机验收 | 已完成并释放 |
