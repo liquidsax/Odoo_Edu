@@ -115,6 +115,8 @@
 
 17. **SQL 判重约束：换定义可以，换属性名会留幽灵**——Odoo 19 的 `Constraint.apply_to_database` 拿库里的定义与代码比对，不同就 `DROP` 再 `ADD`（知识点判重从 `unique(name, grade)` 换成含 `parent_id` 已实测生效）；但它只遍历模型**当前声明**的表对象，属性名一改旧约束就没人认领、永久留在库里继续拦数据，所以改定义时保持 `_name_grade_uniq` 这个名字别动。另注意 `unique(..., parent_id)` 里 NULL 互相视为不同——**枝干层（无上级）重名数据库不管**。
 
+18. **Odoo 不能挂在子路径下（`domain/edu` 这种一律不通）**——它生成的资源与表单 URL 全是根相对路径（实测登录页里 `href="/web/static/src/…"`、`action="/website/search"`），套前缀后这些请求会打到同域名的别的应用上；JS 运行时拼出的 `/jsonrpc`、`/web/dataset/*` 连 `sub_filter` 都改不动。`proxy_mode` / `web.base.url` 只处理主机名，**公网部署必须用独立主机名（子域名）**。反代三件套必须齐：`X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host`，且 `proxy_mode = True`——否则登录防爆破按来源 IP 计数（`res_users.py:1283-1303`，默认 5 次失败 / 60 秒冷却）会把所有访客当成同一个人，一人连错全员被关；Odoo 用 `ProxyFix(x_for=1, x_proto=1, x_host=1)`（`http.py:189-190`）。另两条：没配 SMTP 就把 `auth_signup.reset_password` 设 `False`（否则那页面 200 却永远发不出信，实测 `mail_mail.state=exception`）；`ports` 收回 `127.0.0.1:8069:8069` 才是真不泄露端口（compose 里 `ports` 默认合并，要 `!override` 才替换得掉基础文件的写法）。
+
 ## 六、文档索引
 
 | 文档 | 内容 |
