@@ -187,6 +187,13 @@ docker compose up -d        # 自动建库 + 装 tutoring_center + 中文语言�
 - 清空重来：`docker compose down -v`（容器内数据一次性，不影响仓库代码）；
 - 8069 占用改端口映射；详细说明见根 README「快速开始」。
 
+> **PG18 挂载点（2026-10-01 修正）**：`postgres:18-alpine` 的数据卷必须挂在 `/var/lib/postgresql`，
+> 挂成 `.../data` 会被 entrypoint 判为脏卷并无限重启——即本文件路径 B 在此之前**在任何机器上都起不来**。
+> 在此之前 clone 的旧副本要 `docker compose down -v` 重来一次。
+>
+> **要部署到公网服务器**（关库列表、改 admin 口令、加资源上限、同步版本）按
+> [deploy-cloud.md](deploy-cloud.md) 做，不要直接拿本节的开发配置对外提供服务。
+
 ---
 
 ## 环境自检清单（agent 逐项验证后再开始开发）

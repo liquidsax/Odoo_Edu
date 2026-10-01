@@ -118,3 +118,4 @@ ls server/addons/tutoring_center/migrations/
 |---|---|---|---|
 | 2026-10-01 13:49–17:35 | `feature/workbook-file-reader` | 同步副本 + 两次 `-u`（19.0.1.4.0 → 19.0.1.5.0）+ 真机验收 | 已完成并释放 |
 | 2026-10-01 19:32–19:55 | `feature/mistake-page-detail` | 同步副本 + 停服 `-u`（19.0.1.5.0 → 19.0.1.6.0，新增模型 `tutoring.workbook.page`）+ 真机验收 | 已完成并释放 |
+| 2026-10-01 22:35–22:52 | 云服务器部署线（`fix/docker-pg18-mount-and-cloud-deploy`） | **只动腾讯云 CVM，不碰本机 `OdooForDB`**：clone 切 main、`-u tutoring_center`（19.0.1.0.0 → 19.0.1.7.0，跑 `19.0.1.2.0` pre-migrate）、容器内验收后 stop 下线 | 已完成并释放 |
