@@ -536,7 +536,77 @@ function hyperbolaAsymptotes(mode, v) {
     return [
         { h, k, slope },
         { h, k, slope: -slope },
-    ];
+    ].map((line) => ({
+        ...line,
+        text: asymptoteLineText(line),
+        slopeIntercept: asymptoteSlopeIntercept(line),
+    }));
+}
+
+// ---- 渐近线方程的课本写法 ----
+// 系数先试根式/分数（3/2、√5/2、2√3/3），化不出才退回四位小数；±1 返回空串（省掉系数）
+function slopeCoefficientText(value) {
+    const abs = Math.abs(value);
+    if (Math.abs(abs - 1) < 1e-12) {
+        return "";
+    }
+    return radicalText(abs) || formatNumber(abs);
+}
+
+// 带符号的斜率片段：2 → 2、3/2 → (3/2)、−√2 → −(√2)、−1 → −（配括号读成 y = −(x−h)）
+function signedSlopeText(slope) {
+    const body = slopeCoefficientText(slope);
+    const sign = slope < 0 ? "−" : "";
+    if (!body) {
+        return sign;
+    }
+    return body.includes("/") || body.includes("√") ? `${sign}(${body})` : `${sign}${body}`;
+}
+
+// 常数项写法：2 → 2、−3/2 → −(3/2)
+function constantText(value) {
+    if (Math.abs(value) < 1e-12) {
+        return "0";
+    }
+    const abs = Math.abs(value);
+    return `${value < 0 ? "−" : ""}${radicalText(abs) || formatNumber(abs)}`;
+}
+
+// 变量与中心偏移的组合：k=2 → "y − 2"、k=−2 → "y + 2"、k=0 → "y"
+function shiftedTerm(variable, value) {
+    if (Math.abs(value) < 1e-12) {
+        return variable;
+    }
+    return `${variable} ${value > 0 ? "−" : "+"} ${constantText(Math.abs(value))}`;
+}
+
+// 单条渐近线：过中心 (h,k) 写成 y − k = m(x − h)，中心在原点时简写成 y = m x
+function asymptoteLineText({ h, k, slope }) {
+    const m = signedSlopeText(slope);
+    if (Math.abs(h) < 1e-12 && Math.abs(k) < 1e-12) {
+        return `y = ${m}x`;
+    }
+    return `${shiftedTerm("y", k)} = ${m}(${shiftedTerm("x", h)})`;
+}
+
+// 两条合并的简写：y − k = ±m(x − h)
+function asymptoteSummaryText(lines) {
+    const { h, k, slope } = lines[0];
+    const m = signedSlopeText(Math.abs(slope));
+    if (Math.abs(h) < 1e-12 && Math.abs(k) < 1e-12) {
+        return `y = ±${m}x`;
+    }
+    return `${shiftedTerm("y", k)} = ±${m}(${shiftedTerm("x", h)})`;
+}
+
+// 斜截式 y = m x + b（b = k − m·h），给悬浮提示补全用
+function asymptoteSlopeIntercept({ h, k, slope }) {
+    const intercept = k - slope * h;
+    const m = signedSlopeText(slope);
+    if (Math.abs(intercept) < 1e-12) {
+        return `y = ${m}x`;
+    }
+    return `y = ${m}x ${intercept > 0 ? "+ " : "− "}${constantText(Math.abs(intercept))}`;
 }
 
 // 每个类型：字段默认值可直接用；fields 随"写法"切换；compose 抛错即校验失败
@@ -1034,7 +1104,15 @@ class PlotSurface {
                 wrap.appendChild(infoBadge(`e = ${info.eccentricity.text}`, "离心率 e = c/a"));
             }
             if (info.asymptotes && info.asymptotes.length) {
-                wrap.appendChild(infoBadge("含渐近线", "虚线是这条双曲线的两条渐近线"));
+                const detail = info.asymptotes
+                    .map((line) => `${line.text}　（斜截式 ${line.slopeIntercept}）`)
+                    .join("\n");
+                wrap.appendChild(
+                    infoBadge(
+                        `渐近线 ${asymptoteSummaryText(info.asymptotes)}`,
+                        `${detail}\n虚线是这条双曲线的两条渐近线`
+                    )
+                );
             }
 
             const toggle = document.createElement("button");
@@ -1191,6 +1269,30 @@ class PlotSurface {
             context.lineTo(this.toPixelX(segment[1][0]), this.toPixelY(segment[1][1]));
         }
         context.stroke();
+        // 顺手把方程标在虚线旁边：取视口内那段 72% 处，靠右边界时改成右对齐
+        context.setLineDash([]);
+        context.globalAlpha = 0.9;
+        context.font = "12px system-ui, -apple-system, 'Segoe UI', sans-serif";
+        context.textBaseline = "middle";
+        for (const line of lines) {
+            const segment = this.clipLineToView(line.h, line.k, 1, line.slope);
+            if (!segment) {
+                continue;
+            }
+            const x = segment[0][0] + (segment[1][0] - segment[0][0]) * 0.72;
+            const y = segment[0][1] + (segment[1][1] - segment[0][1]) * 0.72;
+            const pixelX = this.toPixelX(x);
+            const pixelY = this.toPixelY(y);
+            const atRight = pixelX > this.width - 130;
+            context.textAlign = atRight ? "right" : "left";
+            const labelX = Math.min(Math.max(pixelX + (atRight ? -8 : 8), 6), this.width - 6);
+            const labelY = Math.min(Math.max(pixelY - 9, 14), this.height - 8);
+            context.lineWidth = 3;
+            context.strokeStyle = "#ffffff";
+            context.strokeText(line.text, labelX, labelY); // 白描边压住网格线，保证读得清
+            context.fillStyle = curve.color;
+            context.fillText(line.text, labelX, labelY);
+        }
         context.restore();
     }
 
@@ -1710,9 +1812,12 @@ export class FunctionPlot extends Interaction {
             );
         }
         if (info.asymptotes && info.asymptotes.length) {
-            texts.push("虚线为两条渐近线");
+            texts.push(`渐近线 ${asymptoteSummaryText(info.asymptotes)}`);
+            texts.push(
+                `　即 ${info.asymptotes.map((line) => line.slopeIntercept).join(" 与 ")}`
+            );
         }
-        this.modalMeta.textContent = texts.join("　");
+        this.modalMeta.innerHTML = texts.map((text) => escapeHtml(text)).join("<br/>");
         this.modalMeta.classList.toggle("d-none", texts.length === 0);
     }
 
