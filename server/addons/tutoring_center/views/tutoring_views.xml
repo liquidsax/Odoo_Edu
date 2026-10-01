@@ -87,7 +87,7 @@
                                     </list>
                                 </field>
                             </page>
-                            <page string="错题记录" name="mistakes">
+                            <page string="错题记录" name="mistakes" autofocus="autofocus">
                                 <field name="mistake_ids">
                                     <list string="错题记录" editable="bottom">
                                         <field name="date"/>
@@ -106,7 +106,6 @@
                             </page>
                         </notebook>
                     </sheet>
-                    <chatter/>
                 </form>
             </field>
         </record>
