@@ -23,7 +23,7 @@
 
 ## 模块概览（tutoring_center）
 
-数据模型：`tutoring.student`（学生档案）、`tutoring.knowledge.point`（知识点）、`tutoring.student.point`（掌握度四档）、`tutoring.session`（辅导课次）、`tutoring.topic`（教学内容标签）、`tutoring.exam` + `tutoring.exam.line`（学校考试）、`tutoring.mistake`（错题记录）；`tutoring.homework` 模型保留但已全面退出界面。
+数据模型：`tutoring.student`（学生档案）、`tutoring.knowledge.point`（知识点）、`tutoring.student.point`（掌握度四档）、`tutoring.session`（辅导课次）、`tutoring.topic`（教学内容标签）、`tutoring.exam` + `tutoring.exam.line`（学校考试）、`tutoring.workbook`（练习册/教辅清单）、`tutoring.mistake`（错题记录，只记出处不记题目）、`tutoring.mistake.quickadd`（速记向导，TransientModel）；`tutoring.homework` 模型保留但已全面退出界面。
 
 主要改造点：
 

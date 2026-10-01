@@ -26,9 +26,9 @@
 - 网站首页为教育门面，无 ERP/CRM 入口；
 - 网站顶栏第三项「函数图像」（`/tools/function-plot`，公开页面）：按曲线类型填题目里的参数自动成图（椭圆/双曲线有「分母式」与「系数式」两种填法），也能自己写方程；预览与图例按数学写法渲染（`prettyEquation()`，上标/π/去括号）；支持缩放平移、悬停读数、画布全屏；纯前端计算、零第三方依赖。
 
-- **错题记录**（学生不会/做错的题）：来源关联**练习册**（可填页码/题号）、**辣椒难度 2~5 🌶**、系统自动的**记录时刻**＋可手填「发生日期」、可选「错因/备注」——**不记题目内容**（不通过平台做题，只记错了哪道题）；后台错题列表与学生表单错题页签均为 **Excel 式可编辑网格**支持逐行增量录入；门户有错题列表/详情，**学生可自助添加/编辑自己的错题**（记录规则强制只能本人、不可删）。
+- **错题记录**（学生不会/做错的题）：来源关联**练习册**（可填页码/题号）、**辣椒难度 2~5 🌶**、系统自动的**记录时刻**＋可手填「发生日期」、可选「错因/备注」——**不记题目内容**（不通过平台做题，只记错了哪道题）；**不设订正状态**（这页只用于记录出处，没人会做完一道题再回网站改状态）。后台列表控制栏有常驻「**快速记录**」弹窗：题号可写 `1-5`、`1,3,7` 自动拆成多条，「保存并继续」沿用学生/练习册只清出处；列表为 **Excel 式可编辑网格**，新建行自动沿用上一条的学生与练习册，难度**点辣椒即改**（`chili` 组件，列表未进入编辑态也可点）；门户有错题列表/详情，**学生可自助添加/编辑自己的错题**（记录规则强制只能本人、不可删）。
 
-核心自定义模块：`server/addons/tutoring_center`（10 个模型，本次新增练习册 `tutoring.workbook`，详见根 README）。
+核心自定义模块：`server/addons/tutoring_center`（11 个模型，含练习册 `tutoring.workbook` 与速记向导 `tutoring.mistake.quickadd`，详见根 README）。
 
 ## 二、环境与使用方式
 
@@ -63,7 +63,7 @@
 4. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
 5. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
 
-## 五、最重要陷阱（Top 11，完整版见 README 与 updates）
+## 五、最重要陷阱（Top 13，完整版见 README 与 updates）
 
 1. `db_template = odoo_template_c` **不可改回 template0**（Windows 上 collate≠ctype 库无法连接，已存在库只能删库重建）；
 2. `_sql_constraints` 在 Odoo 19 已弃用，用 `models.Constraint('unique(...)', '消息')`；
@@ -76,6 +76,8 @@
 9. **用了别人模块的记录就必须声明依赖，否则只有维护者的库能装**——`<record id="contacts.action_contacts">`、`inherit_id="project.*"` 这类写法在**全新库**上直接报 `The ID "…" refers to an uninstalled module` 并中断安装；维护者的库因为从完整 ERP 演示库改造而来，那些模块本来就装着，所以永远发现不了。纯清理/装饰性的跨模块引用不要写死 XML，用容错函数（`env.ref(..., raise_if_not_found=False)`，见 `models/ir_ui_menu.py`、`models/ir_ui_view.py`）。**每次改模块后要用一次性新库跑一次 `-i tutoring_center` 才算验收**（细节见 `updates/2026-09-30.md`）。
 10. **门户 QWeb 表单/分页两个坑**：① 表单取 CSRF 令牌要用 `request.csrf_token()`，裸 `csrf_token()` 未注入上下文会 `KeyError` 直接 500；② 列表分页器写 `<t t-call="portal.pager"/>`（`pager` 走上下文），误用 `<t t-out="pager"/>` 会把 `{'page_count':…}` 字典原样打印到页面底部（错题/课次/作业/考试四处已统一修正）。给已有行的表加**必填**字段时，Odoo 升级只会延迟并降级 NOT NULL 约束（不中断），但要用数据阶段 `<function>` 先回填存量行，收尾约束才干净生效（见 `data/mistake_data.xml`）。
 11. **Selection 键值按字符串排序，选项定义顺序不算数**——`_order` 与 `read_group` 分组都按**值**比较，`'10' < '7'`，所以两位数键值会把「高一」排在「初一」之前（知识点页默认按年级分组，正是用户天天看的那一屏）。年级键值已统一**补零**为 `07~12`（见 `models/tutoring_knowledge.py` 的 `GRADE_SELECTION`，学生与知识点共用一份定义）；改键值必须配 `migrations/<版本>/pre-migrate.py` 把存量行一起补零，`19.0.1.2.0` 已处理 `tutoring_student`、`tutoring_knowledge_point`（细节与实测见 `updates/2026-10-01.md`）。
+12. **列表控制栏按钮的两个死法**：① 按钮方法上加 `@api.model` 必报 `TypeError: takes 1 positional argument but 2 were given`——`call_kw` **只对带 `@api.model` 的方法跳过 ids**，而 `/web/dataset/call_button` 恒以 `[ids]` 为首个位置参数（空选区是 `[[]]`），于是实际调用成 `method(recs, [])`；② `icon` 只认 `fa-`/`oi-` 前缀（`ViewButton.iconFromString` 把其余一律当图片 `src`），写 `icon="fa fa-magic"` 就是一个破图，正确写法 `icon="fa-magic"`。想在列表页放**常驻**按钮，用 `<header><button name="..." type="object" display="always"/>`（19 原生渲染进 `control-panel-always-buttons` 插槽），不必 patch `web.ListView.Buttons`。
+13. **并发时对共享业务库跑 `-u` 会吃掉别人的迁移**：Odoo 执行迁移脚本的区间是 `(ir_module_module.latest_version, 新 manifest 版本]`。两路同时把版本写成 `19.0.1.2.0`、而年级补零迁移挂在 `migrations/19.0.1.2.0/`，本方为验收先升级了 `OdooForDB`，`latest_version` 就越过了那个目录，合并后那次统一升级会**静默跳过**对方的迁移（存量 `'7'/'8'` 不补零 → 新键值 `'07'/'08'` 显示为空、分组乱序）。规则：别人有未合并改动时**不要升级业务库**；必须升级则事后核对 `latest_version`，必要时 `UPDATE` 回退一格（详见 `updates/2026-10-01.md`）。
 
 ## 六、文档索引
 

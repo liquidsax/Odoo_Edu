@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="tutoring_center.ChiliField">
+        <div class="o_tutoring_chili d-inline-flex align-items-center" role="radiogroup"
+             t-att-aria-label="props.record.fields[props.name].string">
+            <t t-if="!level and props.readonly">
+                <span class="text-muted">—</span>
+            </t>
+            <t t-if="level or !props.readonly">
+                <span t-foreach="slots" t-as="slot" t-key="slot"
+                      class="o_tutoring_chili_mark"
+                      role="radio"
+                      t-att-class="{ 'o-filled': isFilled(slot), 'o-unfilled': !isFilled(slot) }"
+                      t-att-aria-checked="slotLevel(slot) === shownLevel ? 'true' : 'false'"
+                      t-att-data-tooltip="tooltip(slot)"
+                      t-on-click.stop.prevent="() => this.onChiliClicked(slot)"
+                      t-on-mouseenter="() => state.hover = slot"
+                      t-on-mouseleave="() => state.hover = -1">🌶</span>
+            </t>
+        </div>
+    </t>
+
+</templates>

@@ -53,9 +53,8 @@ class TutoringPortal(CustomerPortal):
             'recent_exams': student.exam_ids[:5],
             'exam_avg': student.exam_avg,
             'mistakes': student.mistake_ids[:5],
-            'mistake_open_count': student.mistake_open_count,
+            'mistake_count': student.mistake_count,
             'difficulty_labels': dict(request.env['tutoring.mistake']._fields['difficulty'].selection),
-            'mistake_states': dict(request.env['tutoring.mistake']._fields['state'].selection),
             'points': points,
             'mastery_labels': dict(
                 request.env['tutoring.student.point']._fields['mastery'].selection),
@@ -254,7 +253,6 @@ class TutoringPortal(CustomerPortal):
                 'difficulty': post.get('difficulty') or '3',
                 'date': post.get('date') or '',
                 'note': post.get('note') or '',
-                'state': post.get('state') or 'todo',
             }
         elif mistake:
             form = {
@@ -265,11 +263,10 @@ class TutoringPortal(CustomerPortal):
                 'difficulty': mistake.difficulty or '3',
                 'date': str(mistake.date) if mistake.date else '',
                 'note': mistake.note or '',
-                'state': mistake.state or 'todo',
             }
         else:
             form = {'workbook_id': False, 'page': '', 'question_no': '', 'topic_id': False,
-                    'difficulty': '3', 'date': '', 'note': '', 'state': 'todo'}
+                    'difficulty': '3', 'date': '', 'note': ''}
 
         return {
             'page_name': 'tutoring_mistakes',
@@ -279,7 +276,6 @@ class TutoringPortal(CustomerPortal):
             'workbooks': request.env['tutoring.workbook'].search([]),
             'topics': request.env['tutoring.topic'].search([]),
             'difficulties': Mistake._fields['difficulty'].selection,
-            'mistake_states': Mistake._fields['state'].selection,
         }
 
     def _mistake_vals_from_post(self, student, kw):
@@ -301,8 +297,6 @@ class TutoringPortal(CustomerPortal):
         }
         if kw.get('date'):
             vals['date'] = kw.get('date')
-        if kw.get('state') in ('todo', 'done'):
-            vals['state'] = kw.get('state')
         return vals
 
     @http.route('/my/learning/mistakes', type='http', auth='user', website=True)
@@ -312,8 +306,8 @@ class TutoringPortal(CustomerPortal):
             return request.redirect('/my')
         searchbar_filters = {
             'all': {'label': _('全部'), 'domain': []},
-            'todo': {'label': _('待订正'), 'domain': [('state', '=', 'todo')]},
-            'done': {'label': _('已订正'), 'domain': [('state', '=', 'done')]},
+            'hard': {'label': _('高难度(4~5🌶)'), 'domain': [('difficulty', 'in', ['4', '5'])]},
+            'no_note': {'label': _('未填错因'), 'domain': [('note', '=', False)]},
         }
         if not filterby or filterby not in searchbar_filters:
             filterby = 'all'
@@ -342,7 +336,6 @@ class TutoringPortal(CustomerPortal):
             'mistake': False,
             'mistakes': values.pop('records'),
             'difficulty_labels': dict(request.env['tutoring.mistake']._fields['difficulty'].selection),
-            'mistake_states': dict(request.env['tutoring.mistake']._fields['state'].selection),
             'can_create': request.env['tutoring.mistake'].has_access('create'),
         })
         return request.render('tutoring_center.portal_my_learning_mistakes', values)
@@ -356,7 +349,6 @@ class TutoringPortal(CustomerPortal):
             'page_name': 'tutoring_mistakes',
             'mistake': mistake,
             'difficulty_labels': dict(request.env['tutoring.mistake']._fields['difficulty'].selection),
-            'mistake_states': dict(request.env['tutoring.mistake']._fields['state'].selection),
             'can_edit': mistake.has_access('write'),
             'just_saved': bool(kwargs.get('created') or kwargs.get('saved')),
         })

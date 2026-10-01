@@ -28,7 +28,7 @@ class TutoringStudent(models.Model):
 
     point_count = fields.Integer('需掌握知识点数', compute='_compute_point_stats')
     point_mastered_count = fields.Integer('已熟练掌握知识点数', compute='_compute_point_stats')
-    mistake_open_count = fields.Integer('待订正错题', compute='_compute_stats')
+    mistake_count = fields.Integer('错题数', compute='_compute_stats')
 
     session_planned_count = fields.Integer(
         '总课次', tracking=True,
@@ -62,8 +62,7 @@ class TutoringStudent(models.Model):
             scored = student.exam_ids.filtered(lambda e: e.total_full)
             student.exam_avg = (
                 sum(e.percentage for e in scored) / len(scored) if scored else 0.0)
-            student.mistake_open_count = len(
-                student.mistake_ids.filtered(lambda m: m.state == 'todo'))
+            student.mistake_count = len(student.mistake_ids)
 
     def _compute_point_stats(self):
         for student in self:
