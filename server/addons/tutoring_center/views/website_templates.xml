@@ -9,7 +9,15 @@
             <field name="sequence" type="int">20</field>
         </record>
 
-        <!-- 网站导航"函数图像"入口（顶栏第三位：首页 → 学习平台 → 函数图像） -->
+        <!-- 网站导航"错题"入口：错题功能有了自己的独立页，不再藏在学习平台里 -->
+        <record id="menu_website_mistakes" model="website.menu">
+            <field name="name">错题</field>
+            <field name="url">/my/mistakes</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence" type="int">25</field>
+        </record>
+
+        <!-- 网站导航"函数图像"入口（顶栏：首页 → 学习平台 → 错题 → 函数图像） -->
         <record id="menu_website_function_plot" model="website.menu">
             <field name="name">函数图像</field>
             <field name="url">/tools/function-plot</field>

@@ -1,10 +1,6 @@
-import re
-
 from odoo import _, api, fields, models
-from odoo.exceptions import ValidationError
 
-# 一次最多生成多少条，防止把"1-9999"当成批量录入
-MAX_LINES = 100
+from .tutoring_mistake import split_question_numbers
 
 
 class TutoringMistakeQuickadd(models.TransientModel):
@@ -32,23 +28,8 @@ class TutoringMistakeQuickadd(models.TransientModel):
         return self.env['tutoring.mistake'].search([], limit=1, order='create_date desc, id desc')
 
     def _question_numbers(self):
-        """把"1-5""1,3,7""1-3,7"这类写法展开成题号列表；留空则只记一道。"""
-        tokens = re.split(r'[,，、;；]', self.question_no or '')
-        numbers = []
-        for token in tokens:
-            token = token.strip()
-            if not token:
-                continue
-            span = re.fullmatch(r'(\d+)\s*[-~至]\s*(\d+)', token)
-            if span:
-                start, end = sorted((int(span[1]), int(span[2])))
-                numbers += [str(n) for n in range(start, end + 1)]
-            else:
-                numbers.append(token)
-        numbers = list(dict.fromkeys(numbers))
-        if len(numbers) > MAX_LINES:
-            raise ValidationError(_('一次最多记录 %s 道题，请缩小题号范围。') % MAX_LINES)
-        return numbers or [False]
+        """题号写法展开，解析规则统一在 tutoring_mistake.split_question_numbers。"""
+        return split_question_numbers(self.question_no)
 
     def _action_window(self):
         return {
