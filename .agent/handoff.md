@@ -56,7 +56,7 @@
 | **协作者** | 原生 Windows 安装（**优先**） | PostgreSQL 18 + Python 3.12 + Odoo 19 源码，完整步骤见 [ONBOARDING.md](ONBOARDING.md) 路径 A |
 | **协作者（备选）** | Docker（`docker compose up -d`） | ONBOARDING.md 路径 B，容器内 `edu_dev` 库，数据一次性 |
 | **维护者** | 原生 Windows 服务 | Odoo 19 社区版 + PostgreSQL 18（服务 `odoo-server-19.0` / `postgresql-x64-18`），**本机不装 Docker** |
-| **使用端（公网）** | 云服务器 + Docker | 与本机完全独立的一套环境。**地址、目录、口令位置、安全组等细节只记在仓库外的本地笔记里，不入开源仓库**；可复用的技术结论见 `updates/2026-10-01.md` |
+| **使用端（公网）** | 云服务器 + Docker | 与本机完全独立的一套环境。它的地址、目录、口令位置、加固清单与变更史都记在**那台机自己的运维档案** `~/odoo-edu/ops/`（`state.md` / `runbook.md` / `updates/`，权限 700/600，不在仓库内）；本仓库只留可复用的技术结论（陷阱 18、`updates/2026-10-01.md`） |
 
 两套环境数据完全隔离。维护者环境的详细安装/陷阱见根 README 与 `updates/2026-09-29.md`。
 
@@ -114,6 +114,8 @@
 16. **后台弹窗的四个原生机制**（省掉一整层自定义 JS，细节见 `updates/2026-10-01.md`）：① 列表整行点击可直接交给 Python 方法——`<list type="object" action="方法名">`（19 原生，`base/rng/list_view.rng` 已声明这两个属性），方法返回 `target='new'` 即"页中页"，且列表在弹窗关闭后会自动 `root.load()`（实测上传完计数列自己变了）；但**弹窗叠几层不可依赖**：点文件行是叠在下层之上、点「上传教材」是替换掉下层，按"关掉可能回下层也可能回列表"来测；② 弹窗尺寸走 context 键 `dialog_size`（`extra-large|large|medium|small`），**但 context 的 `footer: False` 只能配 client action**——给表单弹窗用它，Dialog 连 `<footer>` 节点都不生成，表单按钮插槽的 portal 找不到目标，直接 `OwlError: invalid portal target`，而且服务端全是 200、只能看浏览器 console；想让表单弹窗不出"保存/放弃"，就在 arch 里写显式 `<footer>`（`form_compiler.compileFooter` 只有在 `footer@replace` 为假值时才追加 `DefaultButtonsSlot`）；③ `target='new'` 的表单弹窗里**已存在记录默认按只读渲染**（上传键与保存都不出现），改脏后才出现保存/放弃——"打开就是看、要动就动手"是天然分层的；④ 上传组件的配套 `filename` 字段**必须 `invisible="1"`（列表里 `column_invisible="1"`）**，写成 `readonly="1"` 就不进保存载荷、落库 NULL（核心 `hr_skills`/`l10n_in` 同款写法）。另外：可编辑网格里单击单元格是"进编辑态"，`<list action=… type=…>` 的行点击在那儿**不触发**，要开弹窗必须放显式 `<button>`。
 
 17. **SQL 判重约束：换定义可以，换属性名会留幽灵**——Odoo 19 的 `Constraint.apply_to_database` 拿库里的定义与代码比对，不同就 `DROP` 再 `ADD`（知识点判重从 `unique(name, grade)` 换成含 `parent_id` 已实测生效）；但它只遍历模型**当前声明**的表对象，属性名一改旧约束就没人认领、永久留在库里继续拦数据，所以改定义时保持 `_name_grade_uniq` 这个名字别动。另注意 `unique(..., parent_id)` 里 NULL 互相视为不同——**枝干层（无上级）重名数据库不管**。
+
+18. **Odoo 不能挂在子路径下（`domain/edu` 这种一律不通）**——它生成的资源与表单 URL 全是根相对路径（实测登录页里 `href="/web/static/src/…"`、`action="/website/search"`），套前缀后这些请求会打到同域名的别的应用上；JS 运行时拼出的 `/jsonrpc`、`/web/dataset/*` 连 `sub_filter` 都改不动。`proxy_mode` / `web.base.url` 只处理主机名，**公网部署必须用独立主机名（子域名）**。反代三件套必须齐：`X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host`，且 `proxy_mode = True`——否则登录防爆破按来源 IP 计数（`res_users.py:1283-1303`，默认 5 次失败 / 60 秒冷却）会把所有访客当成同一个人，一人连错全员被关；Odoo 用 `ProxyFix(x_for=1, x_proto=1, x_host=1)`（`http.py:189-190`）。另两条：没配 SMTP 就把 `auth_signup.reset_password` 设 `False`（否则那页面 200 却永远发不出信，实测 `mail_mail.state=exception`）；`ports` 收回 `127.0.0.1:8069:8069` 才是真不泄露端口（compose 里 `ports` 默认合并，要 `!override` 才替换得掉基础文件的写法）。
 
 ## 六、文档索引
 
