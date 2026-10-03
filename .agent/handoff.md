@@ -16,12 +16,13 @@
 5. **仓库卫生红线**：不提交真实密码 / 数据库凭据 / `odoo.conf` / 数据库备份 / 学生真实数据 / 截图素材；不硬编码本机绝对路径（用相对路径，文档中用 `%USERPROFILE%` / `%LOCALAPPDATA%` 写法）；
 6. 密码类参数一律走环境变量注入（参考 `dev/seed_data.py` 的 `TUTOR_DEMO_PW_A/B`）；
 7. **多 agent 并发时先读 [MULTI_AGENT.md](MULTI_AGENT.md)**：核心一条——自己写的功能要自己
-   在本机部署 + 真机验完再交出去，不要攒到最后一起测；共享实例（服务、业务库、部署副本）
+   在本机部署 + 真机验完再交出去，不要攒到最后一起测；共享实例（服务、业务库，以及 `E:\Odoo`
+   这**唯一一份**工作树——所有 agent 改的是同一个目录，别人一次重启就会带上你未提交的改动）
    同一时刻只允许一个 agent 动，别人占用期间只写不部署。
 
 ## 一、项目定位
 
-本机 Odoo 19 社区版（业务库 `OdooForDB`）已改造为**数学辅导数据中台**（一对一个性化数学辅导）：
+本机 Odoo 19 社区版（业务库 `OdooForDB`）已改造为 **R3ynA 学习平台**（个人学习数据平台，2026-10-03 由"数学辅导数据中台"改名，`19.0.1.10.0`；**只改显示口径，数据模型未加"科目"维度**，所以 leetcode、科教书这类内容目前仍记在同一套错题/练习册里）：
 
 - 教师端（`admin` 后台）维护学生、知识点、辅导课次、学校考试成绩、错题记录；
 - 学生/家长端（portal）在 `/my/learning` 查看学习数据，多学生按门户联系人硬隔离；
@@ -29,7 +30,7 @@
 - 网站首页为教育门面，无 ERP/CRM 入口；
 - 网站顶栏第三项「函数图像」（`/tools/function-plot`，公开页面）：按曲线类型填题目里的参数自动成图（椭圆/双曲线有「分母式」与「系数式」两种填法），也能自己写方程；预览与图例按数学写法渲染（`prettyEquation()`，上标/π/去括号）；支持缩放平移、悬停读数、画布全屏；纯前端计算、零第三方依赖。**双曲线**弹层里可勾选「画出渐近线（虚线）」，三种写法都从 a、b 反推斜率（实轴在 x 轴是 ±b/a，在 y 轴是 ±a/b，系数式先按 N 的符号归一化出实轴）；**三角函数**弹层可勾选「坐标轴与交点用弧度制（π）表示」：勾上后横竖轴刻度、悬停读数、与两轴的交点都写成 `π/2`、`3π/2`、`−π`（`piStep()` 只在 π 的有理分数里挑步长，横竖轴各按自己跨度取；`drawIntercepts()` 用解析解 `x=(nπ−φ)/ω` 求零点，不是采样近似），不勾就是小数；图例挂一枚 `e = √5/3 ≈ 0.7454` 的标签、弹层预览下方同步显示，数值尽量写成课本根式（`radicalText()`，化不出才退回四位小数）。渐近线是画在主画布上的虚线（`strokeAsymptotes()` + `clipLineToView()` 只画视口内一段，避免斜率大时坐标爆掉），**并附带方程**：虚线旁直接标出方程、图例挂 `渐近线 y = ±(3/2)x` 徽标（悬浮给两条完整方程与斜截式）、弹层预览下方同步显示（`asymptoteLineText()` / `asymptoteSummaryText()` / `asymptoteSlopeIntercept()`）。离心率与渐近线都跟着**曲线对象走**（`addCurve(expr, meta)`）：只有「按类型添加」和预置示例会带上，**自己写方程不带**（未做通用二次曲线识别）。
 
-- **错题记录**（学生不会/做错的题）：来源关联**练习册**（可填页码/题号）、**辣椒难度 2~5 🌶**、系统自动的**记录时刻**＋可手填「发生日期」、可选「错因/备注」——**不记题目内容**（不通过平台做题，只记错了哪道题）；**不设订正状态**（这页只用于记录出处，没人会做完一道题再回网站改状态）。**后台错题页已改造为教师友好形态（`19.0.1.8.0`，PR #20）**：默认视图是**按学生分栏的卡片看板**（栏头带难度分布进度条，整卡点击开只读详情弹窗，拖拽/改组全禁）；列表和看板顶部有**统计概览条**（共 N 条/本月新增/高难度/未填错因，除总数外可点击直接切换筛选，`summary_stats()` 取数、自定义 `js_class` 控制器挂载）；视图切换器里还有**图表页签**（柱状按月）；列表 4~5🌶 行标红、搜索加了原生发生日期筛选和基础难度过滤器。要改内容（含难度辣椒）仍走详情页「修改」进编辑弹窗；新建走控制栏「快速记录」（题号可写 `1-5`、`1,3,7` 自动拆多条，「保存并继续」沿用学生/练习册）或「新建错题」；**Excel 式逐行连填仍在学生表单的「错题记录」页签**（那里仍是 `editable="bottom"` 网格）。门户有错题列表/详情，**学生可自助添加/编辑自己的错题**（记录规则强制只能本人、不可删）。kanban 卡片模板必须 `t-name="card"`、进度条是 `<progressbar>` 子元素、卡片模板默认拿不到分组字段（要自定义 KanbanRecord 塞 `groupByField`）——细节与新陷阱 18~21 见 [updates/2026-10-03.md](updates/2026-10-03.md)。
+- **错题记录**（学生不会/做错的题）：来源关联**练习册**（可填页码/题号）、**辣椒难度 2~5 🌶**、系统自动的**记录时刻**＋可手填「发生日期」、可选「错因/备注」——**不记题目内容**（不通过平台做题，只记错了哪道题）；**不设订正状态**（这页只用于记录出处，没人会做完一道题再回网站改状态）。**错题带错因与知识点**（`19.0.1.10.0`）：`cause_id` 指向新模型 `tutoring.mistake.cause`（概念/审题/运算/策略/习惯/其它六类、预置 13 条、`noupdate=1` 可自由增改，后台"错因"菜单维护）；`point_id` 指向知识点树，挑选域按学生年级放开（`student_id.knowledge_grades`），门户 POST 里服务端再校一次年级。`note` 降为"补充说明"。另有三个**不进任何视图**的字段 `last_review_at`/`review_count`/`next_review_at`：打开一次详情＝复习过一次，按 1→3→7→15→30→60 天往后推到期日，门户错题页默认顺序就是"到期最早的排最前"——**学生看不到任何"复习"字样，也不需要维护状态**。**后台错题页已改造为教师友好形态（`19.0.1.8.0`，PR #20）**：默认视图是**按学生分栏的卡片看板**（栏头带难度分布进度条，整卡点击开只读详情弹窗，拖拽/改组全禁）；列表和看板顶部有**统计概览条**（共 N 条/本月新增/高难度/未填错因，除总数外可点击直接切换筛选，`summary_stats()` 取数、自定义 `js_class` 控制器挂载）；视图切换器里还有**图表页签**（柱状按月）；列表 4~5🌶 行标红、搜索加了原生发生日期筛选和基础难度过滤器。要改内容（含难度辣椒）仍走详情页「修改」进编辑弹窗；新建走控制栏「快速记录」（题号可写 `1-5`、`1,3,7` 自动拆多条，「保存并继续」沿用学生/练习册）或「新建错题」；**Excel 式逐行连填仍在学生表单的「错题记录」页签**（那里仍是 `editable="bottom"` 网格）。门户 `/my/mistakes` 已重做为卡片页（`19.0.1.10.0`）：卡片网格 + 搜索 + 带计数的筛选药丸 + **按知识点/错因/月份分组**（点分组标题下钻，条件以胶囊可摘）+ 每页 10/20/50；取数改成服务端 `domain`+`order`+`limit/offset`、统计走 `read_group`（原来是全量 `search()` 后 Python 排序 + 4 次 `search_count`，300 条就废了）；详情页可就地补一句补充说明。**学生可自助添加/编辑自己的错题**（记录规则强制只能本人、不可删）。kanban 卡片模板必须 `t-name="card"`、进度条是 `<progressbar>` 子元素、卡片模板默认拿不到分组字段（要自定义 KanbanRecord 塞 `groupByField`）——细节与新陷阱 18~21 见 [updates/2026-10-03.md](updates/2026-10-03.md)。
 
 - **展示"某一页"而不是整本**（已在本机库升级生效 `19.0.1.6.0` 并完成真机验收；实测数据与细节见 [updates/2026-10-01.md](updates/2026-10-01.md) 末节）：练习册有两个新字段——`page_mode`（`direct`＝填的就是 PDF 页号／`offset`＝填书印刷页码）与 `page_offset`（**53 资料实测：印刷页 + 8 ＝ PDF 页号**，故该书设 `offset` / `8`）。`tutoring.workbook._locate_page()` 把页码翻译成"哪份分册的第几页"，`tutoring.workbook.page` 用 `odoo.tools.pdf.PdfReader/PdfWriter` 只抽出那一页存成小 PDF（**同页多题共用一份缓存**；重传正文或改页码范围即作废该文件的缓存）。为什么要抽：核心 `pdf_viewer` 走 `/web/content?model=&field=&id=`，而该路由**不支持 Range 请求**（全库无 `Accept-Ranges`），直接指整本文件等于把几十 MB 全拉进浏览器才显示一页。抽页失败/越界/没传教材一律只显示一句提示，**不抛异常**（它在计算字段里跑，抛错＝弹窗 500）。
 
@@ -60,25 +61,30 @@
 
 两套环境数据完全隔离。维护者环境的详细安装/陷阱见根 README 与 `updates/2026-09-29.md`。
 
-> **2026-10-01 本机已重做成"开发模式"，上面两行环境与第四节步骤已过时**（当时那套服务/`OdooForDB` 已不存在）：
-> 源码 `E:\Odoo\odoo19`（上游 19.0 clone）、venv `E:\Odoo\odoo19\venv\Scripts\python.exe`、配置 `E:\Odoo\odoo.conf`、
-> PostgreSQL 在 `E:\Odoo\pgsql`（数据 `E:\Odoo\pgdata`）、业务库 **改为 `edu_native`**（`OdooForDB` 已不存在）。
-> Odoo 由 `E:\Odoo\start-odoo.bat` **前台运行**（`--dev=xml,qweb,reload`），**没有 Windows 服务**，因此：
-> ① `odoo.conf` 的 `addons_path` 直接含 `E:/workspace/Odoo_Edu/server/addons`——**改仓库即生效，不用再同步部署副本**；
-> ② dev 模式下模板从磁盘读（`--dev=xml`）、资产包随文件变化自动重建，**改 XML/JS 刷新页面即可**，不必 `-u`；
-> ③ 没有服务可启停，`svcctl.ps1` 在本机已无对应服务可用。启停用 `start-odoo.bat` / 控制台 Ctrl+C，
-> PostgreSQL 用 `E:\Odoo\pgsql\bin\pg_ctl.exe -D E:\Odoo\pgdata start|stop`。
+> **本机形态（2026-10-03 逐项实测校准）——`E:\Odoo` 就是唯一真源，一切从这里开始**：
+> 这个目录既是本仓库的主工作树（`git worktree list` 第一项），也是正在运行的 Odoo 安装目录，
+> **不存在第二份需要"同步"的部署副本**。实测：服务 `odoo-server-19.0`（nssm 拉起
+> `E:\Odoo\python\python.exe E:\Odoo\server\odoo-bin -c E:\Odoo\server\odoo.conf`）与
+> `postgresql-x64-18`（数据 `D:\PostSQL\data`，`psql` 在 `D:\PostSQL\bin`）均在 Running，业务库 **`OdooForDB`**，
+> `addons_path` 第二项 `E:\Odoo\server\addons` 就落在仓库工作树里 → 改 `server/addons/tutoring_center`
+> 的文件，服务读的就是这一份；`svcctl.ps1`（skill `odoo-service-control`）**在本机可用**。
+> 但**改文件 ≠ 生效**：Python 变更必须重启服务，XML/QWeb/JS 变更必须 `-u` 重建资产包（见第四节）。
+>
+> 2026-10-01 曾在这里记过一套"开发模式"形态（`E:\Odoo\odoo19` + venv + `edu_native` + `start-odoo.bat`
+> 前台跑 `--dev`、无 Windows 服务、`addons_path` 指向 `E:/workspace/Odoo_Edu`），**本机复核不成立**——
+> 磁盘上没有 `odoo19/`、`E:\Odoo\odoo.conf`、`pgsql/`、`pgdata/`、`start-odoo.bat`。那描述的是别处的另一份副本；
+> 协作者照 [ONBOARDING.md](ONBOARDING.md) 自装的机器可能是那种形态，动手前先按上面几行判自己在哪台机器上。
 
 ## 三、当前数据与账号（维护者本机）
 
 | 对象 | 事实 |
 |---|---|
-| 学生"表弟"（id 2） | 初一，已**结课**；5 次课、2 场考试（78%/85%）、3 条掌握、2 条错题（演示） |
+| 学生"表弟"（id 2） | 初一，已**结课**；5 次课、2 场考试（78%/85%）、3 条掌握、7 条错题（演示） |
 | 学生"小明"（id 4） | 初一，**真实数据**，总课次 20 |
 | 学生"示例学生B"（id 3） | 初二，隔离验证用，可删 |
 | portal 账号 | `biaodi`（表弟）、`student02`（示例学生B）；密码见本地密码记录，**不入库** |
 | 知识点 | 初一 5 个演示数据；模块另自带高中库 98 条（11 专题 / 87 考点）——**业务库尚未升级，升级后才落库** |
-| 练习册 | 「53」「一数」「课内/其他」3 本（错题数 0/7/1）；教材文件 0 份——教材上传与阅读功能已升级生效，等维护者传真实 PDF（170MB 那本受默认 128MB 上传上限拦，见 `updates/2026-10-01.md`） |
+| 练习册 | 「53」「一数」「课内/其他」3 本（错题数 7/7/1，按 表弟/小明 计）；教材文件 3 份（《53》按 1–55 / 56–110 / 111–164 页拆的三份） |
 
 容器演示环境的账号由 `dev/seed_data.py` 创建（`biaodi` / `student02`，密码环境变量注入）。
 
@@ -86,14 +92,14 @@
 
 > 服务启停与体检**统一走 Qoder skill `odoo-service-control` 的 `svcctl.ps1`**（命令、UAC 规则、六层 `check`、失败判读见 [service-control.md](service-control.md)），不要手搓 `Start-Service` / `Stop-Service`。
 
-1. **先同步部署副本，再谈升级**：`addons_path` 是 `E:\Odoo\server\odoo\addons,E:\Odoo\server\addons`，而 `E:\Odoo\server\addons\tutoring_center` 是**手抄副本、不是仓库的实时映射**（合并到 main 不会自动生效）。同步前先把它备份到 `E:\Odoo\backup\` 下（**别备份进 addons_path 目录**，带 `__manifest__.py` 的副本会被当模块扫出来），并用 `diff --strip-trailing-cr` 确认副本没有只改在部署侧的手改，再整份覆盖。
+1. **没有"部署副本"要同步**：`addons_path = E:\Odoo\server\odoo\addons,E:\Odoo\server\addons`，第二项所在的 `E:\Odoo` **就是仓库主工作树**，服务加载的正是你手里在编辑的这份文件。合并到 main 之后只需 `git pull`；**不要用 `cp -a` 往哪儿盖**——历史上那套"备份副本 → `diff --strip-trailing-cr` → 整份覆盖"已作废，真去覆盖只会把 `git status` 弄脏，让下一个人分不清哪些是真改动。动手前先 `git status`：这一份目录所有 agent 共用，别人未提交的 WIP 会被你一次重启一起加载进内存。要留底就把模块整份复制到 `E:\Odoo\backup\` 下（**别放进 addons_path 目录**，带 `__manifest__.py` 的目录会被当模块扫出来）。
 2. **标准升级**（Python 变更必须走）：`svcctl.ps1 stop odoo`（UAC）→ `"E:\Odoo\python\python.exe" "E:\Odoo\server\odoo-bin" -c odoo.conf -d OdooForDB -u tutoring_center --stop-after-init` → `start odoo`。
 3. **纯 XML/数据变更免重启**：`PYTHONUTF8=1 odoo-bin shell -c odoo.conf -d OdooForDB < E:\Odoo\dev\upgrade_via_rpc.py`，脚本内 `button_immediate_upgrade()`，运行中服务经 signaling 自动重载。**必须带 `PYTHONUTF8=1`**：脚本有中文注释，默认按控制台代码页读 stdin 会 `UnicodeEncodeError: surrogates not allowed`。
 4. **硬限制**：运行中的服务无法加载新增 Python 模型类/控制器，必须重启；纯字段/视图变更无此限制。
 5. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
 6. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
 
-## 五、最重要陷阱（Top 17，完整版见 README 与 updates）
+## 五、最重要陷阱（Top 19，完整版见 README 与 updates）
 
 1. `db_template = odoo_template_c` **不可改回 template0**（Windows 上 collate≠ctype 库无法连接，已存在库只能删库重建）；
 2. `_sql_constraints` 在 Odoo 19 已弃用，用 `models.Constraint('unique(...)', '消息')`；
@@ -117,6 +123,8 @@
 
 18. **Odoo 不能挂在子路径下（`domain/edu` 这种一律不通）**——它生成的资源与表单 URL 全是根相对路径（实测登录页里 `href="/web/static/src/…"`、`action="/website/search"`），套前缀后这些请求会打到同域名的别的应用上；JS 运行时拼出的 `/jsonrpc`、`/web/dataset/*` 连 `sub_filter` 都改不动。`proxy_mode` / `web.base.url` 只处理主机名，**公网部署必须用独立主机名（子域名）**。反代三件套必须齐：`X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host`，且 `proxy_mode = True`——否则登录防爆破按来源 IP 计数（`res_users.py:1283-1303`，默认 5 次失败 / 60 秒冷却）会把所有访客当成同一个人，一人连错全员被关；Odoo 用 `ProxyFix(x_for=1, x_proto=1, x_host=1)`（`http.py:189-190`）。另两条：没配 SMTP 就把 `auth_signup.reset_password` 设 `False`（否则那页面 200 却永远发不出信，实测 `mail_mail.state=exception`）；`ports` 收回 `127.0.0.1:8069:8069` 才是真不泄露端口（compose 里 `ports` 默认合并，要 `!override` 才替换得掉基础文件的写法）。
 
+19. **升级时 `<record id="别的模块.x">` 会被静默跳过**——想改 `website.default_website`、`base.main_company` 这类**由别人模块创建**的记录，在 XML 里写 `<record>` 既不报错也不生效：Odoo 加载升级数据时，凡目标 xmlid 自身带 `noupdate=1`（网站名与公司名恰好都是）就直接跳过。改名实测无效，最后用 `<function model="website" name="_apply_tutoring_branding"/>` 在 Python 里 write 才落库（见 `data/branding_data.xml`）。副作用要知道：**这样每次升级都会盖回模块里这一份**，网站设置里手填的同名项目留不住。两条附带结论：`website.logo`/`favicon` 都是 attachment 型 Binary（库里**没有列**，正文在 filestore），XML 里 `<field type="base64" file="..."/>` 可以写；但 favicon 在 `website._handle_favicon` 里会被 `image_process(..., output_format='ICO')` 过一遍，**源图必须是位图**，给 SVG 会在那一步崩。
+
 ## 六、文档索引
 
 | 文档 | 内容 |
@@ -126,13 +134,13 @@
 | [service-control.md](service-control.md) | 服务启停与体检 skill（`svcctl.ps1`）：action/target、UAC 规则、六层 `check`、失败判读、红线 |
 | [updates/](updates/) | 按日期的完整更新记录（含维护者原生环境详情、验证记录、陷阱全表） |
 | 根 [README.md](../README.md) | 面向人的项目总览、模块概览、快速开始 |
-| `docs/数学辅导数据中台使用说明.md` | 面向使用者的操作说明 |
+| `docs/R3ynA学习平台使用说明.md` | 面向使用者的操作说明 |
 
 ## 七、备份与交付物
 
 - 改造前全量备份：`E:\Odoo\backup\`（数据库 dump + filestore，**不入库**）；
 - `dev/`：演示数据、品牌、进程内升级、临时验收账号等脚本（密码均环境变量注入）；
-- `docs/`：使用说明（PPT 及截图素材不入库，仅本地保存）；
+- `docs/`：使用说明 `R3ynA学习平台使用说明.md`（PPT 及截图素材不入库，仅本地保存）；
 - `odoo.conf.example`：脱敏配置模板，复制成 `odoo.conf` 再填密码（真配置含密码，不入库）。
 
 > **仓库只跟踪自研内容**（模块 + 文档 + 运维脚本，共 50 余个文件），Odoo 本体源码不入库、由协作者

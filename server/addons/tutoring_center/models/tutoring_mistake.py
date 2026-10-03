@@ -1,10 +1,15 @@
 import re
+from datetime import timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
 # 一次最多生成多少条，防止把"1-9999"当成批量录入（后台速记与门户速记条共用）
 MAX_QUESTION_LINES = 100
+
+# 打开一次详情＝复习过一次，下次到期按第几次复习往后推。
+# 封顶 60 天：个人自用，间隔再长就等于不再会翻到这道题了。
+REVIEW_INTERVALS_DAYS = (1, 3, 7, 15, 30, 60)
 
 
 def split_question_numbers(value):
@@ -47,7 +52,26 @@ class TutoringMistake(models.Model):
         ('2', '🌶🌶'), ('3', '🌶🌶🌶'),
         ('4', '🌶🌶🌶🌶'), ('5', '🌶🌶🌶🌶🌶'),
     ], string='难度', default='3')
-    note = fields.Text('错因/备注')
+    note = fields.Text('补充说明')
+    cause_id = fields.Many2one(
+        'tutoring.mistake.cause', string='错因', ondelete='restrict', index=True)
+    # 存下来才能按"归类"分组（read_group 不接受非存储的 related）
+    cause_category = fields.Selection(
+        related='cause_id.category', string='错因归类', store=True)
+    point_id = fields.Many2one(
+        'tutoring.knowledge.point', string='知识点', ondelete='set null', index=True)
+    # 挑知识点的域按学生年级放开（初一只有 '07'，高一~高三额外给整层高中库 '13'）；
+    # student_grade 只用来给"就地新建知识点"的弹窗带上默认年级
+    knowledge_grades = fields.Json('可选知识点年级', related='student_id.knowledge_grades')
+    student_grade = fields.Selection(
+        related='student_id.grade', string='学生年级')
+
+    # 复习排期：纯服务端机制，不进任何视图、也不展示给学生——
+    # 学生只是"今天打开错题页，看到的顺序和昨天不一样"。
+    last_review_at = fields.Datetime('上次复习')
+    review_count = fields.Integer('复习次数', default=0)
+    next_review_at = fields.Datetime(
+        '下次可复习', default=fields.Datetime.now, index=True)
 
     # create_date 即"记录时刻"（系统自动、不可改）；此字段按用户时区格式化，供门户展示
     recorded_at_text = fields.Char('记录时刻', compute='_compute_recorded_at_text')
@@ -113,7 +137,7 @@ class TutoringMistake(models.Model):
             'total': self.search_count([]),
             'month': self.search_count([('date', '>=', today.replace(day=1))]),
             'hard': self.search_count([('difficulty', 'in', ['4', '5'])]),
-            'no_note': self.search_count([('note', '=', False)]),
+            'no_cause': self.search_count([('cause_id', '=', False)]),
         }
 
     def action_open_quickadd(self):
@@ -173,3 +197,26 @@ class TutoringMistake(models.Model):
         if not default:
             default = self.env['tutoring.workbook'].create({'name': '课内/其他'})
         orphan.write({'workbook_id': default.id})
+
+    def touch_review(self):
+        """打开一次详情＝复习过一次：记时刻、次数 +1，下次到期按次数往后推。
+
+        刻意不做成"点一下标记已复习"的按钮——那要求学生理解并维护一个状态，
+        而"翻这道题"这个动作本身就是复习。
+        """
+        now = fields.Datetime.now()
+        for rec in self:
+            step = min(rec.review_count, len(REVIEW_INTERVALS_DAYS) - 1)
+            rec.write({
+                'last_review_at': now,
+                'review_count': rec.review_count + 1,
+                'next_review_at': now + timedelta(days=REVIEW_INTERVALS_DAYS[step]),
+            })
+
+    @api.model
+    def _migration_backfill_review(self):
+        """存量行补排期：新字段对老数据是 NULL，而门户错题页按它升序排，
+        PostgreSQL 默认把 NULL 排在最后——不补的话老错题会永久沉底。"""
+        now = fields.Datetime.now()
+        for rec in self.search([('next_review_at', '=', False)]):
+            rec.next_review_at = rec.create_date or now

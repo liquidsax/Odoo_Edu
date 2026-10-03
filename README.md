@@ -1,10 +1,10 @@
-# Odoo_Edu · 数学辅导数据中台
+# Odoo_Edu · R3ynA 学习平台
 
-基于 **Odoo 19 社区版**的一对一个性化数学辅导数据平台。
+基于 **Odoo 19 社区版**的个人学习数据平台（原名"数学辅导数据中台"，2026-10-03 起改名，模型口径未变）。
 
-- **教师端**（后台）：维护学生档案、知识点、辅导课次、学校考试成绩、错题记录、知识点掌握度；
-- **学生/家长端**（门户）：登录 `/my/learning` 查看上课安排、考试成绩趋势（Chart.js 折线图）、最近错题、知识点掌握度；多学生之间按门户联系人硬隔离；
-- **网站首页**：教育平台门面，无任何 ERP/CRM 入口。
+- **教师端**（后台）：维护学生档案、知识点、辅导课次、学校考试成绩、错题记录（带错因与知识点）、知识点掌握度；
+- **学生/家长端**（门户）：登录 `/my/learning` 查看上课安排与考试成绩，在 `/my/mistakes` 用卡片视图自助记录与温习错题；多学生之间按门户联系人硬隔离；
+- **网站首页**：平台门面，无任何 ERP/CRM 入口。
 
 辅导模式为**纯讲题 120 分钟/节**：不布置作业、不布置在线考试（考试成绩仅录入学生在校考试）。
 
@@ -14,7 +14,7 @@
 |---|---|
 | `server/addons/tutoring_center/` | 核心自定义模块（application，依赖 `portal`、`website`、`contacts`） |
 | `odoo.conf.example` | 配置模板，复制为 `odoo.conf` 后填密码（真配置含密码，不入库） |
-| `docs/数学辅导数据中台使用说明.md` | 面向使用者的操作说明 |
+| `docs/R3ynA学习平台使用说明.md` | 面向使用者的操作说明 |
 | `dev/` | 演示数据脚本、品牌设置、RPC 进程内升级、临时验收账号等运维脚本 |
 | `docker-compose.yml` | 协作者一键开发环境（Odoo 19 + PostgreSQL 18 容器，含热重载） |
 | `.agent/` | 协作须知：[handoff](.agent/handoff.md)（交接要点+协作规则）、[MULTI_AGENT](.agent/MULTI_AGENT.md)（多 agent 并发协作规范：谁部署、怎么独占、什么才算交付完）、[ONBOARDING](.agent/ONBOARDING.md)（安装配置指南）、[service-control](.agent/service-control.md)（服务启停与体检 skill）、[updates](.agent/updates)（按日期的更新记录） |
@@ -23,7 +23,7 @@
 
 ## 模块概览（tutoring_center）
 
-数据模型：`tutoring.student`（学生档案）、`tutoring.knowledge.point`（知识点，`parent_id` 自关联成树：年级 → 专题 → 考点）、`tutoring.student.point`（掌握度四档）、`tutoring.session`（辅导课次）、`tutoring.topic`（教学内容标签）、`tutoring.exam` + `tutoring.exam.line`（学校考试）、`tutoring.workbook`（练习册/教辅清单，带 `page_mode`/`page_offset` 定义"书页码怎么翻成 PDF 页号"）、`tutoring.workbook.file`（练习册的教材 PDF）、`tutoring.workbook.page`（服务端抽出来的**单页**缓存，只看一页不必拉整本）、`tutoring.mistake`（错题记录，只记出处不记题目）、`tutoring.mistake.quickadd`（速记向导，TransientModel）；`tutoring.homework` 模型保留但已全面退出界面。
+数据模型：`tutoring.student`（学生档案）、`tutoring.knowledge.point`（知识点，`parent_id` 自关联成树：年级 → 专题 → 考点）、`tutoring.student.point`（掌握度四档）、`tutoring.session`（辅导课次）、`tutoring.topic`（教学内容标签）、`tutoring.exam` + `tutoring.exam.line`（学校考试）、`tutoring.workbook`（练习册/教辅清单，带 `page_mode`/`page_offset` 定义"书页码怎么翻成 PDF 页号"）、`tutoring.workbook.file`（练习册的教材 PDF）、`tutoring.workbook.page`（服务端抽出来的**单页**缓存，只看一页不必拉整本）、`tutoring.mistake`（错题记录，只记出处不记题目）、`tutoring.mistake.cause`（错因字典：概念/审题/运算/策略/习惯/其它六类，预置 13 条）、`tutoring.mistake.quickadd`（速记向导，TransientModel）；`tutoring.homework` 模型保留但已全面退出界面。
 
 主要改造点：
 
@@ -35,6 +35,9 @@
 - 可通过安全组恢复被隐藏的 Odoo 原生应用菜单。
 - 「练习册」页防误触 + 教材在线阅读：列表不再是就地编辑网格，单击整行打开**只读页中页**（列出教材，点进去用滚轮阅读 PDF），改书名/备注或增删教材必须点「新建练习册」「修改」；一本书可挂多份教材（上册/下册/答案册），PDF 以 `bytea` 列**直接存在 PostgreSQL 里**（`pg_dump` 即全量备份），传错可在阅读弹窗里重新上传。受 Odoo 上传上限约束单个文件约 96MB，所以厚书**按页拆成几份、逻辑上仍是一册**：每份记全书连续页号，阅读台的「按页码定位」输一个页号就自动打开对应那份并跳到那一页；门户学生在 `/my/learning/workbooks` 只读阅读自己用过的教材。
 - 「错题」页同款防误触，并且**只看那一页**：列表只读，单击任意一行进只读详情页中页，右下角直接显示这道题所在的那一页教材原页；要改内容（含难度辣椒）必须点详情页里的「修改」。练习册上先告诉系统书页码与 PDF 页号的关系（`page_mode` + `page_offset`，53 资料实测"印刷页 + 8 ＝ PDF 页"），系统就把这一页从整本里抽出来单独存成小 PDF（同页多题共用一份缓存）——因为核心 `/web/content` 不支持 Range 请求，直接指整本文件等于为了看一页把几十 MB 全拉进浏览器。逐行连填的需求仍在学生档案的「错题记录」页签（可编辑网格）。
+- **错题带错因与知识点**：`cause_id` 指向错因字典（后台"错因"菜单可维护，预置数据 `noupdate=1`），`point_id` 指向知识点树，挑选域按学生年级放开（`student_id.knowledge_grades`，高一~高三额外给整层高中库 `'13'`）；服务端在门户 POST 里再校一次年级，不信任下拉。搜索视图可按错因/知识点/错因归类分组。
+- **门户错题页是为"几百条还能用"设计的**：卡片网格 + 搜索 + 带计数的筛选药丸 + 按知识点/错因/月份分组 + 每页 10/20/50，点分组标题下钻、条件以胶囊可摘；取数全部走服务端 `domain`+`order`+`limit/offset`，统计用 `read_group`（不再是全量 `search()` 后 Python 排序）。详情页可就地补一句补充说明。
+- **复习队列是隐式的**：`last_review_at` / `review_count` / `next_review_at` 三个字段不进任何视图，打开一次详情即记一次复习并按 1→3→7→15→30→60 天往后推到期日，列表默认顺序就是"到期最早的排最前"。学生看不到任何"复习/待复习/已掌握"字样，也不需要维护状态——**错题上依然没有订正状态字段**，这条没变。
 
 ## 快速开始（协作者）
 

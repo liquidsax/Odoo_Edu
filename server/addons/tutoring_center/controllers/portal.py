@@ -1,13 +1,14 @@
 import json
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from odoo import _, fields, http
-from odoo.fields import Date, Datetime
+from odoo.fields import Date
 from odoo.http import request
 
 from odoo.addons.portal.controllers.portal import CustomerPortal
 from odoo.addons.portal.controllers.portal import pager as portal_pager
 
+from ..models.tutoring_knowledge import GRADE_LABEL
 from ..models.tutoring_mistake import split_question_numbers
 
 
@@ -240,40 +241,177 @@ class TutoringPortal(CustomerPortal):
     # 错题
     # ------------------------------------------------------------
 
-    def _mistake_form_values(self, student, mistake=None, post=None):
-        """错题新增/编辑表单的公共渲染值。form 为回填用的当前值字典。"""
-        Mistake = request.env['tutoring.mistake']
-        post = post or {}
+    MISTAKE_PAGE_SIZES = (10, 20, 50)
+    # 分组视图必须跨页才有意义（"这个知识点下一共错了哪几道"），所以一次多取些；
+    # 但不封顶就又回到以前那种"全量捞进内存"，所以给个上限并如实告诉用户被截断了。
+    MISTAKE_GROUP_LIMIT = 400
+    MISTAKE_GROUP_PREVIEW = 8
 
+    def _mistake_sortings(self):
+        return {
+            # 默认顺序就是复习队列：到期最早的排最前，学生不需要知道机制。
+            # next_review_at 在升级时已给存量行回填，不会因 NULL 而沉底。
+            'review': {'label': _('该看的先看到'), 'order': 'next_review_at asc, id asc'},
+            'recorded': {'label': _('最新记录'), 'order': 'create_date desc, id desc'},
+            'date': {'label': _('发生日期（新→旧）'), 'order': 'date desc, id desc'},
+            'date_asc': {'label': _('发生日期（旧→新）'), 'order': 'date asc, id asc'},
+            'hard': {'label': _('难度（高→低）'), 'order': 'difficulty desc, date desc, id desc'},
+        }
+
+    def _mistake_filters(self, month_start):
+        return {
+            'all': {'label': _('全部'), 'domain': []},
+            'month': {'label': _('本月'), 'domain': [('date', '>=', month_start)]},
+            'hard': {'label': _('高难度'), 'domain': [('difficulty', 'in', ['4', '5'])]},
+            'no_cause': {'label': _('未标错因'), 'domain': [('cause_id', '=', False)]},
+            'no_point': {'label': _('未选知识点'), 'domain': [('point_id', '=', False)]},
+        }
+
+    def _mistake_groupbys(self):
+        return {
+            '': {'label': _('平铺')},
+            'point': {'label': _('按知识点'), 'field': 'point_id'},
+            'cause': {'label': _('按错因'), 'field': 'cause_id'},
+            'month': {'label': _('按月份'), 'field': 'date'},
+        }
+
+    @staticmethod
+    def _browse_allowed(model_name, raw_id):
+        """按 id 取记录，取不到或读不了就回空集——门户表单里的 id 是不可信输入。"""
+        empty = request.env[model_name].browse()
+        try:
+            rec_id = int(raw_id)
+        except (TypeError, ValueError):
+            return empty
+        rec = request.env[model_name].browse(rec_id).exists()
+        return rec if rec and rec.has_access('read') else empty
+
+    def _mistake_search_domain(self, term):
+        # 卡片标题在没有知识点时退回显示"教学内容"，所以它也得能搜到
+        return [
+            '|', '|', '|', '|', '|', '|',
+            ('page', 'ilike', term),
+            ('question_no', 'ilike', term),
+            ('note', 'ilike', term),
+            ('workbook_id.name', 'ilike', term),
+            ('point_id.name', 'ilike', term),
+            ('cause_id.name', 'ilike', term),
+            ('topic_id.name', 'ilike', term),
+        ]
+
+    def _mistake_filter_counts(self, base_domain, month_start):
+        """筛选药丸上的计数：三维各一次 read_group，替掉逐个 search_count。"""
+        Mistake = request.env['tutoring.mistake']
+        counts = {
+            'all': 0, 'hard': 0, 'no_cause': 0, 'no_point': 0,
+            'month': Mistake.search_count(base_domain + [('date', '>=', month_start)]),
+        }
+        for difficulty, count in Mistake._read_group(base_domain, ['difficulty'], ['__count']):
+            counts['all'] += count
+            if difficulty in ('4', '5'):
+                counts['hard'] += count
+        for cause, count in Mistake._read_group(base_domain, ['cause_id'], ['__count']):
+            if not cause:
+                counts['no_cause'] += count
+        for point, count in Mistake._read_group(base_domain, ['point_id'], ['__count']):
+            if not point:
+                counts['no_point'] += count
+        return counts
+
+    def _mistake_point_groups(self, student):
+        """按学生年级放开知识点，并带上上级专题给门户下拉的 optgroup 用。"""
+        grades = student.knowledge_grades or [student.grade]
+        groups, by_parent = [], {}
+        for point in request.env['tutoring.knowledge.point'].search([('grade', 'in', grades)]):
+            # 枝干层（无上级）按年级各自成组，否则高一和"高中"的散点会混进同一组
+            key = (point.parent_id.id, point.grade)
+            if key not in by_parent:
+                by_parent[key] = {
+                    'label': point.parent_id.name or GRADE_LABEL.get(point.grade) or _('其它'),
+                    'points': []}
+                groups.append(by_parent[key])
+            by_parent[key]['points'].append(point)
+        return groups
+
+    def _mistake_groups(self, records, groupby, base_args):
+        """把取到的记录切成"分组标题 + 该组卡片"，标题本身就是下钻入口。
+
+        下钻链接在这里拼而不是在模板里：模板里要拿 keep_query 反推"去掉 groupby、
+        加上这一组"，写出来既难读又容易把别的筛选条件弄丢。
+        """
+        spec = self._mistake_groupbys()[groupby]
+        field = spec['field']
+        empty_labels = {
+            'point_id': _('未选知识点'), 'cause_id': _('未标错因'), 'date': _('未填日期'),
+        }
+        groups, index = [], {}
+        for rec in records:
+            if field == 'date':
+                key = rec.date.strftime('%Y-%m') if rec.date else ''
+                label = key or empty_labels[field]
+                drill_id = None
+            else:
+                related = rec[field]
+                key = related.id
+                label = related.name or empty_labels[field]
+                drill_id = related.id or None
+            if key not in index:
+                args = dict(base_args, groupby='')
+                if drill_id:
+                    args[field] = drill_id
+                index[key] = {
+                    'label': label,
+                    'records': [],
+                    'url': '/my/mistakes?%s' % urlencode(args),
+                }
+                groups.append(index[key])
+            index[key]['records'].append(rec)
+        for group in groups:
+            group['total'] = len(group['records'])
+            group['hidden'] = max(group['total'] - self.MISTAKE_GROUP_PREVIEW, 0)
+            group['records'] = group['records'][:self.MISTAKE_GROUP_PREVIEW]
+        return groups
+
+    def _mistake_form_from_post(self, post):
+        """速记条/编辑表单校验失败时的回填值（不让用户重打一遍）。"""
         def _to_int(val):
             try:
                 return int(val) if val else False
             except (TypeError, ValueError):
                 return False
+        return {
+            'workbook_id': _to_int(post.get('workbook_id')),
+            'page': post.get('page') or '',
+            'question_no': post.get('question_no') or '',
+            'topic_id': _to_int(post.get('topic_id')),
+            'cause_id': _to_int(post.get('cause_id')),
+            'point_id': _to_int(post.get('point_id')),
+            'difficulty': post.get('difficulty') or '3',
+            'date': post.get('date') or '',
+            'note': post.get('note') or '',
+        }
 
+    def _mistake_form_values(self, student, mistake=None, post=None):
+        """错题新增/编辑表单的公共渲染值。form 为回填用的当前值字典。"""
+        Mistake = request.env['tutoring.mistake']
         if post:
-            form = {
-                'workbook_id': _to_int(post.get('workbook_id')),
-                'page': post.get('page') or '',
-                'question_no': post.get('question_no') or '',
-                'topic_id': _to_int(post.get('topic_id')),
-                'difficulty': post.get('difficulty') or '3',
-                'date': post.get('date') or '',
-                'note': post.get('note') or '',
-            }
+            form = self._mistake_form_from_post(post)
         elif mistake:
             form = {
                 'workbook_id': mistake.workbook_id.id or False,
                 'page': mistake.page or '',
                 'question_no': mistake.question_no or '',
                 'topic_id': mistake.topic_id.id or False,
+                'cause_id': mistake.cause_id.id or False,
+                'point_id': mistake.point_id.id or False,
                 'difficulty': mistake.difficulty or '3',
                 'date': str(mistake.date) if mistake.date else '',
                 'note': mistake.note or '',
             }
         else:
             form = {'workbook_id': False, 'page': '', 'question_no': '', 'topic_id': False,
-                    'difficulty': '3', 'date': '', 'note': ''}
+                    'cause_id': False, 'point_id': False, 'difficulty': '3', 'date': '',
+                    'note': ''}
 
         return {
             'page_name': 'tutoring_mistakes',
@@ -282,6 +420,8 @@ class TutoringPortal(CustomerPortal):
             'form': form,
             'workbooks': request.env['tutoring.workbook'].search([]),
             'topics': request.env['tutoring.topic'].search([]),
+            'causes': request.env['tutoring.mistake.cause'].search([]),
+            'point_groups': self._mistake_point_groups(student),
             'difficulties': Mistake._fields['difficulty'].selection,
         }
 
@@ -302,74 +442,128 @@ class TutoringPortal(CustomerPortal):
             'difficulty': kw.get('difficulty') if kw.get('difficulty') in ('2', '3', '4', '5') else '3',
             'note': (kw.get('note') or '').strip() or False,
         }
+        cause = self._browse_allowed('tutoring.mistake.cause', kw.get('cause_id'))
+        if cause:
+            vals['cause_id'] = cause.id
+        point = self._browse_allowed('tutoring.knowledge.point', kw.get('point_id'))
+        # 年级域在服务端再校一次：下拉里看不到别的年级，不代表 POST 里塞不进来
+        if point and point.grade in (student.knowledge_grades or [student.grade]):
+            vals['point_id'] = point.id
         if kw.get('date'):
             vals['date'] = kw.get('date')
         return vals
 
     @http.route('/my/mistakes', type='http', auth='user', website=True)
-    def portal_my_mistakes(self, sortby=None, filterby=None, page=1, **kwargs):
+    def portal_my_mistakes(self, **kwargs):
         """顶栏「错题」独立页：速记条 + 带计数的筛选药丸 + 卡片列表。"""
         student = self._tutoring_student()
         if not student:
             return request.redirect('/my')
-        values = self._mistake_page_values(student, sortby, filterby, page, kwargs)
-        return request.render('tutoring_center.portal_my_mistakes', values)
+        return request.render(
+            'tutoring_center.portal_my_mistakes', self._mistake_page_values(student, kwargs))
 
-    def _mistake_page_values(self, student, sortby=None, filterby=None, page=1,
-                             kwargs=None, form=None, error=None):
-        """/my/mistakes 页面取数；速记条校验失败时带 form/error 复用同一页。"""
+    def _mistake_page_values(self, student, kwargs=None, form=None, error=None):
+        """/my/mistakes 取数：域内分页 + 白名单排序；速记条校验失败时带 form/error 复用同一页。"""
+        kwargs = kwargs or {}
         Mistake = request.env['tutoring.mistake']
         base_domain = [('student_id', '=', student.id)]
         today = fields.Date.context_today(request.env.user)
         month_start = today.replace(day=1)
-        searchbar_filters = {
-            'all': {'label': _('全部'), 'domain': []},
-            'month': {'label': _('本月'), 'domain': [('date', '>=', month_start)]},
-            'hard': {'label': _('高难度'), 'domain': [('difficulty', 'in', ['4', '5'])]},
-            'no_note': {'label': _('未填错因'), 'domain': [('note', '=', False)]},
-        }
-        filter_counts = {
-            key: Mistake.search_count(base_domain + option['domain'])
-            for key, option in searchbar_filters.items()
-        }
-        if not filterby or filterby not in searchbar_filters:
-            filterby = 'all'
-        records = Mistake.search(base_domain + searchbar_filters[filterby]['domain'])
-        values = self._tutoring_list_values(
-            records, sortby, page,
-            sortings={
-                'recorded': {
-                    'label': _('最新记录'),
-                    'key': lambda r: (r.create_date or Datetime.MIN, r.id), 'reverse': True,
-                },
-                'date': {
-                    'label': _('发生日期（新→旧）'),
-                    'key': lambda r: (r.date or Date.MIN, r.id), 'reverse': True,
-                },
-                'date_asc': {
-                    'label': _('发生日期（旧→新）'),
-                    'key': lambda r: (r.date or Date.MAX, r.id), 'reverse': False,
-                },
-            },
-            url='/my/mistakes', filterby=filterby, searchbar_filters=searchbar_filters,
-        )
+
+        filters = self._mistake_filters(month_start)
+        filterby = kwargs.get('filterby') if kwargs.get('filterby') in filters else 'all'
+        sortings = self._mistake_sortings()
+        sortby = kwargs.get('sortby') if kwargs.get('sortby') in sortings else 'review'
+        groupbys = self._mistake_groupbys()
+        groupby = kwargs.get('groupby') if kwargs.get('groupby') in groupbys else ''
+        page_sizes = self.MISTAKE_PAGE_SIZES
+        page_size = next((n for n in page_sizes if str(n) == str(kwargs.get('limit'))), 10)
+        try:
+            page = max(int(kwargs.get('page') or 1), 1)
+        except (TypeError, ValueError):
+            page = 1
+
+        domain = base_domain + filters[filterby]['domain']
+        term = (kwargs.get('search') or '').strip()
+        if term:
+            domain += self._mistake_search_domain(term)
+        drilldowns = []
+        for field, model, label in (('point_id', 'tutoring.knowledge.point', _('知识点')),
+                                    ('cause_id', 'tutoring.mistake.cause', _('错因'))):
+            rec = self._browse_allowed(model, kwargs.get(field))
+            if rec:
+                domain.append((field, '=', rec.id))
+                drilldowns.append({'field': field, 'label': label,
+                                   'value': rec.name, 'id': rec.id})
+
+        url_args = {'sortby': sortby, 'filterby': filterby, 'limit': page_size}
+        if groupby:
+            url_args['groupby'] = groupby
+        if term:
+            url_args['search'] = term
+        for drill in drilldowns:
+            url_args[drill['field']] = drill['id']
+            drill['remove_url'] = '/my/mistakes?%s' % urlencode(
+                {k: v for k, v in url_args.items() if k != drill['field']})
+
+        order = sortings[sortby]['order']
+        groups = []
+        if groupby:
+            # 分组看的是"这一类一共有哪些"，分页会把一组拆两页，所以改成封顶取一次
+            records = Mistake.search(domain, order=order, limit=self.MISTAKE_GROUP_LIMIT)
+            base_args = {k: v for k, v in url_args.items() if k != 'groupby'}
+            groups = self._mistake_groups(records, groupby, base_args)
+            pager = None
+            total = len(records)
+        else:
+            total = Mistake.search_count(domain)
+            pager = portal_pager(
+                url='/my/mistakes', url_args=url_args,
+                total=total, page=page, step=page_size)
+            records = Mistake.search(
+                domain, order=order, limit=page_size, offset=(page - 1) * page_size)
+
         last_mistake = Mistake.search(base_domain, limit=1, order='create_date desc, id desc')
-        values.update({
+        try:
+            created_count = int(kwargs.get('created') or 0)
+        except (TypeError, ValueError):
+            created_count = 0
+        return {
             'page_name': 'tutoring_mistakes',
-            'mistakes': values.pop('records'),
+            'student': student,
+            'mistakes': records,
+            'result_total': total,
+            'groups': groups,
+            'group_truncated': bool(groupby) and len(records) >= self.MISTAKE_GROUP_LIMIT,
+            'group_preview': self.MISTAKE_GROUP_PREVIEW,
+            'group_limit': self.MISTAKE_GROUP_LIMIT,
+            'pager': pager,
+            'sortby': sortby,
+            'searchbar_sortings': sortings,
+            'filterby': filterby,
+            'searchbar_filters': filters,
+            'groupby': groupby,
+            'searchbar_groupbys': groupbys,
+            'default_url': '/my/mistakes',
+            'search': term,
+            'page_size': page_size,
+            'page_sizes': page_sizes,
+            'url_args': url_args,
             'difficulty_labels': dict(Mistake._fields['difficulty'].selection),
             'difficulties': list(Mistake._fields['difficulty'].selection),
-            'filter_counts': filter_counts,
+            'filter_counts': self._mistake_filter_counts(base_domain, month_start),
+            'drilldowns': drilldowns,
             'can_create': Mistake.has_access('create'),
             'default_workbook': last_mistake.workbook_id if last_mistake else False,
             'default_date': today.strftime('%Y-%m-%d'),
-            'created_count': int((kwargs or {}).get('created') or 0),
+            'created_count': created_count,
             'form': form or {},
             'error': error,
             'workbooks': request.env['tutoring.workbook'].search([]),
             'topics': request.env['tutoring.topic'].search([]),
-        })
-        return values
+            'causes': request.env['tutoring.mistake.cause'].search([]),
+            'point_groups': self._mistake_point_groups(student),
+        }
 
     @http.route('/my/learning/mistakes', type='http', auth='user', website=True)
     def portal_my_mistakes_redirect(self, **kwargs):
@@ -381,6 +575,9 @@ class TutoringPortal(CustomerPortal):
         mistake = request.env['tutoring.mistake'].browse(mistake_id).exists()
         if not mistake or not mistake.has_access('read'):
             return request.not_found()
+        if mistake.has_access('write'):
+            # 打开一次＝复习过一次：排期自己往后推，界面上不留任何"复习"痕迹
+            mistake.touch_review()
         return request.render('tutoring_center.portal_my_learning_mistake_detail', {
             'page_name': 'tutoring_mistakes',
             'mistake': mistake,
@@ -388,6 +585,16 @@ class TutoringPortal(CustomerPortal):
             'can_edit': mistake.has_access('write'),
             'just_saved': bool(kwargs.get('created') or kwargs.get('saved')),
         })
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>/note', type='http', auth='user',
+                website=True, methods=['POST'])
+    def portal_my_mistake_note(self, mistake_id, **kw):
+        """详情页里就地补一句想法：只动补充说明，不必跳去整张编辑表重填。"""
+        mistake = request.env['tutoring.mistake'].browse(mistake_id).exists()
+        if not mistake or not mistake.has_access('write'):
+            return request.not_found()
+        mistake.write({'note': (kw.get('note') or '').strip() or False})
+        return request.redirect('/my/learning/mistakes/%d?saved=1' % mistake.id)
 
     @http.route('/my/learning/mistakes/new', type='http', auth='user', website=True,
                 methods=['GET', 'POST'])
@@ -403,16 +610,8 @@ class TutoringPortal(CustomerPortal):
         vals = self._mistake_vals_from_post(student, kw)
         if not vals['workbook_id']:
             # 带着已填的值回到速记条，不让用户重打一遍
-            form = {key: (kw.get(key) or '') for key in
-                    ('page', 'question_no', 'difficulty', 'date', 'note')}
-            form['workbook_id'] = False
-            try:
-                form['topic_id'] = int(kw.get('topic_id') or 0) or False
-            except (TypeError, ValueError):
-                form['topic_id'] = False
             values = self._mistake_page_values(
-                student, kw.get('sortby'), kw.get('filterby'), 1, kw,
-                form=form, error=_('请先选择练习册。'))
+                student, kw, form=self._mistake_form_from_post(kw), error=_('请先选择练习册。'))
             return request.render('tutoring_center.portal_my_mistakes', values)
         Mistake = request.env['tutoring.mistake']
         mistakes = Mistake.create([

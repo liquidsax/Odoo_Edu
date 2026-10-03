@@ -1,7 +1,8 @@
 # 多 agent 并发协作规范
 
 > 本项目通常有**多个 agent 同时加功能**，但共享同一套本机资源：一个 Odoo 服务、一个业务库
-> `OdooForDB`、一份部署副本。这份文件规定"谁在什么时候可以动共享资源、什么才算交付完成"。
+> `OdooForDB`、以及 `E:\Odoo` 这**唯一一份工作树**（它就是仓库主检出，也是服务正在加载的代码，
+> 没有第二份"部署副本"）。这份文件规定"谁在什么时候可以动共享资源、什么才算交付完成"。
 > 动手前先读 [handoff.md](handoff.md) 的协作规则与陷阱清单，本文件只补并发这一块。
 
 ---
@@ -14,7 +15,7 @@
 
 1. 共享实例只有一个。A 写完不部署就走，B 接手时看到的是**旧界面 + 新文档**，会照着没上线的界面去改，
    白干一轮；
-2. 更坏的是**半加载**：磁盘上的部署副本已经比库里的 schema 新（或反过来），跑起来就是
+2. 更坏的是**半加载**：工作树上的代码已经比库里的 schema 新（或反过来），跑起来就是
    "字段不存在 / 列不存在"的报错。本轮就撞过一次——新模型的 `_order` 引用了还没建的列，
    结果**别人正在用的列表页直接 500**。这种坏状态对别人是无妄之灾；
 3. 出错的时机越晚，能怪的范围越大。刚写完的人知道自己动了什么，隔两天的人只能猜。
@@ -27,7 +28,7 @@
 | 动作 | 是否独占 | 要求 |
 |---|---|---|
 | 写代码、跑离线校验（`py_compile`、RelaxNG、一次性新库 `-i`） | 否 | 随时可做，不碰 `OdooForDB` |
-| 同步部署副本 `E:\Odoo\server\addons\tutoring_center` | **是** | 见第三节，同步与升级必须成对做完 |
+| 改本机工作树 `E:\Odoo\server\addons\tutoring_center` 的代码 | 否（写）/ **是**（生效） | 写文件不打扰正在跑的实例；但服务加载的就是这一份，别人一次重启会连你未提交的改动一起加载，所以动手前先 `git status` 看清有没有别人的 WIP |
 | `svcctl stop/start/restart odoo` | **是** | 提前打招呼要窗口；会弹 UAC；平台短暂下线 |
 | `-u tutoring_center`（停服或就地） | **是** | 同上，事后核对 `latest_version` |
 | 改系统参数 / `odoo.conf` | **是** | 属配置变更，先说明改什么、为什么、怎么回退 |
@@ -41,15 +42,15 @@
 powershell -NoProfile -ExecutionPolicy Bypass -File \
   "$USERPROFILE/.qoder-cn/skills/odoo-service-control/scripts/svcctl.ps1" status all
 
-# 1) 备份部署副本（务必放 addons_path 之外，否则带 __manifest__.py 的副本会被当模块扫出来）
+# 1) 看清这一份工作树里有没有别人未提交的改动（服务加载的就是这个目录）
+git -C /e/Odoo status --short
+
+# 2) 备份当前模块（务必放 addons_path 之外，否则带 __manifest__.py 的目录会被当模块扫出来）
 cp -a /e/Odoo/server/addons/tutoring_center \
-      "/e/Odoo/backup/tutoring_center_deployed_$(date +%Y%m%d-%H%M)"
+      "/e/Odoo/backup/tutoring_center_before_$(date +%Y%m%d-%H%M)"
 
-# 2) 确认副本里没有只改在部署侧的手改（只有行尾差异才敢盖）
-diff -r --strip-trailing-cr <仓库>/server/addons/tutoring_center /e/Odoo/server/addons/tutoring_center
-
-# 3) 同步 + 升级（有新增 Python 模型类/控制器必须停服；纯 XML/数据可就地）
-cp -a <仓库>/server/addons/tutoring_center/. /e/Odoo/server/addons/tutoring_center/
+# 3) 升级（有新增 Python 模型类/控制器必须停服；纯 XML/数据可就地）
+#    代码不需要往任何地方"同步"——改的就是服务在读的那份文件
 #   停服路线：svcctl stop odoo → 下面这条 → svcctl start odoo
 cd /e/Odoo/server && PYTHONUTF8=1 \
   /e/Odoo/python/python.exe odoo-bin -c odoo.conf -d OdooForDB \
@@ -62,7 +63,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File \
 
 要点：
 
-- **合并到 main ≠ 上线**。部署副本是手抄副本，不是仓库的实时映射；不同步它，重启服务什么新代码都不会生效。
+- **合并到 main ≠ 生效**。代码就在服务加载的那一份目录里，不需要"同步"，但没跑 `-u`（Python 变更还要重启）
+  就进不了库、也不会重建资产包；反过来别人一次重启会连你**未提交的改动**一起加载——所以占用声明里要写清工作树是否干净。
 - `odoo-bin shell < dev/upgrade_via_rpc.py` 这类带中文注释的脚本在 Windows 上**必须 `PYTHONUTF8=1`**，
   否则 stdin 按控制台代码页读进来会 `UnicodeEncodeError: surrogates not allowed`（在编译阶段就炸，
   不会留下半个写入）。

@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- 通用错因字典：按"错在哪一环"分六类，数学/编程/阅读都套得进去。
+             noupdate=1 —— 老师在这里增删改之后，升级不会把改动还原。 -->
+
+        <record id="mistake_cause_concept_weak" model="tutoring.mistake.cause">
+            <field name="name">概念不稳固</field>
+            <field name="category">concept</field>
+            <field name="hint">定义、公式或定理本身没吃透</field>
+            <field name="sequence" type="int">10</field>
+        </record>
+        <record id="mistake_cause_not_taught" model="tutoring.mistake.cause">
+            <field name="name">还没学到</field>
+            <field name="category">concept</field>
+            <field name="hint">这块内容进度未到，或压根没讲过</field>
+            <field name="sequence" type="int">20</field>
+        </record>
+
+        <record id="mistake_cause_condition_missed" model="tutoring.mistake.cause">
+            <field name="name">条件漏读</field>
+            <field name="category">read</field>
+            <field name="hint">没看清限制条件、取值范围或单位</field>
+            <field name="sequence" type="int">30</field>
+        </record>
+        <record id="mistake_cause_text_unparsed" model="tutoring.mistake.cause">
+            <field name="name">读不懂题</field>
+            <field name="category">read</field>
+            <field name="hint">长题干、图表信息转不成式子</field>
+            <field name="sequence" type="int">40</field>
+        </record>
+        <record id="mistake_cause_misread_intent" model="tutoring.mistake.cause">
+            <field name="name">理解偏了</field>
+            <field name="category">read</field>
+            <field name="hint">把题目问的东西理解成了别的</field>
+            <field name="sequence" type="int">50</field>
+        </record>
+
+        <record id="mistake_cause_calculation" model="tutoring.mistake.cause">
+            <field name="name">计算失误</field>
+            <field name="category">compute</field>
+            <field name="hint">算错、符号错、约分通分出岔</field>
+            <field name="sequence" type="int">60</field>
+        </record>
+        <record id="mistake_cause_transcription" model="tutoring.mistake.cause">
+            <field name="name">抄写笔误</field>
+            <field name="category">compute</field>
+            <field name="hint">抄错数字、题号或选项</field>
+            <field name="sequence" type="int">70</field>
+        </record>
+
+        <record id="mistake_cause_no_entry" model="tutoring.mistake.cause">
+            <field name="name">找不到入口</field>
+            <field name="category">strategy</field>
+            <field name="hint">读完题完全没有思路，不知从哪一步起手</field>
+            <field name="sequence" type="int">80</field>
+        </record>
+        <record id="mistake_cause_no_transfer" model="tutoring.mistake.cause">
+            <field name="name">方法迁移不过来</field>
+            <field name="category">strategy</field>
+            <field name="hint">同类题会做，换个外壳或条件就认不出来</field>
+            <field name="sequence" type="int">90</field>
+        </record>
+        <record id="mistake_cause_heavy_method" model="tutoring.mistake.cause">
+            <field name="name">方法选重了</field>
+            <field name="category">strategy</field>
+            <field name="hint">有更简洁的路，却选了硬算的那条</field>
+            <field name="sequence" type="int">100</field>
+        </record>
+
+        <record id="mistake_cause_no_check" model="tutoring.mistake.cause">
+            <field name="name">没回头检查</field>
+            <field name="category">habit</field>
+            <field name="hint">做完没验算、没回代</field>
+            <field name="sequence" type="int">110</field>
+        </record>
+        <record id="mistake_cause_out_of_time" model="tutoring.mistake.cause">
+            <field name="name">时间不够</field>
+            <field name="category">habit</field>
+            <field name="hint">会做，但没时间做完</field>
+            <field name="sequence" type="int">120</field>
+        </record>
+
+        <record id="mistake_cause_other" model="tutoring.mistake.cause">
+            <field name="name">其它</field>
+            <field name="category">other</field>
+            <field name="hint">归不进上面几类，在补充说明里写清楚</field>
+            <field name="sequence" type="int">130</field>
+        </record>
+    </data>
+</odoo>
