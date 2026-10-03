@@ -73,7 +73,7 @@
                 </li>
                 <li t-if="page_name == 'tutoring_mistakes'"
                     t-attf-class="breadcrumb-item #{'active' if not mistake else ''}">
-                    <a t-if="mistake" href="/my/learning/mistakes">错题</a>
+                    <a t-if="mistake" href="/my/mistakes">错题</a>
                     <t t-else="">错题</t>
                 </li>
                 <li t-if="mistake and page_name == 'tutoring_mistakes'" class="breadcrumb-item active">
@@ -196,7 +196,7 @@
                         <div class="card h-100">
                             <div class="card-header fw-bold d-flex justify-content-between align-items-center">
                                 <span>最近错题</span>
-                                <a class="btn btn-sm btn-primary" href="/my/learning/mistakes/new">+ 添加</a>
+                                <a class="btn btn-sm btn-primary" href="/my/mistakes#quickadd">+ 记一笔</a>
                             </div>
                             <div class="card-body p-0">
                                 <t t-if="not mistakes">
@@ -220,7 +220,7 @@
                                         </tbody>
                                     </table>
                                 </t>
-                                <div class="m-3 mb-0"><a href="/my/learning/mistakes">查看全部错题 →</a></div>
+                                <div class="m-3 mb-0"><a href="/my/mistakes">查看全部错题 →</a></div>
                             </div>
                         </div>
                     </div>
@@ -489,44 +489,173 @@
                 </div>
             </t>
         </template>
-        <!-- ===== 错题列表 ===== -->
-        <template id="portal_my_learning_mistakes" name="我的错题">
+        <!-- ===== 错题独立页（顶栏「错题」入口）：速记条 + 药丸筛选 + 卡片列表 ===== -->
+        <template id="portal_my_mistakes" name="错题">
             <t t-call="portal.portal_layout">
-                <t t-set="breadcrumbs_searchbar" t-value="True"/>
-                <t t-call="portal.portal_searchbar">
-                    <t t-set="title">错题</t>
-                </t>
-                <div class="d-flex justify-content-end mb-3" t-if="can_create">
-                    <a class="btn btn-primary" href="/my/learning/mistakes/new">+ 添加错题</a>
+                <!-- 标题行：总数 + 记一笔 -->
+                <div class="d-flex justify-content-between align-items-center mt-3 mb-3">
+                    <h4 class="mb-0">
+                        错题
+                        <span class="badge text-bg-light border ms-1" t-out="filter_counts.get('all', 0)"/>
+                    </h4>
+                    <a href="#quickadd" class="btn btn-primary">+ 记一笔</a>
                 </div>
-                <t t-if="not mistakes">
-                    <p class="alert alert-warning">暂无错题记录，继续保持！</p>
-                </t>
-                <t t-if="mistakes" t-call="portal.portal_table">
-                    <thead>
-                        <tr class="active">
-                            <th>练习册 / 题号</th>
-                            <th class="d-none d-md-table-cell">发生日期</th>
-                            <th class="d-none d-md-table-cell">相关教学内容</th>
-                            <th>难度</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr t-foreach="mistakes" t-as="m" t-key="m.id">
-                            <td>
-                                <a t-attf-href="/my/learning/mistakes/#{m.id}?{{ keep_query() }}">
-                                    <t t-out="m.workbook_id.name"/>
-                                    <span class="text-muted small" t-if="m.page or m.question_no">
-                                        <t t-if="m.page">P<t t-out="m.page"/></t><t t-if="m.question_no"> · 第<t t-out="m.question_no"/>题</t>
-                                    </span>
+
+                <div t-if="created_count" class="alert alert-success">
+                    已记录 <b t-out="created_count"/> 道错题，继续保持！
+                </div>
+                <div t-if="error" class="alert alert-danger" t-out="error"/>
+
+                <!-- 速记条：一行记完出处；难度/日期/教学内容/错因收进「更多选项」 -->
+                <div class="card border-0 shadow-sm mb-4" id="quickadd" t-if="can_create">
+                    <div class="card-body">
+                        <form method="post" action="/my/learning/mistakes/new">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                            <div class="row g-2 align-items-end">
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label small text-muted mb-1" for="q_workbook">哪本练习册</label>
+                                    <select class="form-select" name="workbook_id" id="q_workbook" required="required">
+                                        <option value="">请选择…</option>
+                                        <t t-foreach="workbooks" t-as="wb" t-key="wb.id">
+                                            <option t-att-value="wb.id"
+                                                    t-att-selected="form.get('workbook_id') == wb.id if form else (default_workbook and default_workbook.id == wb.id)">
+                                                <t t-out="wb.name"/>
+                                            </option>
+                                        </t>
+                                    </select>
+                                </div>
+                                <div class="col-4 col-md-2">
+                                    <label class="form-label small text-muted mb-1" for="q_page">页码</label>
+                                    <input type="text" class="form-control" name="page" id="q_page"
+                                           placeholder="如 13" t-att-value="form.get('page', '') if form else ''"/>
+                                </div>
+                                <div class="col-8 col-md-3">
+                                    <label class="form-label small text-muted mb-1" for="q_question_no">题号（可连记）</label>
+                                    <input type="text" class="form-control" name="question_no" id="q_question_no"
+                                           placeholder="如 5 或 1-5" t-att-value="form.get('question_no', '') if form else ''"/>
+                                </div>
+                                <div class="col-12 col-md-3">
+                                    <button type="submit" class="btn btn-primary w-100">记录</button>
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <a class="small text-decoration-none" data-bs-toggle="collapse"
+                                   href="#quickadd_more" role="button" aria-expanded="false"
+                                   aria-controls="quickadd_more">更多选项（难度、日期、教学内容、错因）</a>
+                                <div class="collapse" id="quickadd_more">
+                                    <div class="row g-3 mt-1">
+                                        <div class="col-12 col-md-6">
+                                            <label class="form-label small text-muted mb-1">难度</label>
+                                            <div class="btn-group btn-group-sm d-flex" role="group">
+                                                <t t-foreach="difficulties" t-as="d" t-key="d[0]">
+                                                    <input type="radio" class="btn-check" name="difficulty"
+                                                           t-att-id="'qdiff_%s' % d[0]" t-att-value="d[0]"
+                                                           t-att-checked="d[0] == ((form.get('difficulty') if form else '') or '3')"
+                                                           autocomplete="off"/>
+                                                    <label class="btn btn-outline-secondary" t-att-for="'qdiff_%s' % d[0]"
+                                                           t-out="d[1]"/>
+                                                </t>
+                                            </div>
+                                        </div>
+                                        <div class="col-6 col-md-3">
+                                            <label class="form-label small text-muted mb-1" for="q_date">发生日期</label>
+                                            <input type="date" class="form-control form-control-sm" name="date" id="q_date"
+                                                   t-att-value="form.get('date') if form else default_date"/>
+                                        </div>
+                                        <div class="col-6 col-md-3">
+                                            <label class="form-label small text-muted mb-1" for="q_topic">教学内容</label>
+                                            <select class="form-select form-select-sm" name="topic_id" id="q_topic">
+                                                <option value="">（不指定）</option>
+                                                <t t-foreach="topics" t-as="tp" t-key="tp.id">
+                                                    <option t-att-value="tp.id"
+                                                            t-att-selected="form.get('topic_id') == tp.id if form else False">
+                                                        <t t-out="tp.name"/>
+                                                    </option>
+                                                </t>
+                                            </select>
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label small text-muted mb-1" for="q_note">错因/备注（可不填）</label>
+                                            <textarea class="form-control form-control-sm" name="note" id="q_note" rows="2"
+                                                      placeholder="这道题错在哪、需要巩固什么……（不记题目内容）"><t t-out="form.get('note', '') if form else ''"/></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-text mt-2">题号可写 <b>1-5</b>、<b>1,3,7</b>，保存时自动拆成多条；只记出处，不用抄题目。</div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 筛选药丸（带计数）+ 排序 -->
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                    <ul class="nav nav-pills gap-1">
+                        <t t-foreach="searchbar_filters.items()" t-as="pair" t-key="pair[0]">
+                            <li class="nav-item">
+                                <a t-attf-class="nav-link py-1 #{'active' if filterby == pair[0] else 'text-body'}"
+                                   t-attf-href="/my/mistakes?filterby={{ pair[0] }}{{ '&amp;sortby=' + sortby if sortby else '' }}">
+                                    <t t-out="pair[1]['label']"/>
+                                    <span t-attf-class="badge ms-1 #{'text-bg-light' if filterby == pair[0] else 'text-bg-secondary-subtle'}"
+                                          t-out="filter_counts.get(pair[0], 0)"/>
                                 </a>
-                            </td>
-                            <td class="d-none d-md-table-cell" t-out="m.date"/>
-                            <td class="d-none d-md-table-cell" t-out="m.topic_id.name or '—'"/>
-                            <td style="white-space: nowrap;" t-out="difficulty_labels.get(m.difficulty, '')"/>
-                        </tr>
-                    </tbody>
+                            </li>
+                        </t>
+                    </ul>
+                    <div class="dropdown">
+                        <button class="btn btn-light btn-sm border dropdown-toggle" type="button"
+                                data-bs-toggle="dropdown" aria-expanded="false">
+                            排序：<t t-out="searchbar_sortings.get(sortby, searchbar_sortings.get('recorded', {})).get('label', '')"/>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <t t-foreach="searchbar_sortings.items()" t-as="pair" t-key="pair[0]">
+                                <li>
+                                    <a class="dropdown-item"
+                                       t-att-class="(pair[0] == sortby) and 'active'"
+                                       t-attf-href="/my/mistakes?sortby={{ pair[0] }}{{ '&amp;filterby=' + filterby if filterby != 'all' else '' }}"
+                                       t-out="pair[1]['label']"/>
+                                </li>
+                            </t>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 空态 -->
+                <t t-if="not mistakes">
+                    <div class="alert alert-warning d-flex justify-content-between align-items-center">
+                        <span t-if="filterby == 'all'">还没有错题记录，继续保持！做错了题就用上面的速记条记一笔。</span>
+                        <span t-else="">这个筛选下没有错题。</span>
+                    </div>
                 </t>
+
+                <!-- 卡片列表 -->
+                <div class="list-group shadow-sm" t-if="mistakes">
+                    <div class="list-group-item position-relative" t-foreach="mistakes" t-as="m" t-key="m.id">
+                        <div class="d-flex justify-content-between align-items-baseline gap-2">
+                            <a class="stretched-link text-decoration-none"
+                               t-attf-href="/my/learning/mistakes/#{m.id}">
+                                <span class="fw-bold"><t t-out="m.workbook_id.name"/></span>
+                                <span class="text-muted ms-1">
+                                    <t t-if="m.page">P<t t-out="m.page"/></t><t t-if="m.page and m.question_no"> · </t><t t-if="m.question_no">第<t t-out="m.question_no"/>题</t>
+                                </span>
+                            </a>
+                            <span class="text-muted small text-nowrap" t-out="m.date"/>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mt-1">
+                            <span>
+                                <span t-out="difficulty_labels.get(m.difficulty, '')"/>
+                                <span class="badge rounded-pill text-bg-secondary-subtle text-secondary-emphasis ms-1"
+                                      t-if="m.topic_id.name" t-out="m.topic_id.name"/>
+                                <span class="badge rounded-pill text-bg-light border ms-1" t-if="not m.note">未填错因</span>
+                            </span>
+                            <a class="position-relative small text-decoration-none"
+                               t-attf-href="/my/learning/mistakes/#{m.id}/edit">编辑</a>
+                        </div>
+                        <p class="mb-0 mt-1 small text-body-secondary"
+                           t-if="m.note"
+                           style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line;"
+                           t-out="m.note"/>
+                    </div>
+                </div>
                 <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3"><t t-call="portal.pager"/></div>
             </t>
         </template>

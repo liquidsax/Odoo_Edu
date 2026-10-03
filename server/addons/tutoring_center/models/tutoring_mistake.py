@@ -1,4 +1,30 @@
+import re
+
 from odoo import _, api, fields, models
+from odoo.exceptions import ValidationError
+
+# 一次最多生成多少条，防止把"1-9999"当成批量录入（后台速记与门户速记条共用）
+MAX_QUESTION_LINES = 100
+
+
+def split_question_numbers(value):
+    """把"1-5""1,3,7""1-3,7"这类写法展开成题号列表；留空则只记一道。"""
+    tokens = re.split(r'[,，、;；]', value or '')
+    numbers = []
+    for token in tokens:
+        token = token.strip()
+        if not token:
+            continue
+        span = re.fullmatch(r'(\d+)\s*[-~至]\s*(\d+)', token)
+        if span:
+            start, end = sorted((int(span[1]), int(span[2])))
+            numbers += [str(n) for n in range(start, end + 1)]
+        else:
+            numbers.append(token)
+    numbers = list(dict.fromkeys(numbers))
+    if len(numbers) > MAX_QUESTION_LINES:
+        raise ValidationError(_('一次最多记录 %s 道题，请缩小题号范围。') % MAX_QUESTION_LINES)
+    return numbers or [False]
 
 
 class TutoringMistake(models.Model):
