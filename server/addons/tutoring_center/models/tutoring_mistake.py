@@ -79,6 +79,17 @@ class TutoringMistake(models.Model):
                 fields.Datetime.context_timestamp(rec, rec.create_date).strftime('%Y-%m-%d %H:%M')
                 if rec.create_date else '')
 
+    @api.model
+    def summary_stats(self):
+        """错题页顶部概览条的四个数字（全局统计，不随当前筛选变）。"""
+        today = fields.Date.context_today(self)
+        return {
+            'total': self.search_count([]),
+            'month': self.search_count([('date', '>=', today.replace(day=1))]),
+            'hard': self.search_count([('difficulty', 'in', ['4', '5'])]),
+            'no_note': self.search_count([('note', '=', False)]),
+        }
+
     def action_open_quickadd(self):
         """列表控制栏「快速记录」：打开速记弹窗（学生/练习册沿用上一条记录）。
 

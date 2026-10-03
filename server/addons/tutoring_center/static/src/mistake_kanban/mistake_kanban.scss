@@ -1,0 +1,19 @@
+// 错题卡片看板：备注两行截断，标题行防溢出
+.o_tutoring_mistake_kanban {
+    .o_mistake_card_book {
+        min-width: 0;
+    }
+
+    .o_mistake_card_where {
+        flex-shrink: 0;
+    }
+
+    .o_mistake_card_note {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        white-space: pre-line;
+    }
+}

@@ -1,6 +1,6 @@
 {
     'name': '数学辅导数据中台',
-    'version': '19.0.1.7.0',
+    'version': '19.0.1.8.0',
     'category': 'Services',
     'summary': '一对一个性化数学辅导：学生档案、课次、作业、考试记录与学生/家长门户',
     'description': """
@@ -34,6 +34,8 @@
         ],
         'web.assets_backend': [
             'tutoring_center/static/src/fields/**/*',
+            'tutoring_center/static/src/mistake_stats/*',
+            'tutoring_center/static/src/mistake_kanban/*',
         ],
     },
     'installable': True,

@@ -1,0 +1,39 @@
+// 错题页顶部概览条：柔和卡片条，数字醒目，可点击的 chip 激活时用主色反白
+.o_mistake_stats {
+    border: 1px solid #{$gray-200};
+    border-radius: 8px;
+    background-color: #{$gray-100};
+
+    .o_mistake_stat {
+        display: inline-flex;
+        align-items: center;
+        color: #{$body-color};
+
+        .fa {
+            opacity: 0.6;
+        }
+
+        .o_mistake_stat_value {
+            font-size: 1.05rem;
+        }
+    }
+
+    .o_mistake_stat_link {
+        border: 1px solid transparent;
+        padding: 0.1rem 0.5rem;
+
+        &:hover {
+            background-color: rgba(0, 0, 0, 0.06);
+        }
+
+        &.o_mistake_stat_active {
+            background-color: #{$primary};
+            border-color: #{$primary};
+            color: #fff;
+
+            .fa {
+                opacity: 0.9;
+            }
+        }
+    }
+}
