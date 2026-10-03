@@ -638,11 +638,83 @@
         <!-- 只读列表：单击行进详情页中页（和练习册页同一套路）。辣椒在这里必须
              readonly="1"——chili 组件在列表里默认"未进入编辑态也可点并立即保存"
              （见 static/src/fields/chili_field.js 的 extractProps），不写死就绕过了「修改」。 -->
+        <!-- 错题默认视图：按学生分栏的卡片墙。整卡点击走 action_open_reader（与列表行点击
+             同一个只读详情弹窗，core kanban 的 action/type 属性原生支持）；错题不该被拖拽
+             换学生，所以拖拽/改组/栏级新建全关掉。 -->
+        <record id="view_tutoring_mistake_kanban" model="ir.ui.view">
+            <field name="name">tutoring.mistake.kanban</field>
+            <field name="model">tutoring.mistake</field>
+            <field name="arch" type="xml">
+                <kanban class="o_tutoring_mistake_kanban"
+                        js_class="tutoring_mistake_kanban"
+                        default_group_by="student_id"
+                        default_order="date desc, id desc"
+                        action="action_open_reader" type="object"
+                        can_open="false" sample="1"
+                        records_draggable="false" groups_draggable="false"
+                        group_create="false" group_edit="false" group_delete="false"
+                        quick_create="false">
+                    <header>
+                        <button name="action_open_quickadd" type="object" string="快速记录"
+                                display="always" icon="fa-magic"
+                                title="弹窗里连续记：题号可写 1-5 或 1,3,7，会自动拆成多条"/>
+                        <button name="action_new_mistake" type="object" string="新建错题"
+                                display="always" icon="fa-plus"
+                                title="弹窗里记一条；学生档案页签里仍可以像 Excel 一样逐行填"/>
+                    </header>
+                    <field name="student_id"/>
+                    <field name="workbook_id"/>
+                    <field name="date"/>
+                    <field name="page"/>
+                    <field name="question_no"/>
+                    <field name="topic_id"/>
+                    <field name="note"/>
+                    <field name="difficulty"/>
+                    <progressbar field="difficulty"
+                                 colors='{"2": "success", "3": "info", "4": "warning", "5": "danger"}'/>
+                    <templates>
+                        <t t-name="card">
+                            <div class="o_mistake_card d-flex flex-column gap-1 w-100">
+                                <div class="o_mistake_card_head d-flex align-items-baseline gap-2">
+                                    <span class="o_mistake_card_book text-truncate fw-bold">
+                                        <t t-out="record.workbook_id.value"/>
+                                    </span>
+                                    <span class="o_mistake_card_where text-muted text-nowrap small">
+                                        <t t-if="record.page.value">P<t t-out="record.page.value"/></t>
+                                        <t t-if="record.page.value and record.question_no.value"> · </t>
+                                        <t t-if="record.question_no.value">第<t t-out="record.question_no.value"/>题</t>
+                                        <t t-if="!record.page.value and !record.question_no.value">未填页码/题号</t>
+                                    </span>
+                                </div>
+                                <div class="o_mistake_card_note small text-body-secondary" t-if="record.note.value">
+                                    <t t-out="record.note.value"/>
+                                </div>
+                                <div class="o_mistake_card_foot d-flex align-items-center gap-2 mt-auto flex-wrap">
+                                    <span class="badge rounded-pill text-bg-light border"
+                                          t-if="!groupByField or groupByField.name !== 'student_id'">
+                                        <t t-out="record.student_id.value"/>
+                                    </span>
+                                    <span class="small text-muted"><field name="date"/></span>
+                                    <span class="ms-auto"><field name="difficulty" widget="chili" readonly="1"/></span>
+                                    <span class="badge rounded-pill text-bg-secondary-subtle text-secondary-emphasis"
+                                          t-if="record.topic_id.value">
+                                        <t t-out="record.topic_id.value"/>
+                                    </span>
+                                </div>
+                            </div>
+                        </t>
+                    </templates>
+                </kanban>
+            </field>
+        </record>
+
         <record id="view_tutoring_mistake_list" model="ir.ui.view">
             <field name="name">tutoring.mistake.list</field>
             <field name="model">tutoring.mistake</field>
             <field name="arch" type="xml">
-                <list string="错题记录" type="object" action="action_open_reader" create="false">
+                <list string="错题记录" type="object" action="action_open_reader" create="false"
+                      js_class="tutoring_mistake_list" sample="1"
+                      decoration-danger="difficulty in ['4', '5']">
                     <header>
                         <button name="action_open_quickadd" type="object" string="快速记录"
                                 display="always" icon="fa-magic"
@@ -760,7 +832,11 @@
                     <field name="note" string="错因"/>
                     <separator/>
                     <filter string="高难度(4~5🌶)" name="hard" domain="[('difficulty', 'in', ['4', '5'])]"/>
+                    <filter string="基础难度(2~3🌶)" name="easy" domain="[('difficulty', 'in', ['2', '3'])]"/>
                     <filter string="未填错因" name="no_note" domain="[('note', '=', False)]"/>
+                    <separator/>
+                    <!-- 原生日期筛选：自带 今天/本周/本月/本季/本年 选项 -->
+                    <filter string="发生日期" name="filter_date" date="date"/>
                     <group>
                         <filter string="学生" name="group_student" context="{'group_by': 'student_id'}"/>
                         <filter string="练习册" name="group_workbook" context="{'group_by': 'workbook_id'}"/>
@@ -811,6 +887,17 @@
             </field>
         </record>
 
+        <!-- 错题统计：柱状图按月看趋势；教师可在图上原生切按练习册/难度分布 -->
+        <record id="view_tutoring_mistake_graph" model="ir.ui.view">
+            <field name="name">tutoring.mistake.graph</field>
+            <field name="model">tutoring.mistake</field>
+            <field name="arch" type="xml">
+                <graph string="错题统计" type="bar" stacked="True">
+                    <field name="date" interval="month"/>
+                </graph>
+            </field>
+        </record>
+
         <!-- ===== 动作 ===== -->
         <record id="action_tutoring_student" model="ir.actions.act_window">
             <field name="name">学生</field>
@@ -853,12 +940,11 @@
         <record id="action_tutoring_mistake" model="ir.actions.act_window">
             <field name="name">错题</field>
             <field name="res_model">tutoring.mistake</field>
-            <field name="view_mode">list,form</field>
+            <field name="view_mode">kanban,list,graph,form</field>
             <field name="help" type="html">
-                <p class="o_view_nocontent_smiling_face">记录第一道错题</p>
-                <p>用「快速记录」一次记一道或一串题（页码 + 题号支持 <code>1-5</code>、<code>1,3,7</code>），或点「新建错题」逐条填；要像 Excel 一样逐行连填，去学生档案的错题页签。</p>
-                <p>这张表只读：<b>单击任意一行</b>进详情，能看到这道题所在的教材原页（只加载那一页）；要改内容（含难度辣椒 2~5🌶）请点详情页里的「修改」。</p>
-                <p>只记出处（练习册/页码/题号），不抄题目内容；学生也可以在自己的门户里自助添加。</p>
+                <p class="o_view_nocontent_smiling_face">还没有错题记录</p>
+                <p>点「快速记录」，页码加题号就能记一笔（一次可记一串，如 <code>1-5</code>）；卡片上点一下就能看到教材原页。</p>
+                <p>上方的数字条会随时告诉你：这个月错了多少、哪些是硬骨头、哪些还没写错因。</p>
             </field>
         </record>
 

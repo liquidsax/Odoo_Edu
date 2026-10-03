@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="tutoring_center.MistakeStatsBanner">
+        <div class="o_mistake_stats d-flex align-items-center gap-2 gap-md-3 flex-wrap px-3 py-2 mb-2"
+             t-if="state.stats">
+            <t t-foreach="chips" t-as="chip" t-key="chip.key">
+                <span t-if="chip.plain" class="o_mistake_stat">
+                    <i class="fa me-1" t-att-class="chip.icon" role="img" aria-hidden="true"/>
+                    <b class="o_mistake_stat_value" t-out="chip.value"/>
+                    <t t-out="chip.label"/>
+                </span>
+                <button t-else="" type="button"
+                        t-attf-class="o_mistake_stat o_mistake_stat_link btn btn-sm{{ isActive(chip.filter) ? ' o_mistake_stat_active' : '' }}"
+                        t-on-click="() => this.onChipClicked(chip)"
+                        title="点这里按该条件筛选">
+                    <i class="fa me-1" t-att-class="chip.icon" role="img" aria-hidden="true"/>
+                    <t t-out="chip.label"/>
+                    <b class="o_mistake_stat_value" t-out="chip.value"/>
+                </button>
+            </t>
+        </div>
+    </t>
+
+    <t t-name="tutoring_center.MistakeKanbanController" t-inherit="web.KanbanView">
+        <xpath expr="//t[@t-component='props.Renderer']" position="before">
+            <MistakeStatsBanner bus="model.bus"/>
+        </xpath>
+    </t>
+
+    <t t-name="tutoring_center.MistakeListController" t-inherit="web.ListView">
+        <xpath expr="//t[@t-component='props.Renderer']" position="before">
+            <MistakeStatsBanner bus="model.bus"/>
+        </xpath>
+    </t>
+
+</templates>
