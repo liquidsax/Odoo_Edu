@@ -4,5 +4,7 @@
         <!-- 升级兼容：把没有练习册的存量错题归入按需创建的默认练习册，
              以便 workbook_id 的 NOT NULL 约束在收尾阶段干净生效（全新库为空操作）。 -->
         <function model="tutoring.mistake" name="_migration_backfill_workbook"/>
+        <!-- 存量错题补复习排期（新字段是 NULL，门户按它排序会永久沉底） -->
+        <function model="tutoring.mistake" name="_migration_backfill_review"/>
     </data>
 </odoo>

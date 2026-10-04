@@ -50,8 +50,8 @@ export class MistakeStatsBanner extends Component {
             { key: "month", icon: "fa-calendar", value: s.month, label: "本月新增",
                 filter: "filter_date" },
             { key: "hard", icon: "fa-fire", value: s.hard, label: "高难度", filter: "hard" },
-            { key: "no_note", icon: "fa-pencil-square-o", value: s.no_note, label: "未填错因",
-                filter: "no_note" },
+            { key: "no_cause", icon: "fa-question-circle", value: s.no_cause, label: "未标错因",
+                filter: "no_cause" },
         ];
     }
 

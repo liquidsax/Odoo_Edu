@@ -94,6 +94,9 @@
                                         <field name="workbook_id"/>
                                         <field name="page" optional="show" placeholder="页码"/>
                                         <field name="question_no" optional="show" placeholder="题号"/>
+                                        <field name="point_id" optional="show"
+                                               domain="[('grade', 'in', parent.knowledge_grades)]"/>
+                                        <field name="cause_id" optional="show"/>
                                         <field name="topic_id" optional="show"/>
                                         <field name="difficulty" widget="chili" optional="show"/>
                                         <field name="note" optional="hide"/>
@@ -668,6 +671,8 @@
                     <field name="page"/>
                     <field name="question_no"/>
                     <field name="topic_id"/>
+                    <field name="cause_id"/>
+                    <field name="point_id"/>
                     <field name="note"/>
                     <field name="difficulty"/>
                     <progressbar field="difficulty"
@@ -696,6 +701,14 @@
                                     </span>
                                     <span class="small text-muted"><field name="date"/></span>
                                     <span class="ms-auto"><field name="difficulty" widget="chili" readonly="1"/></span>
+                                    <span class="badge rounded-pill bg-primary-subtle text-primary-emphasis"
+                                          t-if="record.point_id.value">
+                                        <t t-out="record.point_id.value"/>
+                                    </span>
+                                    <span class="badge rounded-pill bg-warning-subtle text-warning-emphasis"
+                                          t-if="record.cause_id.value">
+                                        <t t-out="record.cause_id.value"/>
+                                    </span>
                                     <span class="badge rounded-pill text-bg-secondary-subtle text-secondary-emphasis"
                                           t-if="record.topic_id.value">
                                         <t t-out="record.topic_id.value"/>
@@ -729,6 +742,8 @@
                     <field name="page" optional="show"/>
                     <field name="question_no" optional="show"/>
                     <field name="difficulty" widget="chili" readonly="1" optional="show"/>
+                    <field name="cause_id" optional="show"/>
+                    <field name="point_id" optional="show"/>
                     <field name="note" optional="show"/>
                     <field name="topic_id" optional="hide"/>
                     <field name="create_date" string="记录时刻" readonly="1" optional="hide"/>
@@ -761,11 +776,13 @@
                             </group>
                             <group string="标记">
                                 <field name="difficulty" widget="chili" readonly="1"/>
+                                <field name="cause_id" readonly="1"/>
+                                <field name="point_id" readonly="1"/>
                                 <field name="topic_id" readonly="1"/>
                                 <field name="create_date" string="记录时刻" readonly="1"/>
                             </group>
                         </group>
-                        <group string="错因/备注">
+                        <group string="补充说明">
                             <field name="note" nolabel="1" colspan="2" readonly="1"/>
                         </group>
                         <group string="出错的那一页">
@@ -806,11 +823,17 @@
                             </group>
                             <group string="标记">
                                 <field name="difficulty" widget="chili"/>
+                                <field name="cause_id"/>
+                                <field name="knowledge_grades" invisible="1"/>
+                                <field name="student_grade" invisible="1"/>
+                                <field name="point_id"
+                                       domain="[('grade', 'in', knowledge_grades)]"
+                                       context="{'default_grade': student_grade}"/>
                                 <field name="topic_id"/>
                                 <field name="create_date" string="记录时刻" readonly="1"/>
                             </group>
                         </group>
-                        <group string="错因/备注">
+                        <group string="补充说明">
                             <field name="note" nolabel="1"
                                    placeholder="这道题错在哪、需要巩固什么……（不记题目内容）"/>
                         </group>
@@ -829,11 +852,14 @@
                     <field name="topic_id"/>
                     <field name="page" string="页码"/>
                     <field name="question_no" string="题号"/>
-                    <field name="note" string="错因"/>
+                    <field name="note" string="补充说明"/>
+                    <field name="cause_id"/>
+                    <field name="point_id"/>
                     <separator/>
                     <filter string="高难度(4~5🌶)" name="hard" domain="[('difficulty', 'in', ['4', '5'])]"/>
                     <filter string="基础难度(2~3🌶)" name="easy" domain="[('difficulty', 'in', ['2', '3'])]"/>
-                    <filter string="未填错因" name="no_note" domain="[('note', '=', False)]"/>
+                    <filter string="未标错因" name="no_cause" domain="[('cause_id', '=', False)]"/>
+                    <filter string="未选知识点" name="no_point" domain="[('point_id', '=', False)]"/>
                     <separator/>
                     <!-- 原生日期筛选：自带 今天/本周/本月/本季/本年 选项 -->
                     <filter string="发生日期" name="filter_date" date="date"/>
@@ -841,6 +867,9 @@
                         <filter string="学生" name="group_student" context="{'group_by': 'student_id'}"/>
                         <filter string="练习册" name="group_workbook" context="{'group_by': 'workbook_id'}"/>
                         <filter string="发生日期" name="group_date" context="{'group_by': 'date'}"/>
+                        <filter string="知识点" name="group_point" context="{'group_by': 'point_id'}"/>
+                        <filter string="错因" name="group_cause" context="{'group_by': 'cause_id'}"/>
+                        <filter string="错因归类" name="group_cause_category" context="{'group_by': 'cause_category'}"/>
                         <filter string="相关教学内容" name="group_topic" context="{'group_by': 'topic_id'}"/>
                         <filter string="难度" name="group_difficulty" context="{'group_by': 'difficulty'}"/>
                     </group>
@@ -872,7 +901,17 @@
                             </group>
                         </group>
                         <group>
-                            <field name="topic_id" placeholder="（可不填）"/>
+                            <group>
+                                <field name="cause_id" placeholder="（可不选）"/>
+                                <field name="knowledge_grades" invisible="1"/>
+                                <field name="student_grade" invisible="1"/>
+                                <field name="point_id" placeholder="（可不选）"
+                                       domain="[('grade', 'in', knowledge_grades)]"
+                                       context="{'default_grade': student_grade}"/>
+                            </group>
+                            <group>
+                                <field name="topic_id" placeholder="（可不填）"/>
+                            </group>
                         </group>
                         <field name="note" nolabel="1" placeholder="这道题错在哪、需要巩固什么……（可不填）"/>
                     </sheet>
@@ -895,6 +934,59 @@
                 <graph string="错题统计" type="bar" stacked="True">
                     <field name="date" interval="month"/>
                 </graph>
+            </field>
+        </record>
+
+        <!-- ===== 错因字典 ===== -->
+        <!-- 录错题时下拉里就是这一套；顺序由拖动手柄决定（sequence），
+             预置数据是 noupdate=1，所以在这里改完升级不会被还原。 -->
+        <record id="view_tutoring_mistake_cause_list" model="ir.ui.view">
+            <field name="name">tutoring.mistake.cause.list</field>
+            <field name="model">tutoring.mistake.cause</field>
+            <field name="arch" type="xml">
+                <list string="错因" editable="bottom">
+                    <field name="sequence" widget="handle"/>
+                    <field name="name"/>
+                    <field name="category" widget="badge"/>
+                    <field name="hint"/>
+                    <field name="mistake_count" string="已记条数"/>
+                    <field name="active" column_invisible="1"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_tutoring_mistake_cause_form" model="ir.ui.view">
+            <field name="name">tutoring.mistake.cause.form</field>
+            <field name="model">tutoring.mistake.cause</field>
+            <field name="arch" type="xml">
+                <form string="错因">
+                    <sheet>
+                        <div class="oe_title">
+                            <label for="name"/>
+                            <h1><field name="name" placeholder="如：条件漏读"/></h1>
+                        </div>
+                        <group>
+                            <field name="category"/>
+                            <field name="hint" placeholder="一句话说清这类错长什么样"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_tutoring_mistake_cause_search" model="ir.ui.view">
+            <field name="name">tutoring.mistake.cause.search</field>
+            <field name="model">tutoring.mistake.cause</field>
+            <field name="arch" type="xml">
+                <search string="错因">
+                    <field name="name"/>
+                    <field name="hint"/>
+                    <group>
+                        <filter string="归类" name="group_category" context="{'group_by': 'category'}"/>
+                    </group>
+                </search>
             </field>
         </record>
 
@@ -944,7 +1036,18 @@
             <field name="help" type="html">
                 <p class="o_view_nocontent_smiling_face">还没有错题记录</p>
                 <p>点「快速记录」，页码加题号就能记一笔（一次可记一串，如 <code>1-5</code>）；卡片上点一下就能看到教材原页。</p>
-                <p>上方的数字条会随时告诉你：这个月错了多少、哪些是硬骨头、哪些还没写错因。</p>
+                <p>顺手标上知识点与错因，日后就能按它们把题聚到一起，针对性巩固。</p>
+                <p>上方的数字条会随时告诉你：这个月错了多少、哪些是硬骨头、哪些还没标错因。</p>
+            </field>
+        </record>
+
+        <record id="action_tutoring_mistake_cause" model="ir.actions.act_window">
+            <field name="name">错因</field>
+            <field name="res_model">tutoring.mistake.cause</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">添加一条错因</p>
+                <p>录错题时下拉里就是这一套；拖动手柄能调整顺序，觉得不合用就改。</p>
             </field>
         </record>
 
@@ -963,7 +1066,7 @@
         </record>
 
         <!-- ===== 菜单 ===== -->
-        <menuitem id="menu_tutoring_root" name="数学辅导" sequence="15"/>
+        <menuitem id="menu_tutoring_root" name="R3ynA 学习" sequence="15"/>
         <menuitem id="menu_tutoring_student" name="学生" parent="menu_tutoring_root"
                   action="action_tutoring_student" sequence="10"/>
         <menuitem id="menu_tutoring_mistake" name="错题" parent="menu_tutoring_root"
@@ -972,5 +1075,7 @@
                   action="action_tutoring_workbook" sequence="30"/>
         <menuitem id="menu_tutoring_knowledge" name="知识点" parent="menu_tutoring_root"
                   action="action_tutoring_knowledge_point" sequence="40"/>
+        <menuitem id="menu_tutoring_mistake_cause" name="错因" parent="menu_tutoring_root"
+                  action="action_tutoring_mistake_cause" sequence="50"/>
     </data>
 </odoo>

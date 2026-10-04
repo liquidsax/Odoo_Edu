@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- 品牌由模块声明，不再靠 dev/branding*.py 往库里手写：协作者装新库也长一样。
+             走 <function> 而不是 <record id="website.default_website">：那两个 xmlid
+             自身是 noupdate=1，升级时 Odoo 会跳过外部模块的这类记录（实测名字换不掉）。
+             代价是网站设置里手填的网站名 / logo / 图标每次升级都会被盖回这一份。 -->
+        <function model="website" name="_apply_tutoring_branding"/>
+
+        <!-- 页脚文案是库里被手改过的 website.footer_custom（历史遗留，见 dev/branding2.py），
+             模块没有它的 XML 副本，只能按旧串就地替换 -->
+        <function model="ir.ui.view" name="_apply_tutoring_footer_branding"/>
+    </data>
+</odoo>

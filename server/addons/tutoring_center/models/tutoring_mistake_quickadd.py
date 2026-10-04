@@ -1,4 +1,5 @@
 from odoo import _, api, fields, models
+from odoo.exceptions import ValidationError
 
 from .tutoring_mistake import split_question_numbers
 
@@ -17,11 +18,16 @@ class TutoringMistakeQuickadd(models.TransientModel):
     page = fields.Char('页码')
     question_no = fields.Char('题号')
     topic_id = fields.Many2one('tutoring.topic', string='相关教学内容')
+    cause_id = fields.Many2one('tutoring.mistake.cause', string='错因')
+    point_id = fields.Many2one('tutoring.knowledge.point', string='知识点')
+    # 挑知识点的域按学生年级放开，字段得在表单里（不可见）加载出来
+    knowledge_grades = fields.Json('可选知识点年级', related='student_id.knowledge_grades')
+    student_grade = fields.Selection(related='student_id.grade', string='学生年级')
     difficulty = fields.Selection([
         ('2', '🌶🌶'), ('3', '🌶🌶🌶'),
         ('4', '🌶🌶🌶🌶'), ('5', '🌶🌶🌶🌶🌶'),
     ], string='难度', default='3')
-    note = fields.Text('错因/备注')
+    note = fields.Text('补充说明')
 
     @api.model
     def _last_mistake(self):
@@ -51,6 +57,8 @@ class TutoringMistakeQuickadd(models.TransientModel):
             'workbook_id': self.workbook_id.id,
             'page': (self.page or '').strip() or False,
             'topic_id': self.topic_id.id or False,
+            'cause_id': self.cause_id.id or False,
+            'point_id': self.point_id.id or False,
             'difficulty': self.difficulty or '3',
             'note': (self.note or '').strip() or False,
         }

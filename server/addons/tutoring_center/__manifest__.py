@@ -1,24 +1,26 @@
 {
-    'name': '数学辅导数据中台',
-    'version': '19.0.1.9.0',
+    'name': 'R3ynA 学习平台',
+    'version': '19.0.1.10.0',
     'category': 'Services',
-    'summary': '一对一个性化数学辅导：学生档案、课次、作业、考试记录与学生/家长门户',
+    'summary': '个人学习数据平台：学生档案、课次、考试、错题与知识点，含学生/家长门户',
     'description': """
-数学辅导数据中台
-================
-面向个人数学辅导场景的学习数据记录与查看平台：
+R3ynA 学习平台
+==============
+面向个人学习场景的数据记录与查看平台：
 
-* 教师端：维护学生档案、教学内容、辅导课次、作业与考试成绩
-* 学生/家长端：门户账号登录，只读查看自己的学习数据（课次、作业、考试、趋势图）
+* 教师端：维护学生档案、教学内容、辅导课次、作业与考试成绩、错题与知识点
+* 学生/家长端：门户账号登录，查看与自助记录自己的学习数据
 * 多学生之间数据严格隔离
 """,
     'author': 'Tutoring',
     'license': 'LGPL-3',
     'depends': ['portal', 'website', 'contacts'],
     'data': [
+        'data/branding_data.xml',
         'security/tutoring_security.xml',
         'security/ir.model.access.csv',
         'data/mistake_data.xml',
+        'data/mistake_cause_data.xml',
         'data/knowledge_data.xml',
         'views/tutoring_views.xml',
         'views/partner_views.xml',
