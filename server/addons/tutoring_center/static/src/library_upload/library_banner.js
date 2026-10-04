@@ -39,8 +39,10 @@ export class LibraryBanner extends Component {
 
     setup() {
         this.orm = useService("orm");
-        this.session = useService("session");
         this.effect = useService("effect");
+        this.notification = useService("notification");
+        // Odoo 19 没有 session 服务（useService("session") 直接抛
+        // "Service session is not available"），CSRF 令牌取全局 odoo.csrf_token
         this.state = useState({
             quota: null,
             queue: [],
@@ -163,7 +165,7 @@ export class LibraryBanner extends Component {
             form.append("file", entry.file);
             form.append("category", this.state.category);
             form.append("tags", this.state.tags);
-            form.append("csrf_token", this.session.csrf_token || "");
+            form.append("csrf_token", odoo.csrf_token || "");
             const xhr = new XMLHttpRequest();
             xhr.open("POST", "/tutoring/library/upload");
             xhr.upload.addEventListener("progress", (ev) => {
