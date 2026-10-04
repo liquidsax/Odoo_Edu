@@ -92,7 +92,8 @@ export class LibraryBanner extends Component {
     }
 
     onPickClick() {
-        this.fileInput?.click();
+        // useRef 返回的是 Owl ref 对象，真实 DOM 在 .el 上
+        this.fileInput.el?.click();
     }
 
     async onPick(ev) {
