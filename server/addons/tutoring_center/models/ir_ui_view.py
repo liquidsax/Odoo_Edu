@@ -4,6 +4,10 @@ from odoo import api, models
 # 这些模块并非本模块依赖，新库里可能根本没装，故按 xml id 容错处理。
 VIEWS_TO_DISABLE = [
     'project.portal_my_home',
+    # Odoo 自带的两个页眉元素：样例电话 +1 555-555-5556 与「联系我们」按钮。
+    # 号码写死在 website/data/website_data.xml，改 res.company.phone 无效。
+    'website.header_text_element',
+    'website.header_call_to_action',
 ]
 
 # 页脚文案是改造时用 dev/branding2.py 直接写进 website.footer_custom 的库内容，

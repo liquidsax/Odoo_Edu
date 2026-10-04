@@ -130,14 +130,10 @@ E:/odoo19/venv/Scripts/python E:/odoo19/odoo-bin shell -c E:/Odoo_Edu/odoo.conf 
 
 门户账号密码用环境变量注入：`TUTOR_DEMO_PW_A=xxx TUTOR_DEMO_PW_B=yyy python odoo-bin shell ... < dev/seed_data.py`。
 
-品牌装饰（可选，想让站点和维护者看到的一模一样时才跑）。公司名/站点名/logo/页脚不在模块 data 里，
-是一次性写库的脚本，按顺序执行（脚本无密码、无绝对路径依赖，可重复跑）：
-
-```bash
-E:/odoo19/venv/Scripts/python E:/odoo19/odoo-bin shell -c E:/Odoo_Edu/odoo.conf -d edu_native < dev/branding.py    # 公司名 / 站点名
-E:/odoo19/venv/Scripts/python E:/odoo19/odoo-bin shell -c E:/Odoo_Edu/odoo.conf -d edu_native < dev/branding2.py   # 页脚与版权行
-E:/odoo19/venv/Scripts/python E:/odoo19/odoo-bin shell -c E:/Odoo_Edu/odoo.conf -d edu_native < dev/branding3.py   # LOGO（内联 SVG）/ 隐藏标题文本
-```
+品牌与页脚文案**已经在模块 data 里**（`data/branding_data.xml` + `models/website.py`），
+`-i tutoring_center` 装完就是站点名 / 公司名 / LOGO / 浏览器图标 / 页脚文案，**不要再跑 `dev/branding*.py`**——
+那几个脚本写的是改名前的旧品牌（"数学辅导学习平台"/"数学辅导中心"），跑一次就把新品牌盖回去了。
+它们只是改造过程中的一次性历史脚本，保留在 `dev/` 里备查，不属于安装步骤。
 
 ### A7. 开发热重载（边改边看）
 

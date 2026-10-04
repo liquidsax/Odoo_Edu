@@ -10,5 +10,9 @@
         <!-- 页脚文案是库里被手改过的 website.footer_custom（历史遗留，见 dev/branding2.py），
              模块没有它的 XML 副本，只能按旧串就地替换 -->
         <function model="ir.ui.view" name="_apply_tutoring_footer_branding"/>
+
+        <!-- 撤掉 Odoo 自带的 Contact us 导航项与页面（本平台没有可用表单：没配 SMTP）。
+             页眉里的样例电话与「联系我们」按钮由 ir_ui_view.VIEWS_TO_DISABLE 停用 -->
+        <function model="website" name="_apply_tutoring_website_cleanup"/>
     </data>
 </odoo>
