@@ -33,6 +33,9 @@ def migrate(cr, version):
     moved = 0
     for file_id, part_name, filename, content, create_uid, create_date, book_name in rows:
         title = ' · '.join(part for part in (book_name, part_name) if part) or part_name or '教材'
+        # 裸 SQL 读 bytea 出来是 memoryview——直接给 ORM 会被 str() 成
+        # "<memory at 0x...>" 存进库（真踩过），必须先转 bytes
+        content = bytes(content) if content is not None else False
         item = item_model.create({
             'name': title,
             'user_id': create_uid or SUPERUSER_ID,
