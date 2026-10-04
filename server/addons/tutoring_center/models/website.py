@@ -6,6 +6,10 @@ BRAND_NAME = 'R3ynA 学习平台'
 BRAND_LOGO = 'tutoring_center/static/img/logo.svg'
 BRAND_FAVICON = 'tutoring_center/static/img/favicon.png'
 
+# 本平台没有可用的联系表单（没配 SMTP，提交也发不出信），Odoo 自带的 Contact us 入口全部撤掉
+CONTACTUS_MENU_URLS = ['/contactus']
+CONTACTUS_PAGE_URLS = ['/contactus', '/contactus_form', '/contactus-thank-you']
+
 
 class Website(models.Model):
     _inherit = 'website'
@@ -28,3 +32,17 @@ class Website(models.Model):
             'logo': _b64(BRAND_LOGO),
             'favicon': _b64(BRAND_FAVICON),
         })
+
+    @api.model
+    def _apply_tutoring_website_cleanup(self):
+        """撤掉 Odoo 自带的 Contact us 导航项与页面。
+
+        `website.menu` 没有 active 字段，只能删；页面走 unpublish。两者都是幂等的，
+        每次升级重放——website 模块升级会把 menu_contactus 建回来。
+        """
+        self.env['website.menu'].sudo().search(
+            [('url', 'in', CONTACTUS_MENU_URLS)]).unlink()
+        pages = self.env['website.page'].sudo().search(
+            [('url', 'in', CONTACTUS_PAGE_URLS), ('is_published', '=', True)])
+        if pages:
+            pages.write({'is_published': False})
