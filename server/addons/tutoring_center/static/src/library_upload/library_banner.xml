@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="tutoring_center.LibraryBanner">
+        <div class="o_library_banner px-3 py-2 mb-2" t-if="state.quota">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <div class="o_library_quota">
+                    <div class="d-flex align-items-baseline gap-1">
+                        <i class="fa fa-database me-1" role="img" aria-hidden="true"/>
+                        <b class="o_library_quota_used" t-out="state.quota.used_text"/>
+                        <span class="text-muted">/ <t t-out="state.quota.quota_text"/></span>
+                    </div>
+                    <div class="progress o_library_progress" role="progressbar"
+                         t-att-aria-valuenow="state.quota.percent">
+                        <div class="progress-bar" t-attf-style="width: {{ state.quota.percent }}%"/>
+                    </div>
+                    <div class="text-muted small">
+                        还剩 <t t-out="state.quota.remaining_text"/>
+                        · 单文件最多 <t t-out="state.quota.max_file_text"/>
+                        · 共 <t t-out="state.quota.count"/> 个文件
+                    </div>
+                </div>
+
+                <div class="o_library_dropzone flex-grow-1"
+                     t-att-class="{ 'o_library_dragover': state.dragging }"
+                     t-on-dragover="onDragOver" t-on-dragleave="onDragLeave" t-on-drop="onDrop">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <i class="fa fa-cloud-upload" role="img" aria-hidden="true"/>
+                        <span class="small">把文件拖到这里，或</span>
+                        <button type="button" class="btn btn-sm btn-primary" t-on-click="onPickClick"
+                                t-att-disabled="state.busy">选择文件</button>
+                        <input type="file" multiple="1" class="d-none" t-ref="fileInput"
+                               t-on-change="onPick"/>
+                        <select class="form-select form-select-sm o_library_select"
+                                t-att-value="state.category" title="这些文件存到哪个分类"
+                                t-on-change="(ev) => this.state.category = ev.target.value">
+                            <t t-foreach="categories" t-as="cat" t-key="cat[0]">
+                                <option t-att-value="cat[0]" t-out="cat[1]"/>
+                            </t>
+                        </select>
+                        <input type="text" class="form-control form-control-sm o_library_tags_input"
+                               placeholder="标签，逗号分隔（可不填）" t-att-value="state.tags"
+                               t-on-change="(ev) => this.state.tags = ev.target.value"/>
+                    </div>
+                </div>
+            </div>
+
+            <div t-if="state.queue.length" class="o_library_queue mt-2">
+                <t t-foreach="state.queue" t-as="entry" t-key="entry.id">
+                    <div class="o_library_queue_row d-flex align-items-center gap-2">
+                        <i role="img" aria-hidden="true" t-attf-class="fa fa-{{ entry.status === 'done' ? 'check text-success' : (entry.status === 'error' ? 'times text-danger' : 'file-o text-muted') }}"/>
+                        <span class="o_library_queue_name text-truncate" t-att-title="entry.name" t-out="entry.name"/>
+                        <span class="text-muted small" t-out="fmtBytes(entry.size)"/>
+                        <div t-if="entry.status === 'uploading'" class="progress o_library_progress flex-grow-1">
+                            <div class="progress-bar" t-attf-style="width: {{ entry.percent }}%"/>
+                        </div>
+                        <span t-if="entry.status === 'uploading'" class="small text-muted"
+                              t-out="entry.percent + '%'"/>
+                        <span t-if="entry.status === 'error'" class="small text-danger text-truncate"
+                              t-att-title="entry.error" t-out="entry.error"/>
+                    </div>
+                </t>
+                <button t-if="state.queue.some((e) => e.status === 'done')" type="button"
+                        class="btn btn-sm btn-link px-0" t-on-click="clearQueue">清除已完成</button>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="tutoring_center.LibraryKanbanController" t-inherit="web.KanbanView">
+        <xpath expr="//t[@t-component='props.Renderer']" position="before">
+            <LibraryBanner bus="model.bus"/>
+        </xpath>
+    </t>
+
+    <t t-name="tutoring_center.LibraryListController" t-inherit="web.ListView">
+        <xpath expr="//t[@t-component='props.Renderer']" position="before">
+            <LibraryBanner bus="model.bus"/>
+        </xpath>
+    </t>
+
+</templates>

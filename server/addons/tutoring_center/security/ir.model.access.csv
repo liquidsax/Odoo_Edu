@@ -26,3 +26,7 @@ access_tutoring_mistake_portal,tutoring.mistake.portal,model_tutoring_mistake,ba
 access_tutoring_mistake_cause_portal,tutoring.mistake.cause.portal,model_tutoring_mistake_cause,base.group_portal,1,0,0,0
 access_tutoring_workbook_portal,tutoring.workbook.portal,model_tutoring_workbook,base.group_portal,1,0,0,0
 access_tutoring_workbook_file_portal,tutoring.workbook.file.portal,model_tutoring_workbook_file,base.group_portal,1,0,0,0
+access_tutoring_library_item_user,tutoring.library.item.user,model_tutoring_library_item,base.group_user,1,1,1,1
+access_tutoring_library_item_portal,tutoring.library.item.portal,model_tutoring_library_item,base.group_portal,1,1,1,1
+access_tutoring_library_tag_user,tutoring.library.tag.user,model_tutoring_library_tag,base.group_user,1,1,1,0
+access_tutoring_library_tag_portal,tutoring.library.tag.portal,model_tutoring_library_tag,base.group_portal,1,1,1,0

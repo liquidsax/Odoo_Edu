@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- ===== 知识库 ===== -->
+        <!-- 每位用户自己的顶层内容空间：练习册教材（委托继承进来的）与
+             LeetCode、笔记、资料文档等都落在这张表上，共用一套容量配额。 -->
+
+        <record id="view_tutoring_library_item_search" model="ir.ui.view">
+            <field name="name">tutoring.library.item.search</field>
+            <field name="model">tutoring.library.item</field>
+            <field name="arch" type="xml">
+                <search string="知识库">
+                    <field name="name" string="标题 / 文件名 / 标签"
+                           filter_domain="['|', '|', ('name', 'ilike', self),
+                                           ('filename', 'ilike', self),
+                                           ('tag_ids.name', 'ilike', self)]"/>
+                    <field name="tag_ids"/>
+                    <separator/>
+                    <filter string="练习册" name="cat_workbook" domain="[('category', '=', 'workbook')]"/>
+                    <filter string="LeetCode" name="cat_leetcode" domain="[('category', '=', 'leetcode')]"/>
+                    <filter string="笔记" name="cat_note" domain="[('category', '=', 'note')]"/>
+                    <filter string="资料文档" name="cat_doc" domain="[('category', '=', 'doc')]"/>
+                    <filter string="我的" name="mine" domain="[('user_id', '=', uid)]"/>
+                    <group>
+                        <filter string="分类" name="group_category" context="{'group_by': 'category'}"/>
+                        <filter string="标签" name="group_tag" context="{'group_by': 'tag_ids'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <record id="view_tutoring_library_item_list" model="ir.ui.view">
+            <field name="name">tutoring.library.item.list</field>
+            <field name="model">tutoring.library.item</field>
+            <field name="arch" type="xml">
+                <list string="知识库" type="object" action="action_preview" create="false">
+                    <field name="name" string="标题"/>
+                    <field name="category" optional="show"/>
+                    <field name="tag_ids" widget="many2many_tags" optional="show"/>
+                    <field name="size_text" string="大小"/>
+                    <field name="upload_date" string="上传时间" optional="show"/>
+                    <field name="from_workbook" string="练习册" optional="hide"/>
+                    <field name="filename" optional="hide"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- 卡片墙：整卡点击开预览弹窗（core kanban 的 action/type 原生支持），
+             卡片模板名必须是 card（19 会直接报 Missing 'card' template） -->
+        <record id="view_tutoring_library_item_kanban" model="ir.ui.view">
+            <field name="name">tutoring.library.item.kanban</field>
+            <field name="model">tutoring.library.item</field>
+            <field name="arch" type="xml">
+                <kanban class="o_library_kanban" js_class="tutoring_library_kanban"
+                        action="action_preview" type="object"
+                        records_draggable="false" groups_draggable="false"
+                        quick_create="false" group_create="false"
+                        default_group_by="category">
+                    <field name="name"/>
+                    <field name="category"/>
+                    <field name="tag_ids"/>
+                    <field name="size_text"/>
+                    <field name="upload_date"/>
+                    <field name="from_workbook"/>
+                    <field name="kind"/>
+                    <templates>
+                        <t t-name="card">
+                            <div class="o_library_card">
+                                <div class="o_library_card_head">
+                                    <i t-attf-class="fa fa-{{ record.kind.raw_value == 'pdf' ? 'file-pdf-o' : (record.kind.raw_value == 'image' ? 'picture-o' : 'file-o') }} o_library_icon"/>
+                                    <b class="o_library_title"><t t-out="record.name.value"/></b>
+                                </div>
+                                <div class="o_library_meta text-muted">
+                                    <span t-out="record.size_text.value"/>
+                                    <span t-if="record.upload_date.value" t-out="' · ' + record.upload_date.value"/>
+                                </div>
+                                <div t-if="record.from_workbook.value" class="o_library_meta text-muted">
+                                    《<t t-out="record.from_workbook.value"/>》的教材
+                                </div>
+                                <div t-if="record.tag_ids.value" class="o_library_tags">
+                                    <t t-foreach="record.tag_ids.value" t-as="tag" t-key="tag.id">
+                                        <span class="badge rounded-pill o_library_tag" t-out="tag.display_name"/>
+                                    </t>
+                                </div>
+                            </div>
+                        </t>
+                    </templates>
+                </kanban>
+            </field>
+        </record>
+
+        <!-- 预览弹窗兼编辑弹窗：改名、换分类、改标签都在这里 -->
+        <record id="view_tutoring_library_item_form" model="ir.ui.view">
+            <field name="name">tutoring.library.item.form</field>
+            <field name="model">tutoring.library.item</field>
+            <field name="arch" type="xml">
+                <form string="知识库条目">
+                    <header>
+                        <button name="action_download" type="object" string="下载"
+                                class="btn-secondary" icon="fa-download"
+                                title="按原文件名下载到本机"/>
+                        <button name="unlink" type="object" string="删除"
+                                class="btn-danger" icon="fa-trash"
+                                confirm="删除后这部分容量立即释放，且不可恢复。确定删除？"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_title">
+                            <h1>
+                                <field name="name" placeholder="给它起个好找的名字"/>
+                            </h1>
+                        </div>
+                        <group>
+                            <group>
+                                <field name="category"/>
+                                <field name="tag_ids" widget="many2many_tags"
+                                       options="{'color_field': 'color', 'no_create': False}"
+                                       placeholder="如 三角函数、期末复习"/>
+                            </group>
+                            <group>
+                                <field name="size_text" string="大小"/>
+                                <field name="upload_date" string="上传时间" readonly="1"/>
+                                <field name="filename" readonly="1" invisible="not filename"/>
+                                <field name="from_workbook" readonly="1"
+                                       invisible="not from_workbook"/>
+                            </group>
+                        </group>
+                        <div class="o_library_preview">
+                            <field name="preview_html" readonly="1" nolabel="1"
+                                   class="o_library_preview_field"/>
+                        </div>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="action_tutoring_library" model="ir.actions.act_window">
+            <field name="name">知识库</field>
+            <field name="res_model">tutoring.library.item</field>
+            <field name="view_mode">kanban,list,form</field>
+            <field name="context">{'search_default_group_category': 1}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">把文件拖到这里，建你自己的知识库</p>
+                <p>
+                    这是你一个人的内容空间：练53、LeetCode 错题截图、课堂笔记、
+                    扫描的资料文档，什么都能放，每个文件最多 64MB，总共 1GB。
+                </p>
+                <p>
+                    怎么传：点上面「选择文件」，或者直接从资源管理器把文件拖进这块区域，
+                    一次可以选多个。传完在卡片上点一下就能预览，改名、改分类、加标签、
+                    删除都在弹出的窗口里。
+                </p>
+                <p>
+                    「练习册」这个分类是留给教辅的：从练习册页里上传的教材会自动出现在这里，
+                    和别的资料共用同一份容量。
+                </p>
+            </field>
+        </record>
+
+        <menuitem id="menu_tutoring_library" name="知识库" parent="menu_tutoring_root"
+                  action="action_tutoring_library" sequence="35"/>
+    </data>
+</odoo>

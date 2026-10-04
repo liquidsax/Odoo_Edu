@@ -1,6 +1,6 @@
 {
     'name': 'R3ynA 学习平台',
-    'version': '19.0.1.11.0',
+    'version': '19.0.1.12.0',
     'category': 'Services',
     'summary': '个人学习数据平台：学生档案、课次、考试、错题与知识点，含学生/家长门户',
     'description': """
@@ -23,6 +23,7 @@ R3ynA 学习平台
         'data/mistake_cause_data.xml',
         'data/knowledge_data.xml',
         'views/tutoring_views.xml',
+        'views/tutoring_library_views.xml',
         'views/partner_views.xml',
         'views/portal_templates.xml',
         'views/website_templates.xml',
@@ -38,6 +39,7 @@ R3ynA 学习平台
             'tutoring_center/static/src/fields/**/*',
             'tutoring_center/static/src/mistake_stats/*',
             'tutoring_center/static/src/mistake_kanban/*',
+            'tutoring_center/static/src/library_upload/*',
         ],
     },
     'installable': True,

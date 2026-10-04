@@ -4,24 +4,28 @@ from odoo import _, api, fields, models
 class TutoringWorkbookFile(models.Model):
     """练习册的一份教材文件（上册 / 下册 / 答案册……可多份）。
 
-    content 用 attachment=False：PDF 正文直接落在本表 bytea 列里，
-    pg_dump 即全量备份，不会散落到磁盘 filestore。
+    正文与配额统一放在知识库条目里：`_inherits` 之后每条教材文件
+    都是 category=workbook 的 `tutoring.library.item`，所以教材同样
+    占用户容量、能在知识库里被搜到和打标签，删除也一并释放。
 
-    大文件受 Odoo 的 128MiB 请求体上限约束（JSON-RPC 走不到按参数放宽的那步），
-    所以一本厚书按页切成几份挂进来，靠 page_from/page_to 记"全书连续页码"，
-    在逻辑上仍是一册。
+    content 仍是 `attachment=False`（在条目表里存 bytea），pg_dump 即全量备份。
+    大文件受 Odoo 的 128MiB 请求体上限约束，所以一本厚书按页切成几份挂进来，
+    靠 page_from/page_to 记"全书连续页码"，逻辑上仍是一册。
     """
     _name = 'tutoring.workbook.file'
     _description = '练习册教材文件'
+    _inherits = {'tutoring.library.item': 'item_id'}
     _order = 'workbook_id, page_from, id'
 
+    item_id = fields.Many2one(
+        'tutoring.library.item', string='知识库条目', required=True,
+        ondelete='cascade', index=True)
     workbook_id = fields.Many2one(
         'tutoring.workbook', string='练习册', required=True,
         ondelete='cascade', index=True)
-    # 给默认值是为了"只选文件、没题名"也能一次保存成功（required 会拦空值）
+    # 子表自己的 name 是"分册名"（上册 / 答案册），会盖住继承来的条目标题，
+    # 所以每次写完都把条目标题同步成"书名 · 分册名"，知识库里才认得出是哪一本
     name = fields.Char('名称', required=True, default='新教材')
-    content = fields.Binary('教材 PDF', attachment=False)
-    filename = fields.Char('文件名')
     page_from = fields.Integer(
         '起始页', help='整本书的连续页号（PDF 物理页，封面算第 1 页）')
     page_to = fields.Integer('结束页')
@@ -58,12 +62,38 @@ class TutoringWorkbookFile(models.Model):
                 part for part in (file.workbook_id.name, file.name) if part
             ) or _('未命名教材')
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        """教材一律算作练习册分类，归属当前上传者。"""
+        for vals in vals_list:
+            vals.setdefault('category', 'workbook')
+            vals.setdefault('user_id', self.env.user.id)
+        files = super().create(vals_list)
+        files._sync_item_title()
+        return files
+
     def write(self, vals):
         """换过正文或改过页码范围，之前抽的单页就都不作数了。"""
         res = super().write(vals)
         if {'content', 'page_from', 'page_to'} & set(vals):
             self.env['tutoring.workbook.page']._invalidate_for_files(self)
+        if {'name', 'workbook_id'} & set(vals):
+            self._sync_item_title()
         return res
+
+    def unlink(self):
+        """教材删了，它在知识库里的那条也一起走（连带释放容量）。"""
+        items = self.item_id
+        res = super().unlink()
+        items.unlink()
+        return res
+
+    def _sync_item_title(self):
+        """让知识库里的标题带上书名，避免列表里只剩"上册"两个字。"""
+        for file in self.filtered('item_id'):
+            title = file.display_name or file.name
+            if file.item_id.name != title:
+                file.item_id.write({'name': title, 'category': 'workbook'})
 
     @api.model
     def _viewer_action(self, res_id=False, context=None):
