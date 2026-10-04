@@ -79,12 +79,18 @@ class TutoringLibraryController(http.Controller):
             item.check_access('read')
         except AccessError:
             return request.not_found()
-        # Binary 字段读出来已经是 raw bytes（Odoo 自动 b64decode 过一次），
-        # 这里再 decode 会报 "Incorrect padding"。直接拿字节流写回响应。
+        # Binary 字段读出来是 base64 编码后的 bytes（Odoo 不自动解码），
+# 这里负责解码回原始字节再写响应；数据异常时返回明确的 404 而不是 500。
         data = item.content or b''
+        if isinstance(data, memoryview):
+            data = bytes(data)
         if isinstance(data, str):
-            # 防御：极少数情况下（如直接 SQL 写入）可能是 base64 字符串
+            data = data.encode()
+        try:
             data = base64.b64decode(data)
+        except Exception:  # noqa: BLE001 - 内容损坏不该炸成 500
+            _logger.warning('知识库条目 %s 的正文不是合法 base64，可能已损坏', item_id)
+            return request.not_found()
         filename = self._clean_name(item.filename or item.name or 'file')
         disposition = 'attachment' if download else 'inline'
         headers = [
