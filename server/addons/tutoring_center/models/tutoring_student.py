@@ -20,6 +20,10 @@ class TutoringStudent(models.Model):
         ('active', '在读'), ('paused', '暂停'), ('done', '结课'),
     ], string='状态', default='active', required=True, tracking=True)
     remark = fields.Html('备注')
+    is_self_profile = fields.Boolean(
+        '本人档案', copy=False,
+        help='老师本人那条学习档案（「我自己」）。它只属于他一个人：同事那边的学生列表、'
+             '错题范围与「记到谁」下拉都不该出现它，见记录规则。')
 
     session_ids = fields.One2many('tutoring.session', 'student_id', string='辅导课次')
     homework_ids = fields.One2many('tutoring.homework', 'student_id', string='作业')
@@ -73,8 +77,27 @@ class TutoringStudent(models.Model):
             'name': self.SELF_PROFILE_NAME,
             'partner_id': user.partner_id.id,
             'grade': self.SELF_PROFILE_GRADE,
+            'is_self_profile': True,
             'remark': _('老师本人的学习档案：自己刷过的题、做错的题记在这里。'),
         })
+
+    @api.model
+    def mark_self_profiles(self):
+        """给升级之前就存在的本人档案补上标记（数据文件里的 <function> 调它）。
+
+        判据只认「名字是『我自己』+ 联系人身上挂着教师组账号 + 这条还没标记」，
+        所以手工建的学生就算也叫这个名，不会被误标成私人档案。
+        """
+        teacher = self.env.ref('tutoring_center.group_teacher', raise_if_not_found=False)
+        if not teacher:
+            return 0
+        rows = self.sudo().search([
+            ('name', '=', self.SELF_PROFILE_NAME),
+            ('is_self_profile', '=', False),
+            ('partner_id.user_ids', 'in', teacher.user_ids.ids),
+        ])
+        rows.write({'is_self_profile': True})
+        return len(rows)
 
     @api.model
     def ensure_teacher_profiles(self):

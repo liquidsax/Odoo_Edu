@@ -160,20 +160,9 @@
             </field>
         </record>
 
-        <!-- ===== 知识库文件夹（每人自己的一层收纳格） ===== -->
-        <record id="view_tutoring_library_folder_list" model="ir.ui.view">
-            <field name="name">tutoring.library.folder.list</field>
-            <field name="model">tutoring.library.folder</field>
-            <field name="arch" type="xml">
-                <list string="知识库文件夹" editable="bottom">
-                    <field name="name" placeholder="如 五三·函数专题"/>
-                    <field name="item_count" string="文件数"/>
-                    <field name="size_text" string="占用"/>
-                    <field name="user_id" string="所属用户" optional="hide" readonly="1"/>
-                </list>
-            </field>
-        </record>
-
+        <!-- ===== 知识库文件夹（每人自己的一层收纳格） =====
+             后台没有菜单：建/改名/删除都在 /my/library 左栏，或在上面条目表单的
+             「文件夹」下拉里直接敲新名字。这张表单只给那个下拉的「打开/编辑」用。 -->
         <record id="view_tutoring_library_folder_form" model="ir.ui.view">
             <field name="name">tutoring.library.folder.form</field>
             <field name="model">tutoring.library.folder</field>
@@ -190,20 +179,6 @@
                         </group>
                     </sheet>
                 </form>
-            </field>
-        </record>
-
-        <record id="action_tutoring_library_folder" model="ir.actions.act_window">
-            <field name="name">知识库文件夹</field>
-            <field name="res_model">tutoring.library.folder</field>
-            <field name="view_mode">list,form</field>
-            <field name="help" type="html">
-                <p class="o_view_nocontent_smiling_face">建一个文件夹</p>
-                <p>
-                    文件夹只对你自己可见：在知识库里点开某个文件、于「文件夹」下拉里
-                    直接打一个新名字就能顺手建一个；学生端在 /my/library 左侧也有「新建文件夹」。
-                </p>
-                <p>删掉文件夹不会删掉里面的文件，它们只是退回「未分类」。</p>
             </field>
         </record>
 
@@ -232,8 +207,5 @@
 
         <menuitem id="menu_tutoring_library" name="知识库" parent="menu_tutoring_root"
                   action="action_tutoring_library" sequence="35"/>
-        <menuitem id="menu_tutoring_library_folder" name="知识库文件夹"
-                  parent="menu_tutoring_root" action="action_tutoring_library_folder"
-                  sequence="36"/>
     </data>
 </odoo>
