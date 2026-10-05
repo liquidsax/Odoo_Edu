@@ -63,6 +63,8 @@
     （新列 + 迁移按"跟着用它的人走"回填、被多人用过的拆成每人一份）。
     越权访问 `/my/library/<id>`、`/tutoring/library/<id>/raw` 一律 404；判定要用
     `has_access`/`search`，不能用 `browse().exists()`（见陷阱 26）。
+    正文回吐那道口还堵了 SVG：`kind` 不再把 svg 当可内联图片，raw 路由对 svg 一律按附件
+    + `X-Content-Type-Options: nosniff`（SVG 能嵌脚本，同源内联等于给自己种 XSS）。
   - **用户端页**（`/my/library`，非管理员用）：整页重做——容量条 + 左栏文件夹 + 拖拽上传（逐文件进度，
     没 JS 时同一张表单走原生 multipart POST）+ 搜索/分类药丸/排序/每页 + 卡片墙 + 分页；
     详情页可就地改名、挪文件夹、改分类标签、下载、删除。取数是服务端 `domain+order+limit/offset`，
@@ -131,13 +133,14 @@
 5. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
 6. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
 
-## 五、最重要陷阱（正文 19 条；20~22 见 updates/2026-10-03.md，23~29 见 updates/2026-10-05.md）
+## 五、最重要陷阱（正文 19 条；20~22 见 updates/2026-10-03.md，23~30 见 updates/2026-10-05.md）
 
-> 编号在几份文档里有过错位，以"见哪份 updates"为准：知识库那两次新增的七条写在
+> 编号在几份文档里有过错位，以"见哪份 updates"为准：知识库那两次新增的八条写在
 > [updates/2026-10-05.md](updates/2026-10-05.md) 第六节与第十二节（委托继承的字段搬运、
 > stored compute 要 flush 才能 SQL 统计、`@api.model` 方法不能用记录调用；
 > `browse().exists()` 与缓存值不经过记录规则、SQL 约束炸过要 savepoint、
-> 顶栏菜单可见性的原生 `group_ids` 机制、门户 JS 其实在 `assets_frontend_lazy` 包里）。
+> 顶栏菜单可见性的原生 `group_ids` 机制、门户 JS 其实在 `assets_frontend_lazy` 包里、
+> 给存量表加 required 字段不能用 `IS NULL` 找旧行）。
 
 1. `db_template = odoo_template_c` **不可改回 template0**（Windows 上 collate≠ctype 库无法连接，已存在库只能删库重建）；
 2. `_sql_constraints` 在 Odoo 19 已弃用，用 `models.Constraint('unique(...)', '消息')`；

@@ -16,7 +16,9 @@ CATEGORY_SELECTION = [
 ]
 
 # 允许在网页里直接内嵌预览的类型；其余一律给下载链接
-IMAGE_EXTS = ('png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg')
+# **svg 故意不放进来**：SVG 是 XML，能内嵌脚本，同源内联回吐等于给自己种一个 XSS
+# （控制器那边也兜了一道，两头都拦住）
+IMAGE_EXTS = ('png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp')
 MIMETYPES = {
     'pdf': 'application/pdf',
     'png': 'image/png',
@@ -134,6 +136,37 @@ class TutoringLibraryTag(models.Model):
 
     _name_uniq = models.Constraint(
         'unique(name, user_id)', _('你已经有一个同名标签了。'))
+
+    @api.model
+    def _assign_owner_from_items(self):
+        """把每个标签归到"用它的人"名下，被多人用过的拆成每人一份。
+
+        升级迁移（19.0.1.13.0）和一次性修数都走这里。**判据不能是
+        `user_id IS NULL`**：Odoo 给存量表加 required 列时会把现有一行填成
+        "升级那一刻的当前用户"，等业务库里查就全是非空了——只能拿条目重新核对。
+
+        以 sudo 调用（要跨用户看全部标签）；可重复执行。
+        返回 (归位数, 拆出副本数, 删掉的孤儿数)。
+        """
+        moved = split = dropped = 0
+        for tag in self.search([]):
+            users = tag.item_ids.user_id
+            if not users:
+                # 没人用的孤儿：留着既不会出现在任何人手里，又占着这条 unique(name, user_id)
+                tag.unlink()
+                dropped += 1
+                continue
+            if len(users) == 1 and tag.user_id == users[0]:
+                continue
+            tag.user_id = users[0].id
+            moved += 1
+            for user in users[1:]:
+                copy = self.create({
+                    'name': tag.name, 'color': tag.color, 'user_id': user.id})
+                for item in tag.item_ids.filtered(lambda r: r.user_id == user):
+                    item.write({'tag_ids': [(3, tag.id), (4, copy.id)]})
+                split += 1
+        return moved, split, dropped
 
 
 class TutoringLibraryItem(models.Model):

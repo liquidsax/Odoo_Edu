@@ -94,10 +94,16 @@ class TutoringLibraryController(http.Controller):
             _logger.warning('知识库条目 %s 的正文不是合法 base64，可能已损坏', item_id)
             return request.not_found()
         filename = self._clean_name(item.filename or item.name or 'file')
-        disposition = 'attachment' if download else 'inline'
+        # SVG 里能带脚本：同源内联回吐等于给存储型 XSS 开门（虽然只有本人读得到，
+        # 但同一浏览器里还登着后台）。所以 SVG 一律按附件下载，另外再上一道 nosniff。
+        if item.mimetype == 'image/svg+xml':
+            disposition = 'attachment'
+        else:
+            disposition = 'attachment' if download else 'inline'
         headers = [
             ('Content-Type', item.mimetype or 'application/octet-stream'),
             ('Content-Length', str(len(data))),
+            ('X-Content-Type-Options', 'nosniff'),
             ('Content-Disposition',
              "%s; filename*=UTF-8''%s" % (disposition, quote(filename))),
         ]
