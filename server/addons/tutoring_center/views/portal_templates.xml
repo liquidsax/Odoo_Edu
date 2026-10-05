@@ -10,6 +10,14 @@
                     <t t-set="text">查看上课安排、考试成绩与自己记下的错题</t>
                     <t t-set="placeholder_count" t-value="'tutoring_session_count'"/>
                 </t>
+                <!-- 错题在自己的知识库里是一个固有类型，入口要能一眼看到：
+                     以前只能从"我的学习"里的最近错题绕过去，从 /my 找错题会先撞见知识库卡 -->
+                <t t-call="portal.portal_docs_entry">
+                    <t t-set="title">错题</t>
+                    <t t-set="url" t-value="'/my/mistakes'"/>
+                    <t t-set="text">记下做错的题（只记出处），并给每道题存题目照片或说明</t>
+                    <t t-set="placeholder_count" t-value="'tutoring_mistake_count'"/>
+                </t>
                 <t t-call="portal.portal_docs_entry">
                     <t t-set="title">教材</t>
                     <t t-set="url" t-value="'/my/learning/workbooks'"/>
@@ -781,6 +789,12 @@
                         <span class="badge rounded-pill bg-warning-subtle text-warning-emphasis"
                               t-if="m.cause_id" t-out="m.cause_id.name"/>
                         <span class="badge rounded-pill text-bg-light border text-muted" t-else="">未标错因</span>
+                        <!-- 卡片整张是链接（stretched-link），这里只做记号不摆可点的链接 -->
+                        <span t-if="m.library_count" class="badge rounded-pill text-bg-light border"
+                              t-att-title="'这道题在知识库里存了 %s 个文件' % m.library_count">
+                            <i class="fa fa-camera me-1"/>
+                            <t t-out="m.library_count"/>
+                        </span>
                         <span class="small text-muted ms-auto" t-out="m.date"/>
                     </div>
                     <p class="mb-0 small text-body-secondary" t-if="m.note"
@@ -846,6 +860,62 @@
                         </form>
                         <p t-else="" style="white-space: pre-wrap;" t-out="mistake.note"/>
                         <p t-if="not can_edit and not mistake.note" class="text-muted">暂无记录。</p>
+                        <h5 class="mt-4 mb-2">题目照片 / 说明
+                            <span t-if="library_items" class="badge text-bg-light border ms-1"
+                                  t-out="len(library_items)"/>
+                        </h5>
+                        <!-- 错题是知识库的一个固有类型：这一页直接传题目照片，
+                             文件落在知识库里（分类=错题）并绑回这条错题 -->
+                        <div t-if="just_attached" class="alert alert-success py-2 small">
+                            已存入知识库 <b t-out="request.params.get('attached')"/> 个文件。
+                        </div>
+                        <div t-if="request.params.get('error')" class="alert alert-warning py-2 small"
+                             t-out="request.params.get('error')"/>
+                        <div t-if="library_items" class="row row-cols-2 row-cols-md-3 g-2 mb-2">
+                            <div class="col" t-foreach="library_items" t-as="shot" t-key="shot.id">
+                                <a class="o_lib_shot_card" t-attf-href="/my/library/#{shot.id}">
+                                    <img t-if="shot.kind == 'image'"
+                                         t-attf-src="/tutoring/library/#{shot.id}/raw"
+                                         t-att-alt="shot.name" class="o_lib_shot_img"/>
+                                    <div t-else="" class="o_lib_shot_file">
+                                        <i t-attf-class="fa fa-{{ 'file-pdf-o' if shot.kind == 'pdf' else 'file-o' }} fa-2x"/>
+                                    </div>
+                                    <div class="small text-truncate" t-att-title="shot.name"
+                                         t-out="shot.name"/>
+                                </a>
+                            </div>
+                        </div>
+                        <p t-else="" class="text-muted small">
+                            还没给这道题存照片。拍一张题目传上来，之后在知识库里按「错题」分类就能翻到它。
+                        </p>
+                        <form t-if="can_edit" method="post" enctype="multipart/form-data"
+                              t-attf-action="/my/learning/mistakes/#{mistake.id}/attach"
+                              class="row g-2 align-items-end mb-3">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                            <div class="col-12 col-md-5">
+                                <label class="form-label small mb-1" for="shot_file">题目照片（最多 5 个）</label>
+                                <input type="file" id="shot_file" name="file" multiple="multiple"
+                                       accept="image/*,.pdf" class="form-control form-control-sm"
+                                       required="required"/>
+                            </div>
+                            <div class="col-6 col-md-4">
+                                <label class="form-label small mb-1" for="shot_tags">标签</label>
+                                <input type="text" id="shot_tags" name="tags"
+                                       class="form-control form-control-sm" placeholder="逗号分隔，可不填"/>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <button type="submit" class="btn btn-primary btn-sm w-100">
+                                    <i class="fa fa-camera me-1"/>存进知识库
+                                </button>
+                            </div>
+                            <div class="col-12">
+                                <span class="small text-muted">
+                                    知识库还剩 <t t-out="quota['remaining_text']"/>；
+                                    存好后可在 <a href="/my/library">知识库</a>
+                                    里改名、加标签、归档到文件夹。
+                                </span>
+                            </div>
+                        </form>
                         <p t-if="mistake.workbook_id.file_count" class="mb-0">
                             <a t-attf-href="/my/learning/workbooks/#{mistake.workbook_id.id}">
                                 看《<t t-out="mistake.workbook_id.name"/>》的教材 →
@@ -1043,7 +1113,7 @@
             <div class="card h-100 border-0 shadow-sm o_lib_card">
                 <div class="card-body d-flex flex-column gap-2">
                     <div class="d-flex align-items-start gap-2">
-                        <i t-attf-class="fa fa-{{ 'file-pdf-o' if item.kind == 'pdf' else ('picture-o' if item.kind == 'image' else 'file-o') }} fa-2x o_lib_card_icon"/>
+                        <i t-attf-class="fa fa-{{ 'file-pdf-o' if item.kind == 'pdf' else ('picture-o' if item.kind == 'image' else ('file-code-o' if item.kind == 'text' else ('file-text-o' if item.kind == 'markdown' else 'file-o'))) }} fa-2x o_lib_card_icon"/>
                         <div class="flex-grow-1" style="min-width: 0;">
                             <a class="o_lib_card_title fw-bold d-block text-truncate"
                                t-attf-href="/my/library/#{item.id}"
@@ -1058,6 +1128,12 @@
                             <i class="fa fa-folder-o me-1" role="img" aria-label="文件夹"/>
                             <t t-out="item.folder_id.name"/>
                         </span>
+                        <!-- 错题类条目要能一眼认出并跳回那道题：这是它区别于其它条目的地方 -->
+                        <a t-if="item.mistake_id" class="badge text-bg-light border text-decoration-none"
+                           t-attf-href="/my/learning/mistakes/#{item.mistake_id.id}"
+                           t-att-title="item.mistake_label or '回到这道错题'">
+                            <i class="fa fa-exclamation-circle me-1"/>错题
+                        </a>
                         <span t-out="item.size_text"/>
                         <span t-field="item.upload_date"/>
                     </div>
@@ -1209,7 +1285,11 @@
                                         <select name="category" id="lib_category"
                                                 class="form-select form-select-sm" data-lib-category="1">
                                             <t t-foreach="categories" t-as="key" t-key="key">
-                                                <option t-att-value="key" t-out="categories[key]"/>
+                                                <!-- 默认选中性的「其他」：列表第一项是练习册，
+                                                     学生传一张笔记不该被默认标成教辅 -->
+                                                <option t-att-value="key"
+                                                        t-att-selected="key == 'other'"
+                                                        t-out="categories[key]"/>
                                             </t>
                                         </select>
                                     </div>
@@ -1345,7 +1425,65 @@
                     <div class="card-body">
                         <div class="row g-3">
                             <div class="col-12 col-lg-8">
-                                <t t-out="item.preview_html"/>
+                                <div t-if="request.params.get('saved')" class="alert alert-success py-2">
+                                    正文已保存，渲染就是下面这个样子。
+                                </div>
+                                <div t-if="request.params.get('error')" class="alert alert-warning py-2"
+                                     t-out="request.params.get('error')"/>
+
+                                <div class="o_lib_viewer" data-lib-viewer="1"
+                                     t-att-data-lib-render="item.kind == 'markdown' and '/tutoring/library/render_md' or ''">
+                                    <ul class="nav nav-tabs o_lib_tabs mb-2" t-if="item.editable">
+                                        <li class="nav-item">
+                                            <button type="button" class="nav-link active"
+                                                    data-lib-tab="1" data-lib-pane-name="preview">预览</button>
+                                        </li>
+                                        <li class="nav-item">
+                                            <button type="button" class="nav-link"
+                                                    data-lib-tab="1" data-lib-pane-name="edit">编辑</button>
+                                        </li>
+                                    </ul>
+
+                                    <div data-lib-pane="preview" class="o_lib_pane">
+                                        <t t-out="item.preview_html"/>
+                                    </div>
+
+                                    <!-- 可编辑的一律给一个原生 textarea：不是 IDE，
+                                         只要 Tab 缩进、Ctrl+S 保存、能看渲染结果就够 -->
+                                    <form t-if="item.editable" method="post"
+                                          t-attf-action="/my/library/#{item.id}/save"
+                                          data-lib-pane="edit" class="o_lib_pane">
+                                        <input type="hidden" name="csrf_token"
+                                               t-att-value="request.csrf_token()"/>
+                                        <textarea name="body" rows="18" spellcheck="false"
+                                                  class="form-control o_lib_editor"
+                                                  data-lib-source="1"
+                                                  t-att-data-lib-language="item.text_language"><t t-out="item.text_body"/></textarea>
+                                        <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                            <button type="submit" class="btn btn-primary">
+                                                <i class="fa fa-save me-1"/>保存
+                                            </button>
+                                            <button t-if="item.kind == 'markdown'" type="button"
+                                                    class="btn btn-outline-secondary" data-lib-render="1">
+                                                预览草稿
+                                            </button>
+                                            <a class="btn btn-link" t-attf-href="/my/library/#{item.id}">放弃改动</a>
+                                            <span class="small text-muted ms-auto">
+                                                Tab 缩进 · Ctrl/⌘+S 保存
+                                            </span>
+                                        </div>
+                                        <div class="o_lib_draft mt-3" data-lib-draft="1"/>
+                                    </form>
+
+                                    <p t-if="item.read_note" class="small text-muted mt-2 mb-0"
+                                       t-out="item.read_note"/>
+                                </div>
+
+                                <div t-if="item.kind in ('markdown', 'text')"
+                                     class="small text-muted mt-2">
+                                    <i class="fa fa-code me-1"/>代码块与 Markdown 都在网页里直接渲染；
+                                    想改就直接切到「编辑」，保存后重新渲染。
+                                </div>
                             </div>
                             <div class="col-12 col-lg-4">
                                 <form t-attf-action="/my/library/#{item.id}/edit" method="post">
@@ -1402,6 +1540,11 @@
                                 <div class="text-muted small mt-3">
                                     <div>大小：<t t-out="item.size_text"/></div>
                                     <div t-if="item.folder_id">文件夹：<t t-out="item.folder_id.name"/></div>
+                                    <!-- 错题类文件另一半的路：从文件回到那道错题 -->
+                                    <div t-if="item.mistake_id">
+                                        关联错题：<a t-attf-href="/my/learning/mistakes/#{item.mistake_id.id}"
+                                                   t-out="item.mistake_label or item.mistake_id.display_name"/>
+                                    </div>
                                     <div t-if="item.from_workbook">
                                         练习册：<t t-out="item.from_workbook"/>
                                     </div>

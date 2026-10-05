@@ -16,8 +16,10 @@
                                            ('tag_ids.name', 'ilike', self)]"/>
                     <field name="folder_id"/>
                     <field name="tag_ids"/>
+                    <field name="mistake_id"/>
                     <separator/>
                     <filter string="练习册" name="cat_workbook" domain="[('category', '=', 'workbook')]"/>
+                    <filter string="错题" name="cat_mistake" domain="[('category', '=', 'mistake')]"/>
                     <filter string="LeetCode" name="cat_leetcode" domain="[('category', '=', 'leetcode')]"/>
                     <filter string="笔记" name="cat_note" domain="[('category', '=', 'note')]"/>
                     <filter string="资料文档" name="cat_doc" domain="[('category', '=', 'doc')]"/>
@@ -45,6 +47,7 @@
                     <field name="size_text" string="大小"/>
                     <field name="upload_date" string="上传时间" optional="show"/>
                     <field name="from_workbook" string="练习册" optional="hide"/>
+                    <field name="mistake_label" string="错题出处" optional="hide"/>
                     <field name="filename" optional="hide"/>
                 </list>
             </field>
@@ -68,12 +71,13 @@
                     <field name="size_text"/>
                     <field name="upload_date"/>
                     <field name="from_workbook"/>
+                    <field name="mistake_label"/>
                     <field name="kind"/>
                     <templates>
                         <t t-name="card">
                             <div class="o_library_card">
                                 <div class="o_library_card_head">
-                                    <i t-attf-class="fa fa-{{ record.kind.raw_value == 'pdf' ? 'file-pdf-o' : (record.kind.raw_value == 'image' ? 'picture-o' : 'file-o') }} o_library_icon"/>
+                                    <i t-attf-class="fa fa-{{ record.kind.raw_value == 'pdf' ? 'file-pdf-o' : (record.kind.raw_value == 'image' ? 'picture-o' : (record.kind.raw_value == 'text' ? 'file-code-o' : (record.kind.raw_value == 'markdown' ? 'file-text-o' : 'file-o'))) }} o_library_icon"/>
                                     <b class="o_library_title"><t t-out="record.name.value"/></b>
                                 </div>
                                 <div class="o_library_meta text-muted">
@@ -82,6 +86,10 @@
                                 </div>
                                 <div t-if="record.from_workbook.value" class="o_library_meta text-muted">
                                     《<t t-out="record.from_workbook.value"/>》的教材
+                                </div>
+                                <div t-if="record.mistake_label.value" class="o_library_meta text-muted">
+                                    <i class="fa fa-exclamation-circle me-1"/>
+                                    <t t-out="record.mistake_label.value"/>
                                 </div>
                                 <div t-if="record.tag_ids.value" class="o_library_tags">
                                     <t t-foreach="record.tag_ids.value" t-as="tag" t-key="tag.id">
@@ -130,12 +138,23 @@
                                 <field name="filename" readonly="1" invisible="not filename"/>
                                 <field name="from_workbook" readonly="1"
                                        invisible="not from_workbook"/>
+                                <field name="mistake_id" placeholder="（不关联）"
+                                       title="错题的照片或说明挂在哪一条错题上"/>
                             </group>
                         </group>
                         <div class="o_library_preview">
                             <field name="preview_html" readonly="1" nolabel="1"
                                    class="o_library_preview_field"/>
                         </div>
+                        <field name="editable" invisible="1"/>
+                        <div class="text-muted small mt-2" invisible="not read_note">
+                            <field name="read_note" nolabel="1"/>
+                        </div>
+                        <!-- 纯文本条目就地可改：写回 content 走模型自己的 write()，
+                             配额按增量重算；PDF/图片这类只给上面的预览 -->
+                        <group string="正文" col="1" invisible="not editable">
+                            <field name="text_body" nolabel="1" placeholder="直接改正文，改完点保存…"/>
+                        </group>
                     </sheet>
                 </form>
             </field>

@@ -1,0 +1,65 @@
+/* 门户知识库的查看/编辑界面。颜色一律走站点主题（var(--primary) 有兜底色）。 */
+
+.o_lib_tabs .nav-link {
+    font-size: 0.9rem;
+    padding: 0.3rem 0.9rem;
+}
+
+.o_lib_pane {
+    min-height: 4rem;
+}
+
+.o_lib_editor {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    tab-size: 2;
+    min-height: 26rem;
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+}
+
+.o_lib_draft {
+    border: 1px dashed rgba(0, 0, 0, 0.15);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    background-color: rgba(0, 0, 0, 0.015);
+}
+
+.o_lib_draft:empty {
+    display: none;
+}
+
+/* 错题详情页里的题目照片 */
+.o_lib_shot_card {
+    display: block;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 0.5rem;
+    padding: 0.4rem;
+    text-decoration: none;
+    color: inherit;
+    background-color: #fff;
+    height: 100%;
+}
+
+.o_lib_shot_card:hover {
+    border-color: var(--primary, #714b67);
+}
+
+.o_lib_shot_img {
+    width: 100%;
+    height: 6rem;
+    object-fit: cover;
+    border-radius: 0.25rem;
+}
+
+.o_lib_shot_file {
+    height: 6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(0, 0, 0, 0.35);
+    background-color: rgba(0, 0, 0, 0.03);
+    border-radius: 0.25rem;
+}

@@ -590,8 +590,45 @@ class TutoringPortal(CustomerPortal):
             'mistake': mistake,
             'difficulty_labels': dict(request.env['tutoring.mistake']._fields['difficulty'].selection),
             'can_edit': mistake.has_access('write'),
+            # 错题的固有属性之一：题目照片/说明就挂在知识库上，这一页要能看能加
+            'library_items': mistake.library_item_ids.sorted('upload_date desc'),
+            'quota': request.env['tutoring.library.item'].quota_state(),
             'just_saved': bool(kwargs.get('created') or kwargs.get('saved')),
+            'just_attached': bool(kwargs.get('attached')),
         })
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>/attach', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_mistake_attach(self, mistake_id, **kw):
+        """给这道错题传一张题目照片/说明文件：落进知识库，分类固定错题，绑回本条。
+
+        错题本身还是记在 tutoring.mistake 里，这里只是把"题目长什么样"当附件收进来；
+        条目归属当前账号（学生传的就归学生），所以别人在知识库里看不到。
+        """
+        mistake = request.env['tutoring.mistake'].search([('id', '=', mistake_id)], limit=1)
+        if not mistake:
+            return request.not_found()
+        model = request.env['tutoring.library.item']
+        uploads = request.httprequest.files.getlist('file')[:5]
+        attached, errors = 0, []
+        for upload in uploads:
+            filename = upload.filename or ''
+            try:
+                model.create({
+                    'name': (kw.get('title') or '').strip() or filename.rpartition('.')[0] or _('错题照片'),
+                    'filename': filename,
+                    'content': base64.b64encode(upload.read()).decode(),
+                    'category': 'mistake',
+                    'mistake_id': mistake.id,
+                    'tag_ids': model.tags_from_names(kw.get('tags')),
+                })
+                request.env.cr.commit()
+                attached += 1
+            except UserError as err:
+                request.env.cr.rollback()
+                errors.append(str(err))
+        query = ['attached=%s' % attached if attached else 'error=%s' % quote(' '.join(errors)[:200])]
+        return request.redirect('/my/learning/mistakes/%d?%s' % (mistake.id, query[0]))
 
     @http.route('/my/learning/mistakes/<int:mistake_id>/note', type='http', auth='user',
                 website=True, methods=['POST'])
@@ -953,6 +990,28 @@ class TutoringPortal(CustomerPortal):
             'tag_ids': request.env['tutoring.library.item'].tags_from_names(kw.get('tags')),
         })
         return request.redirect('/my/library/%s' % item.id)
+
+    @http.route('/my/library/<int:item_id>/save', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_library_item_save(self, item_id, **kw):
+        """就地改正文。
+
+        只有 `editable` 的条目走得通——超限的二进制文件在模型那边就被判成不可编，
+        页面不给按钮，这里再挡一次（免得有人直接 POST）。
+        配额由条目的 write() 按增量重算，超了会抛 UserError，转成一句人话回去。
+        """
+        item = request.env['tutoring.library.item'].search([('id', '=', item_id)], limit=1)
+        if not item:
+            return request.not_found()
+        if not item.editable:
+            return request.redirect('/my/library/%s?error=%s' % (
+                item.id, quote(item.read_note or _('这种文件不能在网页里编辑。'))))
+        try:
+            item.write({'text_body': kw.get('body') or ''})
+        except UserError as err:
+            return request.redirect('/my/library/%s?error=%s' % (
+                item.id, quote(str(err)[:200])))
+        return request.redirect('/my/library/%s?saved=1' % item.id)
 
     @http.route('/my/library/<int:item_id>/delete', type='http', auth='user', methods=['POST'],
                 website=True, csrf=True)

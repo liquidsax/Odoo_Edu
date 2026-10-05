@@ -80,6 +80,12 @@ class TutoringMistake(models.Model):
     page_pdf = fields.Binary('这一页', compute='_compute_page_pdf')
     page_pdf_hint = fields.Char('这一页说明', compute='_compute_page_pdf')
 
+    # 错题是知识库的一个固有类型：题目照片/说明作为条目挂进来，两边都能跳。
+    # 删错题不动文件（条目上 ondelete='set null'），删文件也不影响错题记录。
+    library_item_ids = fields.One2many(
+        'tutoring.library.item', 'mistake_id', string='题目文件')
+    library_count = fields.Integer('题目文件数', compute='_compute_library_count')
+
     @api.depends('page', 'workbook_id.page_mode', 'workbook_id.page_offset',
                  'workbook_id.file_ids.content')
     def _compute_page_pdf(self):
@@ -97,6 +103,17 @@ class TutoringMistake(models.Model):
                     'book': mistake.workbook_id.name, 'page': mistake.page}
                 continue
             mistake.page_pdf = data
+
+    @api.depends('library_item_ids')
+    def _compute_library_count(self):
+        # 一次 read_group 拿完整份计数：错题列表页每行都算一次就是 N+1
+        counts = {
+            mistake.id: count
+            for mistake, count in self.env['tutoring.library.item']._read_group(
+                [('mistake_id', 'in', self.ids)], ['mistake_id'], ['__count'])
+        }
+        for mistake in self:
+            mistake.library_count = counts.get(mistake.id, 0)
 
     @api.model
     def default_get(self, fields_list=None):

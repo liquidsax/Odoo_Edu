@@ -1,6 +1,6 @@
 {
     'name': 'R3ynA 学习平台',
-    'version': '19.0.1.13.0',
+    'version': '19.0.1.14.0',
     'category': 'Services',
     'summary': '个人学习数据平台：学生档案、课次、考试、错题与知识点，含学生/家长门户',
     'description': """
@@ -35,7 +35,11 @@ R3ynA 学习平台
             'tutoring_center/static/src/function_plot.js',
             'tutoring_center/static/src/function_plot.css',
             'tutoring_center/static/src/library_portal/*',
+            'tutoring_center/static/src/library_viewer/*',
             'tutoring_center/static/src/library_preview/*',
+            # 代码块上色用站点自带的 Prism（web/static/lib/prismjs），不引第三方库。
+            # 脚本在门户包里已经有了，缺的是这份主题 CSS
+            'web/static/lib/prismjs/themes/default.css',
         ],
         'web.assets_backend': [
             'tutoring_center/static/src/fields/**/*',

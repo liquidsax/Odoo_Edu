@@ -11,6 +11,7 @@ import { listView } from "@web/views/list/list_view";
 const CATEGORIES = [
     ["other", _t("其他")],
     ["workbook", _t("练习册")],
+    ["mistake", _t("错题")],
     ["leetcode", _t("LeetCode")],
     ["note", _t("笔记")],
     ["doc", _t("资料文档")],
