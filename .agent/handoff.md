@@ -47,7 +47,15 @@
   并跳到它的局部页号（靠 `content_page` 这个核心钩子字段，见 `updates/2026-10-01.md`）。
   《五年高考三年模拟》已按 1–55 / 56–110 / 111–164 页存成 3 份，是这套流程的样板。
 
-核心自定义模块：`server/addons/tutoring_center`（13 个模型，含练习册 `tutoring.workbook`、教材文件
+- **知识库**（2026-10-05 新增，`19.0.1.12.0`）：每位用户自己的顶层内容空间，**1GB 配额、单文件 ≤64MB**，
+  分类（`workbook` 练习册 / `leetcode` / `note` / `doc` / `other`）只是条目上的一个字段，不限制内容类型。
+  **练习册是它的一个分类**：`tutoring.workbook.file` 改为委托继承 `tutoring.library.item`
+  （`_inherits`，正文与文件名归条目表），所以教材同样占同一份配额、可被搜索打标签、删除即释放。
+  后台页面是卡片看板 + 容量条/拖拽上传区（多选、逐条进度）；门户 `/my/library` 用同一个模型。
+  配额统计走 `used_bytes()`（SQL 求和 + 先 flush，见陷阱 23），并发靠 `res_users` 行锁串行化同一用户。
+  细节与迁移见 [updates/2026-10-05.md](updates/2026-10-05.md)。
+
+核心自定义模块：`server/addons/tutoring_center`（15 个模型，含练习册 `tutoring.workbook`、教材文件
 `tutoring.workbook.file`、单页缓存 `tutoring.workbook.page` 与速记向导 `tutoring.mistake.quickadd`，详见根 README）。
 
 ## 二、环境与使用方式
@@ -69,6 +77,14 @@
 > `addons_path` 第二项 `E:\Odoo\server\addons` 就落在仓库工作树里 → 改 `server/addons/tutoring_center`
 > 的文件，服务读的就是这一份；`svcctl.ps1`（skill `odoo-service-control`）**在本机可用**。
 > 但**改文件 ≠ 生效**：Python 变更必须重启服务，XML/QWeb/JS 变更必须 `-u` 重建资产包（见第四节）。
+>
+> **（2026-10-05 补充）别的 worktree 不算数**：`git worktree list` 里除 `E:/Odoo` 外还有几个
+> 工作树（含 WorkBuddy 的 `C:\Users\lenovo\WorkBuddy\Worktrees\Odoo\main-*`）。
+> 服务只认 `E:/Odoo/server/addons/tutoring_center` 这一份，所以**在别的 worktree 里改完代码，
+> 必须把 `server/addons/tutoring_center/` 同步到 `E:/Odoo` 下才会被加载**（`--addons-path` 另指
+> 只对本进程有效，服务进程不受影响）。同步前先把 `E:/Odoo` 的当前内容备份到 `E:\Odoo\backup\` 下，
+> 并注意 `E:/Odoo` 自己可能正 checkout 在别人的分支上且有未提交改动。
+> 另：本机业务库确为 `OdooForDB`（`edu_native` 在本机不存在，是云机/别处的库）。
 >
 > 2026-10-01 曾在这里记过一套"开发模式"形态（`E:\Odoo\odoo19` + venv + `edu_native` + `start-odoo.bat`
 > 前台跑 `--dev`、无 Windows 服务、`addons_path` 指向 `E:/workspace/Odoo_Edu`），**本机复核不成立**——
@@ -99,7 +115,11 @@
 5. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
 6. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
 
-## 五、最重要陷阱（Top 19，完整版见 README 与 updates）
+## 五、最重要陷阱（正文 19 条；20~22 见 updates/2026-10-03.md，23~25 见 updates/2026-10-05.md）
+
+> 编号在几份文档里有过错位，以"见哪份 updates"为准：知识库那次新增的三条写在
+> [updates/2026-10-05.md](updates/2026-10-05.md) 第六节（委托继承的字段搬运、
+> stored compute 要 flush 才能 SQL 统计、`@api.model` 方法不能用记录调用）。
 
 1. `db_template = odoo_template_c` **不可改回 template0**（Windows 上 collate≠ctype 库无法连接，已存在库只能删库重建）；
 2. `_sql_constraints` 在 Odoo 19 已弃用，用 `models.Constraint('unique(...)', '消息')`；

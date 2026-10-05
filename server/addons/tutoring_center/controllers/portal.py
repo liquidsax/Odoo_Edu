@@ -1,8 +1,10 @@
+import base64
 import json
 from urllib.parse import quote, urlencode
 
 from odoo import _, fields, http
-from odoo.fields import Date
+from odoo.exceptions import UserError
+from odoo.fields import Date, Datetime
 from odoo.http import request
 
 from odoo.addons.portal.controllers.portal import CustomerPortal
@@ -40,6 +42,11 @@ class TutoringPortal(CustomerPortal):
             values['tutoring_workbook_count'] = (
                 len(self._tutoring_workbooks(student))
                 if student and request.env['tutoring.workbook'].has_access('read') else 0)
+        if 'tutoring_library_count' in counters:
+            values['tutoring_library_count'] = (
+                request.env['tutoring.library.item'].search_count(
+                    [('user_id', '=', request.env.user.id)])
+                if request.env['tutoring.library.item'].has_access('read') else 0)
         return values
 
     # ------------------------------------------------------------
@@ -685,6 +692,121 @@ class TutoringPortal(CustomerPortal):
             # 与后台 pdf_viewer 组件同一个静态查看器；正文走 /web/content，按 read 权限校验
             'viewer_url': '/web/static/lib/pdfjs/web/viewer.html?file=%s' % quote(content_url, safe=''),
         })
+
+    # ------------------------------------------------------------
+    # 知识库：每个人自己的内容空间，与后台共用同一套模型和容量配额
+    # ------------------------------------------------------------
+
+    def _library_searchbar_filters(self):
+        categories = dict(
+            request.env['tutoring.library.item']._fields['category'].selection)
+        return dict(
+            [('all', {'label': _('全部'), 'domain': []})] +
+            [(key, {'label': label, 'domain': [('category', '=', key)]})
+             for key, label in categories.items()])
+
+    @http.route('/my/library', type='http', auth='user', website=True)
+    def portal_my_library(self, sortby=None, filterby=None, search=None, page=1, **kwargs):
+        model = request.env['tutoring.library.item']
+        searchbar_filters = self._library_searchbar_filters()
+        if filterby not in searchbar_filters:
+            filterby = 'all'
+        domain = [('user_id', '=', request.env.user.id)] + searchbar_filters[filterby]['domain']
+        if search:
+            domain += ['|', '|', ('name', 'ilike', search),
+                       ('filename', 'ilike', search), ('tag_ids.name', 'ilike', search)]
+        values = self._tutoring_list_values(
+            model.search(domain), sortby, page,
+            sortings={
+                'date': {
+                    'label': _('最新上传'),
+                    'key': lambda r: (r.upload_date or Datetime.MIN, r.id), 'reverse': True,
+                },
+                'name': {
+                    'label': _('按名称'),
+                    'key': lambda r: (r.name or '', r.id), 'reverse': False,
+                },
+                'size': {
+                    'label': _('按大小'),
+                    'key': lambda r: (r.file_size or 0, r.id), 'reverse': True,
+                },
+            },
+            url='/my/library', filterby=filterby, searchbar_filters=searchbar_filters)
+        values.update({
+            'page_name': 'library',
+            'items': values.pop('records'),
+            'quota': model.quota_state(),
+            'search': search or '',
+            'categories': dict(model._fields['category'].selection),
+        })
+        return request.render('tutoring_center.portal_my_library', values)
+
+    @http.route('/my/library/upload', type='http', auth='user', methods=['POST'],
+                website=True, csrf=True)
+    def portal_my_library_upload(self, **kw):
+        """门户上传：走 multipart，与后台同一个模型、同一份配额。"""
+        model = request.env['tutoring.library.item']
+        category = kw.get('category') or 'other'
+        if category not in dict(model._fields['category'].selection):
+            category = 'other'
+        uploaded, errors = 0, []
+        for upload in request.httprequest.files.getlist('file')[:10]:
+            filename = upload.filename or ''
+            try:
+                model.create({
+                    'name': (kw.get('title') or '').strip() or filename.rpartition('.')[0] or _('未命名文件'),
+                    'filename': filename,
+                    'content': base64.b64encode(upload.read()).decode(),
+                    'category': category,
+                    'tag_ids': model.tags_from_names(kw.get('tags')),
+                })
+                # 逐个提交：下一个失败要回滚时不能把已成功的带走
+                request.env.cr.commit()
+                uploaded += 1
+            except UserError as err:
+                request.env.cr.rollback()
+                errors.append('%s：%s' % (filename, err))
+        query = []
+        if uploaded:
+            query.append('uploaded=%s' % uploaded)
+        if errors:
+            query.append('error=%s' % quote(' '.join(errors)[:200]))
+        return request.redirect('/my/library%s' % ('?' + '&'.join(query) if query else ''))
+
+    @http.route('/my/library/<int:item_id>', type='http', auth='user', website=True)
+    def portal_my_library_item(self, item_id, **kwargs):
+        item = request.env['tutoring.library.item'].browse(item_id).exists()
+        if not item or not item.has_access('read') or item.user_id != request.env.user:
+            return request.not_found()
+        return request.render('tutoring_center.portal_my_library_item', {
+            'page_name': 'library',
+            'item': item,
+            'categories': dict(item._fields['category'].selection),
+        })
+
+    @http.route('/my/library/<int:item_id>/edit', type='http', auth='user', methods=['POST'],
+                website=True, csrf=True)
+    def portal_my_library_item_edit(self, item_id, **kw):
+        item = request.env['tutoring.library.item'].browse(item_id).exists()
+        if not item or item.user_id != request.env.user:
+            return request.not_found()
+        category = kw.get('category') or item.category
+        if category not in dict(item._fields['category'].selection):
+            category = item.category
+        item.write({
+            'name': (kw.get('name') or '').strip() or item.name,
+            'category': category,
+            'tag_ids': model.tags_from_names(kw.get('tags')),
+        })
+        return request.redirect('/my/library/%s' % item.id)
+
+    @http.route('/my/library/<int:item_id>/delete', type='http', auth='user', methods=['POST'],
+                website=True, csrf=True)
+    def portal_my_library_item_delete(self, item_id, **kw):
+        item = request.env['tutoring.library.item'].browse(item_id).exists()
+        if item and item.user_id == request.env.user and item.has_access('unlink'):
+            item.unlink()
+        return request.redirect('/my/library')
 
     # ------------------------------------------------------------
     # 列表页公共准备（排序/筛选/分页）

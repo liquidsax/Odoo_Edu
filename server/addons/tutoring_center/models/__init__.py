@@ -4,6 +4,8 @@ from . import tutoring_student
 from . import tutoring_session
 from . import tutoring_homework
 from . import tutoring_exam
+# 知识库条目必须先在注册表里：练习册教材靠 _inherits 挂在它上面
+from . import tutoring_library_item
 from . import tutoring_workbook
 from . import tutoring_workbook_file
 from . import tutoring_workbook_page

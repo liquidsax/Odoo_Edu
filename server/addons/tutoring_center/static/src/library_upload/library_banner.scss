@@ -1,0 +1,115 @@
+/* 知识库页：顶部容量条 + 拖拽上传区，卡片与预览 */
+$o-library-brand: #714B67;
+
+.o_library_banner {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+
+    .o_library_quota {
+        min-width: 250px;
+    }
+
+    .o_library_progress {
+        height: 6px;
+        background-color: rgba(0, 0, 0, 0.08);
+
+        .progress-bar {
+            background-color: $o-library-brand;
+        }
+    }
+
+    .o_library_dropzone {
+        border: 1px dashed rgba(0, 0, 0, 0.2);
+        border-radius: 10px;
+        padding: 8px 12px;
+        transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .o_library_dropzone.o_library_dragover {
+        background-color: rgba(113, 75, 103, 0.08);
+        border-color: $o-library-brand;
+    }
+
+    .o_library_select {
+        width: auto;
+        min-width: 110px;
+    }
+
+    .o_library_tags_input {
+        width: 200px;
+    }
+
+    .o_library_queue {
+        max-height: 150px;
+        overflow: auto;
+    }
+
+    .o_library_queue_row {
+        padding: 2px 0;
+    }
+
+    .o_library_queue_name {
+        max-width: 280px;
+    }
+}
+
+.o_library_kanban {
+    .o_kanban_record {
+        padding: 8px 10px;
+    }
+
+    .o_library_card_head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .o_library_icon {
+        color: $o-library-brand;
+    }
+
+    .o_library_title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .o_library_meta {
+        font-size: 12px;
+    }
+
+    .o_library_tags {
+        margin-top: 4px;
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+    }
+
+    .o_library_tag {
+        background-color: rgba(113, 75, 103, 0.12);
+        color: $o-library-brand;
+        font-weight: 400;
+    }
+}
+
+.o_library_preview_pdf {
+    width: 100%;
+    height: 70vh;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    background-color: #f8f9fa;
+}
+
+.o_library_preview_img {
+    text-align: center;
+
+    img {
+        max-width: 100%;
+        max-height: 70vh;
+    }
+}
+
+.o_library_preview_file {
+    text-align: center;
+    padding: 24px;
+    color: #6c757d;
+}

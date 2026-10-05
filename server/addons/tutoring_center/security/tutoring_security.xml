@@ -146,6 +146,31 @@
             <field name="perm_unlink" eval="False"/>
         </record>
 
+        <!-- 知识库是"每个人自己的空间"：内部用户与门户用户都只碰得到自己那一份。
+             练习册教材虽然也落在这张表上，但门户读教材走的是 tutoring.workbook.file
+             那条"门户可读"规则，委托继承的字段在 SQL 里 JOIN 出来，不受本规则影响。 -->
+        <record id="rule_library_item_own" model="ir.rule">
+            <field name="name">知识库条目：仅本人</field>
+            <field name="model_id" ref="model_tutoring_library_item"/>
+            <field name="domain_force">[('user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user')), (4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_library_tag_all" model="ir.rule">
+            <field name="name">知识库标签：共享字典</field>
+            <field name="model_id" ref="model_tutoring_library_tag"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user')), (4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
         <record id="rule_mistake_cause_portal" model="ir.rule">
             <!-- 错因是公共字典，学生只是在下拉里挑一个，不能自己加 -->
             <field name="name">错因：门户可读</field>
