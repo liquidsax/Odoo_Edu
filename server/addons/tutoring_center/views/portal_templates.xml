@@ -1548,7 +1548,7 @@
                                     <div t-if="item.from_workbook">
                                         练习册：<t t-out="item.from_workbook"/>
                                     </div>
-                                    <div>上传时间：<t t-out="item.upload_date"/></div>
+                                    <div>上传时间：<span t-field="item.upload_date"/></div>
                                     <div t-if="item.filename">文件名：<t t-out="item.filename"/></div>
                                 </div>
                             </div>
