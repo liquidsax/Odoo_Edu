@@ -17,6 +17,8 @@
                     <t t-set="url" t-value="'/my/mistakes'"/>
                     <t t-set="text">记下做错的题（只记出处），并给每道题存题目照片或说明</t>
                     <t t-set="placeholder_count" t-value="'tutoring_mistake_count'"/>
+                    <!-- 核心见计数 0 就把卡片 d-none；错题是常用入口，一条没记也要看得见 -->
+                    <t t-set="config_card" t-value="True"/>
                 </t>
                 <t t-call="portal.portal_docs_entry">
                     <t t-set="title">教材</t>
@@ -528,6 +530,11 @@
                 </div>
                 <div t-if="error" class="alert alert-danger" t-out="error"/>
 
+                <div t-if="not student" class="alert alert-light border py-2 small">
+                    这个账号没有绑定学生档案，看到的是<b>全部学生</b>的错题；
+                    要新增请用后台「错题」页的「快速记录」。
+                </div>
+
                 <!-- 速记条：一行记完出处；难度/日期/错因/知识点收进「更多选项」 -->
                 <div class="card border-0 shadow-sm mb-4" id="quickadd" t-if="can_create">
                     <div class="card-body">
@@ -782,6 +789,9 @@
                         <span class="text-nowrap" t-out="difficulty_labels.get(m.difficulty, '')"/>
                     </div>
                     <div class="small text-muted">
+                        <t t-if="show_student">
+                            <span class="badge text-bg-light border me-1" t-out="m.student_id.name"/>
+                        </t>
                         <t t-out="m.workbook_id.name"/>
                         <t t-if="m.page"> · P<t t-out="m.page"/></t><t t-if="m.question_no"> · 第<t t-out="m.question_no"/>题</t>
                     </div>

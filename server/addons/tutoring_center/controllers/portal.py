@@ -35,9 +35,12 @@ class TutoringPortal(CustomerPortal):
                 request.env['tutoring.session'].search_count([('student_id', '=', student.id)])
                 if student and request.env['tutoring.session'].has_access('read') else 0)
         if 'tutoring_mistake_count' in counters:
+            # 不按"当前账号绑定的学生"算：老师/维护者自己没有学生档案，那样永远是 0，
+            # 而核心的 portal_docs_entry 见计数 0 就把卡片 d-none 掉——错题入口会整体消失。
+            # search_count([]) 配合记录规则正好等于"我能读到多少条错题"。
             values['tutoring_mistake_count'] = (
-                request.env['tutoring.mistake'].search_count([('student_id', '=', student.id)])
-                if student and request.env['tutoring.mistake'].has_access('read') else 0)
+                request.env['tutoring.mistake'].search_count([])
+                if request.env['tutoring.mistake'].has_access('read') else 0)
         if 'tutoring_workbook_count' in counters:
             values['tutoring_workbook_count'] = (
                 len(self._tutoring_workbooks(student))
@@ -428,7 +431,7 @@ class TutoringPortal(CustomerPortal):
             'workbooks': request.env['tutoring.workbook'].search([]),
             'topics': request.env['tutoring.topic'].search([]),
             'causes': request.env['tutoring.mistake.cause'].search([]),
-            'point_groups': self._mistake_point_groups(student),
+            'point_groups': self._mistake_point_groups(student) if student else [],
             'difficulties': Mistake._fields['difficulty'].selection,
         }
 
@@ -462,18 +465,22 @@ class TutoringPortal(CustomerPortal):
 
     @http.route('/my/mistakes', type='http', auth='user', website=True)
     def portal_my_mistakes(self, **kwargs):
-        """顶栏「错题」独立页：速记条 + 带计数的筛选药丸 + 卡片列表。"""
-        student = self._tutoring_student()
-        if not student:
-            return request.redirect('/my')
+        """顶栏「错题」独立页：速记条 + 带计数的筛选药丸 + 卡片列表。
+
+        没绑学生档案的账号（老师本人、维护者的 admin）以前会被直接弹回 `/my`，
+        而那一页的卡片在计数为 0 时会被核心隐藏，结果落地页只剩一张「知识库」——
+        看起来就像"错题页把人往知识库赶"。现在无档案账号直接看自己有权读的全部错题，
+        只是不给速记条（新增走后台，那边有按学生的看板）。
+        """
         return request.render(
-            'tutoring_center.portal_my_mistakes', self._mistake_page_values(student, kwargs))
+            'tutoring_center.portal_my_mistakes',
+            self._mistake_page_values(self._tutoring_student(), kwargs))
 
     def _mistake_page_values(self, student, kwargs=None, form=None, error=None):
         """/my/mistakes 取数：域内分页 + 白名单排序；速记条校验失败时带 form/error 复用同一页。"""
         kwargs = kwargs or {}
         Mistake = request.env['tutoring.mistake']
-        base_domain = [('student_id', '=', student.id)]
+        base_domain = [('student_id', '=', student.id)] if student else []
         today = fields.Date.context_today(request.env.user)
         month_start = today.replace(day=1)
 
@@ -560,7 +567,10 @@ class TutoringPortal(CustomerPortal):
             'difficulties': list(Mistake._fields['difficulty'].selection),
             'filter_counts': self._mistake_filter_counts(base_domain, month_start),
             'drilldowns': drilldowns,
-            'can_create': Mistake.has_access('create'),
+            # 速记条要先有"给哪个学生记"才知道往谁名下写，所以无档案账号不给建
+            'can_create': bool(student) and Mistake.has_access('create'),
+            # 跨学生浏览时（老师看全部）卡片上要带学生名，否则分不清是谁的错题
+            'show_student': not student,
             'default_workbook': last_mistake.workbook_id if last_mistake else False,
             'default_date': today.strftime('%Y-%m-%d'),
             'created_count': created_count,
@@ -569,7 +579,7 @@ class TutoringPortal(CustomerPortal):
             'workbooks': request.env['tutoring.workbook'].search([]),
             'topics': request.env['tutoring.topic'].search([]),
             'causes': request.env['tutoring.mistake.cause'].search([]),
-            'point_groups': self._mistake_point_groups(student),
+            'point_groups': self._mistake_point_groups(student) if student else [],
         }
 
     @http.route('/my/learning/mistakes', type='http', auth='user', website=True)
