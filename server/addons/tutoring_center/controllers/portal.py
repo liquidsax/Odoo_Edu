@@ -4,7 +4,7 @@ from urllib.parse import quote, urlencode
 
 from odoo import _, fields, http
 from odoo.exceptions import UserError
-from odoo.fields import Date, Datetime
+from odoo.fields import Date
 from odoo.http import request
 
 from odoo.addons.portal.controllers.portal import CustomerPortal
@@ -697,58 +697,161 @@ class TutoringPortal(CustomerPortal):
     # 知识库：每个人自己的内容空间，与后台共用同一套模型和容量配额
     # ------------------------------------------------------------
 
-    def _library_searchbar_filters(self):
-        categories = dict(
+    LIBRARY_PAGE_SIZES = (10, 20, 50)
+
+    def _library_categories(self):
+        return dict(
             request.env['tutoring.library.item']._fields['category'].selection)
+
+    def _library_sortings(self):
+        """排序走数据库 order：这个页面是分页的，不能整表捞进内存再排。"""
+        return {
+            'date': {'label': _('最新上传'), 'order': 'upload_date desc, id desc'},
+            'name': {'label': _('按名称'), 'order': 'name asc, id desc'},
+            'size': {'label': _('按大小'), 'order': 'file_size desc, id desc'},
+        }
+
+    def _library_folder(self, folder_param):
+        """folder 查询参数 → (追加域, 文件夹记录, 归一化后的键)。
+
+        只认本人搜得到的文件夹：`search` 会拼记录规则，别人文件夹的 id 到这儿
+        等价于没填——不给越权留缝。`all`/空＝不限，`none`＝未分类。
+        """
+        if not folder_param or folder_param == 'all':
+            return [], None, 'all'
+        if folder_param == 'none':
+            return [('folder_id', '=', False)], None, 'none'
+        try:
+            folder_id = int(folder_param)
+        except (TypeError, ValueError):
+            return [], None, 'all'
+        folder = request.env['tutoring.library.folder'].search(
+            [('id', '=', folder_id)], limit=1)
+        if not folder:
+            return [], None, 'all'
+        return [('folder_id', '=', folder.id)], folder, str(folder.id)
+
+    def _library_folder_entries(self, base_domain, folder_key):
+        """左侧文件夹栏：全部 / 各文件夹 / 未分类，计数一次 read_group 全拿。
+
+        域用 base_domain（不含当前文件夹）：这样在某个文件夹里也看得见别的
+        文件夹还有多少文件，切过去不用先退出来。
+        """
+        Item = request.env['tutoring.library.item']
+        counts, unfiled = {}, 0
+        for folder, count in Item._read_group(base_domain, ['folder_id'], ['__count']):
+            if folder:
+                counts[folder.id] = count
+            else:
+                unfiled = count
+        entries = [{
+            'key': 'all', 'label': _('全部文件'), 'icon': 'th-large',
+            'count': sum(counts.values()) + unfiled,
+        }]
+        for folder in request.env['tutoring.library.folder'].search([]):
+            entries.append({
+                'key': str(folder.id), 'label': folder.name, 'icon': 'folder',
+                'count': counts.get(folder.id, 0),
+            })
+        entries.append({
+            'key': 'none', 'label': _('未分类'), 'icon': 'folder-open-o',
+            'count': unfiled,
+        })
+        for entry in entries:
+            entry['active'] = entry['key'] == folder_key
+        return entries
+
+    def _library_searchbar_filters(self):
         return dict(
             [('all', {'label': _('全部'), 'domain': []})] +
             [(key, {'label': label, 'domain': [('category', '=', key)]})
-             for key, label in categories.items()])
+             for key, label in self._library_categories().items()])
 
     @http.route('/my/library', type='http', auth='user', website=True)
-    def portal_my_library(self, sortby=None, filterby=None, search=None, page=1, **kwargs):
-        model = request.env['tutoring.library.item']
+    def portal_my_library(self, sortby=None, filterby=None, search=None, folder=None,
+                          page=1, limit=None, **kwargs):
+        Item = request.env['tutoring.library.item']
+        base_domain = [('user_id', '=', request.env.user.id)]
+        folder_domain, active_folder, folder_key = self._library_folder(folder)
+        scope_domain = base_domain + folder_domain
+
         searchbar_filters = self._library_searchbar_filters()
         if filterby not in searchbar_filters:
             filterby = 'all'
-        domain = [('user_id', '=', request.env.user.id)] + searchbar_filters[filterby]['domain']
+        domain = scope_domain + searchbar_filters[filterby]['domain']
+        search_domain = []
         if search:
-            domain += ['|', '|', ('name', 'ilike', search),
-                       ('filename', 'ilike', search), ('tag_ids.name', 'ilike', search)]
-        values = self._tutoring_list_values(
-            model.search(domain), sortby, page,
-            sortings={
-                'date': {
-                    'label': _('最新上传'),
-                    'key': lambda r: (r.upload_date or Datetime.MIN, r.id), 'reverse': True,
-                },
-                'name': {
-                    'label': _('按名称'),
-                    'key': lambda r: (r.name or '', r.id), 'reverse': False,
-                },
-                'size': {
-                    'label': _('按大小'),
-                    'key': lambda r: (r.file_size or 0, r.id), 'reverse': True,
-                },
-            },
-            url='/my/library', filterby=filterby, searchbar_filters=searchbar_filters)
-        values.update({
+            search_domain = ['|', '|', ('name', 'ilike', search),
+                             ('filename', 'ilike', search), ('tag_ids.name', 'ilike', search)]
+            domain += search_domain
+
+        sortings = self._library_sortings()
+        if sortby not in sortings:
+            sortby = 'date'
+        try:
+            page_size = int(limit)
+        except (TypeError, ValueError):
+            page_size = self.LIBRARY_PAGE_SIZES[0]
+        if page_size not in self.LIBRARY_PAGE_SIZES:
+            page_size = self.LIBRARY_PAGE_SIZES[0]
+        try:
+            page = max(int(page), 1)
+        except (TypeError, ValueError):
+            page = 1
+
+        total = Item.search_count(domain)
+        items = Item.search(
+            domain, order=sortings[sortby]['order'],
+            limit=page_size, offset=(page - 1) * page_size)
+
+        # 分类药丸上的计数：在当前文件夹 + 搜索词下按分类一次 read_group
+        filter_counts = {}
+        for key, count in Item._read_group(scope_domain + search_domain, ['category'], ['__count']):
+            filter_counts[key] = count
+        filter_counts['all'] = sum(filter_counts.values())
+
+        url_args = {
+            'sortby': sortby, 'filterby': filterby,
+            'folder': folder_key, 'limit': page_size,
+        }
+        if search:
+            url_args['search'] = search
+        values = {
             'page_name': 'library',
-            'items': values.pop('records'),
-            'quota': model.quota_state(),
+            'items': items,
+            'total': total,
+            'quota': Item.quota_state(),
+            'categories': self._library_categories(),
             'search': search or '',
-            'categories': dict(model._fields['category'].selection),
-        })
+            'sortby': sortby,
+            'searchbar_sortings': sortings,
+            'filterby': filterby,
+            'searchbar_filters': searchbar_filters,
+            'filter_counts': filter_counts,
+            'page_size': page_size,
+            'page_sizes': self.LIBRARY_PAGE_SIZES,
+            'folder_entries': self._library_folder_entries(base_domain, folder_key),
+            'active_folder': active_folder,
+            'folder_key': folder_key,
+            'url_args': url_args,
+            'pager': portal_pager(
+                url='/my/library', url_args=url_args,
+                total=total, page=page, step=page_size),
+        }
         return request.render('tutoring_center.portal_my_library', values)
 
     @http.route('/my/library/upload', type='http', auth='user', methods=['POST'],
                 website=True, csrf=True)
     def portal_my_library_upload(self, **kw):
-        """门户上传：走 multipart，与后台同一个模型、同一份配额。"""
+        """门户上传的无 JS 退路：拖拽那条走 /tutoring/library/upload 的 JSON 接口。
+
+        两条路写的是同一个模型、同一份配额，参数也对齐（category/folder/tags）。
+        """
         model = request.env['tutoring.library.item']
         category = kw.get('category') or 'other'
-        if category not in dict(model._fields['category'].selection):
+        if category not in self._library_categories():
             category = 'other'
+        _domain, folder, folder_key = self._library_folder(kw.get('folder'))
         uploaded, errors = 0, []
         for upload in request.httprequest.files.getlist('file')[:10]:
             filename = upload.filename or ''
@@ -758,6 +861,7 @@ class TutoringPortal(CustomerPortal):
                     'filename': filename,
                     'content': base64.b64encode(upload.read()).decode(),
                     'category': category,
+                    'folder_id': folder.id if folder else False,
                     'tag_ids': model.tags_from_names(kw.get('tags')),
                 })
                 # 逐个提交：下一个失败要回滚时不能把已成功的带走
@@ -766,12 +870,56 @@ class TutoringPortal(CustomerPortal):
             except UserError as err:
                 request.env.cr.rollback()
                 errors.append('%s：%s' % (filename, err))
-        query = []
+        params = ['folder=%s' % folder_key]
         if uploaded:
-            query.append('uploaded=%s' % uploaded)
+            params.append('uploaded=%s' % uploaded)
         if errors:
-            query.append('error=%s' % quote(' '.join(errors)[:200]))
-        return request.redirect('/my/library%s' % ('?' + '&'.join(query) if query else ''))
+            params.append('error=%s' % quote(' '.join(errors)[:200]))
+        return request.redirect('/my/library?' + '&'.join(params))
+
+    # ---- 文件夹：新建 / 改名 / 删除（都只动本人可见的那一个） ----
+
+    @http.route('/my/library/folder', type='http', auth='user', methods=['POST'],
+                website=True, csrf=True)
+    def portal_my_library_folder_new(self, **kw):
+        name = (kw.get('name') or '').strip()[:80]
+        if not name:
+            return request.redirect('/my/library?error=%s' % quote(_('文件夹名字没填。')))
+        Folder = request.env['tutoring.library.folder']
+        # 判重按约束同一条域来查（规则已经把范围收成本人的了）
+        if Folder.search_count([('name', '=', name)]):
+            return request.redirect(
+                '/my/library?error=%s' % quote(_('已经有同名文件夹了，换个名字。')))
+        folder = Folder.create({'name': name})
+        return request.redirect('/my/library?folder=%s' % folder.id)
+
+    @http.route('/my/library/folder/<int:folder_id>/rename', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_library_folder_rename(self, folder_id, **kw):
+        folder = request.env['tutoring.library.folder'].search(
+            [('id', '=', folder_id)], limit=1)
+        name = (kw.get('name') or '').strip()[:80]
+        if not folder or not name:
+            return request.redirect('/my/library')
+        if folder.name == name:
+            return request.redirect('/my/library?folder=%s' % folder.id)
+        if request.env['tutoring.library.folder'].search_count(
+                [('name', '=', name), ('id', '!=', folder.id)]):
+            return request.redirect(
+                '/my/library?folder=%s&error=%s'
+                % (folder.id, quote(_('已经有同名文件夹了，换个名字。'))))
+        folder.write({'name': name})
+        return request.redirect('/my/library?folder=%s' % folder.id)
+
+    @http.route('/my/library/folder/<int:folder_id>/delete', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_library_folder_delete(self, folder_id, **kw):
+        folder = request.env['tutoring.library.folder'].search(
+            [('id', '=', folder_id)], limit=1)
+        if folder:
+            # 条目上的 ondelete='set null' 会把里面的文件留在"未分类"，不动正文
+            folder.unlink()
+        return request.redirect('/my/library')
 
     @http.route('/my/library/<int:item_id>', type='http', auth='user', website=True)
     def portal_my_library_item(self, item_id, **kwargs):
@@ -782,29 +930,35 @@ class TutoringPortal(CustomerPortal):
             'page_name': 'library',
             'item': item,
             'categories': dict(item._fields['category'].selection),
+            'folders': request.env['tutoring.library.folder'].search([]),
         })
 
     @http.route('/my/library/<int:item_id>/edit', type='http', auth='user', methods=['POST'],
                 website=True, csrf=True)
     def portal_my_library_item_edit(self, item_id, **kw):
-        item = request.env['tutoring.library.item'].browse(item_id).exists()
-        if not item or item.user_id != request.env.user:
+        # 走 search 而不是 browse：规则会直接把别人那条过滤成"不存在"，
+        # 用 browse 再读 user_id 判归属，越权请求是先炸 500 再被规则拦住
+        item = request.env['tutoring.library.item'].search(
+            [('id', '=', item_id)], limit=1)
+        if not item:
             return request.not_found()
         category = kw.get('category') or item.category
-        if category not in dict(item._fields['category'].selection):
+        if category not in self._library_categories():
             category = item.category
+        _domain, folder, _key = self._library_folder(kw.get('folder'))
         item.write({
             'name': (kw.get('name') or '').strip() or item.name,
             'category': category,
-            'tag_ids': model.tags_from_names(kw.get('tags')),
+            'folder_id': folder.id if folder else False,
+            'tag_ids': request.env['tutoring.library.item'].tags_from_names(kw.get('tags')),
         })
         return request.redirect('/my/library/%s' % item.id)
 
     @http.route('/my/library/<int:item_id>/delete', type='http', auth='user', methods=['POST'],
                 website=True, csrf=True)
     def portal_my_library_item_delete(self, item_id, **kw):
-        item = request.env['tutoring.library.item'].browse(item_id).exists()
-        if item and item.user_id == request.env.user and item.has_access('unlink'):
+        item = request.env['tutoring.library.item'].search([('id', '=', item_id)], limit=1)
+        if item:
             item.unlink()
         return request.redirect('/my/library')
 

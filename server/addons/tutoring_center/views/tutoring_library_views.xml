@@ -14,15 +14,19 @@
                            filter_domain="['|', '|', ('name', 'ilike', self),
                                            ('filename', 'ilike', self),
                                            ('tag_ids.name', 'ilike', self)]"/>
+                    <field name="folder_id"/>
                     <field name="tag_ids"/>
                     <separator/>
                     <filter string="练习册" name="cat_workbook" domain="[('category', '=', 'workbook')]"/>
                     <filter string="LeetCode" name="cat_leetcode" domain="[('category', '=', 'leetcode')]"/>
                     <filter string="笔记" name="cat_note" domain="[('category', '=', 'note')]"/>
                     <filter string="资料文档" name="cat_doc" domain="[('category', '=', 'doc')]"/>
+                    <separator/>
+                    <filter string="未分类" name="unfiled" domain="[('folder_id', '=', False)]"/>
                     <filter string="我的" name="mine" domain="[('user_id', '=', uid)]"/>
                     <group>
                         <filter string="分类" name="group_category" context="{'group_by': 'category'}"/>
+                        <filter string="文件夹" name="group_folder" context="{'group_by': 'folder_id'}"/>
                         <filter string="标签" name="group_tag" context="{'group_by': 'tag_ids'}"/>
                     </group>
                 </search>
@@ -35,6 +39,7 @@
             <field name="arch" type="xml">
                 <list string="知识库" type="object" action="action_preview" create="false">
                     <field name="name" string="标题"/>
+                    <field name="folder_id" optional="show"/>
                     <field name="category" optional="show"/>
                     <field name="tag_ids" widget="many2many_tags" optional="show"/>
                     <field name="size_text" string="大小"/>
@@ -58,6 +63,7 @@
                         default_group_by="category">
                     <field name="name"/>
                     <field name="category"/>
+                    <field name="folder_id"/>
                     <field name="tag_ids"/>
                     <field name="size_text"/>
                     <field name="upload_date"/>
@@ -112,6 +118,8 @@
                         <group>
                             <group>
                                 <field name="category"/>
+                                <!-- 不给 no_create：直接在下拉里输一个新名字就能建文件夹 -->
+                                <field name="folder_id" placeholder="未分类"/>
                                 <field name="tag_ids" widget="many2many_tags"
                                        options="{'color_field': 'color', 'no_create': False}"
                                        placeholder="如 三角函数、期末复习"/>
@@ -130,6 +138,53 @@
                         </div>
                     </sheet>
                 </form>
+            </field>
+        </record>
+
+        <!-- ===== 知识库文件夹（每人自己的一层收纳格） ===== -->
+        <record id="view_tutoring_library_folder_list" model="ir.ui.view">
+            <field name="name">tutoring.library.folder.list</field>
+            <field name="model">tutoring.library.folder</field>
+            <field name="arch" type="xml">
+                <list string="知识库文件夹" editable="bottom">
+                    <field name="name" placeholder="如 五三·函数专题"/>
+                    <field name="item_count" string="文件数"/>
+                    <field name="size_text" string="占用"/>
+                    <field name="user_id" string="所属用户" optional="hide" readonly="1"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_tutoring_library_folder_form" model="ir.ui.view">
+            <field name="name">tutoring.library.folder.form</field>
+            <field name="model">tutoring.library.folder</field>
+            <field name="arch" type="xml">
+                <form string="知识库文件夹">
+                    <sheet>
+                        <div class="oe_title">
+                            <h1><field name="name" placeholder="文件夹名字"/></h1>
+                        </div>
+                        <group>
+                            <field name="item_count" string="里面的文件"/>
+                            <field name="size_text" string="占用"/>
+                            <field name="user_id" readonly="1"/>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="action_tutoring_library_folder" model="ir.actions.act_window">
+            <field name="name">知识库文件夹</field>
+            <field name="res_model">tutoring.library.folder</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">建一个文件夹</p>
+                <p>
+                    文件夹只对你自己可见：在知识库里点开某个文件、于「文件夹」下拉里
+                    直接打一个新名字就能顺手建一个；学生端在 /my/library 左侧也有「新建文件夹」。
+                </p>
+                <p>删掉文件夹不会删掉里面的文件，它们只是退回「未分类」。</p>
             </field>
         </record>
 
@@ -158,5 +213,8 @@
 
         <menuitem id="menu_tutoring_library" name="知识库" parent="menu_tutoring_root"
                   action="action_tutoring_library" sequence="35"/>
+        <menuitem id="menu_tutoring_library_folder" name="知识库文件夹"
+                  parent="menu_tutoring_root" action="action_tutoring_library_folder"
+                  sequence="36"/>
     </data>
 </odoo>

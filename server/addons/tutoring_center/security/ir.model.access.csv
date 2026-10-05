@@ -30,3 +30,5 @@ access_tutoring_library_item_user,tutoring.library.item.user,model_tutoring_libr
 access_tutoring_library_item_portal,tutoring.library.item.portal,model_tutoring_library_item,base.group_portal,1,1,1,1
 access_tutoring_library_tag_user,tutoring.library.tag.user,model_tutoring_library_tag,base.group_user,1,1,1,0
 access_tutoring_library_tag_portal,tutoring.library.tag.portal,model_tutoring_library_tag,base.group_portal,1,1,1,0
+access_tutoring_library_folder_user,tutoring.library.folder.user,model_tutoring_library_folder,base.group_user,1,1,1,1
+access_tutoring_library_folder_portal,tutoring.library.folder.portal,model_tutoring_library_folder,base.group_portal,1,1,1,1

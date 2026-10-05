@@ -1037,135 +1037,310 @@
             </t>
         </template>
 
-        <!-- ===== 知识库：学生/家长自己的内容空间（与后台同一模型、同一份配额） ===== -->
+        <!-- ===== 知识库（用户端）：每个人自己的文件空间 =====
+             一个文件卡片的画法单独成模板，文件夹视图与平铺视图共用。 -->
+        <template id="library_card" name="知识库文件卡">
+            <div class="card h-100 border-0 shadow-sm o_lib_card">
+                <div class="card-body d-flex flex-column gap-2">
+                    <div class="d-flex align-items-start gap-2">
+                        <i t-attf-class="fa fa-{{ 'file-pdf-o' if item.kind == 'pdf' else ('picture-o' if item.kind == 'image' else 'file-o') }} fa-2x o_lib_card_icon"/>
+                        <div class="flex-grow-1" style="min-width: 0;">
+                            <a class="o_lib_card_title fw-bold d-block text-truncate"
+                               t-attf-href="/my/library/#{item.id}"
+                               t-att-title="item.name" t-out="item.name"/>
+                            <div t-if="item.filename" class="text-muted small text-truncate"
+                                 t-att-title="item.filename" t-out="item.filename"/>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap align-items-center gap-2 small text-muted">
+                        <span class="badge text-bg-light border" t-out="categories[item.category]"/>
+                        <span t-if="item.folder_id" class="badge text-bg-light border">
+                            <i class="fa fa-folder-o me-1" role="img" aria-label="文件夹"/>
+                            <t t-out="item.folder_id.name"/>
+                        </span>
+                        <span t-out="item.size_text"/>
+                        <span t-field="item.upload_date"/>
+                    </div>
+                    <div t-if="item.tag_ids" class="d-flex flex-wrap gap-1">
+                        <t t-foreach="item.tag_ids" t-as="tag" t-key="tag.id">
+                            <span class="badge rounded-pill o_lib_tag" t-out="tag.name"/>
+                        </t>
+                    </div>
+                    <div t-if="item.from_workbook" class="small text-muted">
+                        《<t t-out="item.from_workbook"/>》的教材
+                    </div>
+                    <div class="mt-auto d-flex gap-2 pt-1">
+                        <a class="btn btn-sm btn-primary" t-attf-href="/my/library/#{item.id}">打开</a>
+                        <a class="btn btn-sm btn-outline-secondary"
+                           t-attf-href="/tutoring/library/#{item.id}/raw?download=1">
+                            <i class="fa fa-download me-1"/>下载
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </template>
+
         <template id="portal_my_library" name="我的知识库">
             <t t-call="portal.portal_layout">
-                <t t-set="breadcrumbs_searchbar" t-value="True"/>
-                <t t-call="portal.portal_searchbar">
-                    <t t-set="title">我的知识库</t>
-                </t>
+                <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
+                    <h4 class="mb-0">
+                        知识库
+                        <span class="badge text-bg-light border ms-1" t-out="quota['count']"/>
+                    </h4>
+                    <a href="#o_lib_upload" class="btn btn-primary">
+                        <i class="fa fa-upload me-1"/>上传文件
+                    </a>
+                </div>
 
-                <t t-if="request.params.get('uploaded')">
-                    <div class="alert alert-success">
-                        已上传 <t t-out="request.params.get('uploaded')"/> 个文件。
-                    </div>
-                </t>
-                <t t-if="request.params.get('error')">
-                    <div class="alert alert-warning" t-out="request.params.get('error')"/>
-                </t>
+                <div t-if="request.params.get('uploaded')" class="alert alert-success py-2">
+                    已上传 <b t-out="request.params.get('uploaded')"/> 个文件。
+                </div>
+                <div t-if="request.params.get('error')" class="alert alert-warning py-2"
+                     t-out="request.params.get('error')"/>
 
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center">
+                <!-- 容量条：配额、已用、还剩多少、单文件上限 -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-body py-2">
+                        <div class="d-flex justify-content-between align-items-baseline gap-2 flex-wrap">
                             <div>
-                                <span class="fs-5 fw-bold" t-out="quota['used_text']"/>
+                                <span class="fw-bold" t-out="quota['used_text']"/>
                                 <span class="text-muted"> / <t t-out="quota['quota_text']"/></span>
                             </div>
                             <span class="text-muted small">
-                                共 <t t-out="quota['count']"/> 个文件
+                                还剩 <t t-out="quota['remaining_text']"/>
+                                · 单文件最多 <t t-out="quota['max_file_text']"/>
                             </span>
                         </div>
-                        <div class="progress mt-2" style="height: 0.5rem;">
-                            <div class="progress-bar bg-primary"
-                                 t-att-style="'width: %s%%' % quota['percent']"/>
-                        </div>
-                        <div class="text-muted small mt-1">
-                            还剩 <t t-out="quota['remaining_text']"/>
-                            ，单个文件最多 <t t-out="quota['max_file_text']"/>
+                        <div class="progress mt-2 o_lib_progress" role="progressbar"
+                             t-att-aria-valuenow="quota['percent']"
+                             aria-valuemin="0" aria-valuemax="100">
+                            <div class="progress-bar" t-attf-style="width: {{ quota['percent'] }}%"/>
                         </div>
                     </div>
                 </div>
 
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <form action="/my/library/upload" method="post" enctype="multipart/form-data"
-                              class="row g-2 align-items-end">
-                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
-                            <div class="col-12 col-md-4">
-                                <label class="form-label small mb-1">选择文件（可多选）</label>
-                                <input type="file" name="file" multiple="1" class="form-control" required="1"/>
+                <div class="row g-3">
+                    <!-- ===== 左：文件夹 ===== -->
+                    <div class="col-12 col-lg-3">
+                        <div class="card border-0 shadow-sm">
+                            <div class="card-header bg-transparent d-flex justify-content-between align-items-center py-2">
+                                <span class="fw-bold small text-uppercase text-muted">文件夹</span>
+                                <a class="small text-decoration-none" data-bs-toggle="collapse"
+                                   href="#o_lib_new_folder" role="button" aria-expanded="false"
+                                   aria-controls="o_lib_new_folder">+ 新建</a>
                             </div>
-                            <div class="col-6 col-md-2">
-                                <label class="form-label small mb-1">分类</label>
-                                <select name="category" class="form-select">
-                                    <t t-foreach="categories" t-as="key" t-key="key">
-                                        <option t-att-value="key" t-out="categories[key]"/>
-                                    </t>
-                                </select>
+                            <div class="collapse" id="o_lib_new_folder">
+                                <div class="px-3 pb-3">
+                                    <form method="post" action="/my/library/folder" class="d-flex gap-1">
+                                        <input type="hidden" name="csrf_token"
+                                               t-att-value="request.csrf_token()"/>
+                                        <input type="text" name="name" class="form-control form-control-sm"
+                                               placeholder="文件夹名字" required="required" maxlength="80"/>
+                                        <button type="submit" class="btn btn-sm btn-primary">建</button>
+                                    </form>
+                                </div>
                             </div>
-                            <div class="col-6 col-md-2">
-                                <label class="form-label small mb-1">标题（可不填）</label>
-                                <input type="text" name="title" class="form-control" placeholder="默认用文件名"/>
+                            <div class="list-group list-group-flush">
+                                <t t-foreach="folder_entries" t-as="entry" t-key="entry['key']">
+                                    <a t-attf-class="list-group-item list-group-item-action d-flex justify-content-between align-items-center {{ 'active' if entry['active'] else '' }}"
+                                       t-attf-href="/my/library?{{ keep_query('*', folder=entry['key'], page=None) }}">
+                                        <span class="text-truncate">
+                                            <i t-attf-class="fa fa-{{ entry['icon'] }} me-2"/>
+                                            <t t-out="entry['label']"/>
+                                        </span>
+                                        <span class="badge text-bg-light border ms-1"
+                                              t-out="entry['count']"/>
+                                    </a>
+                                </t>
                             </div>
-                            <div class="col-6 col-md-2">
-                                <label class="form-label small mb-1">标签</label>
-                                <input type="text" name="tags" class="form-control" placeholder="逗号分隔"/>
+                        </div>
+
+                        <!-- 当前文件夹：改名与删除都在原地 -->
+                        <div t-if="active_folder" class="card border-0 shadow-sm mt-3">
+                            <div class="card-body py-2">
+                                <div class="small text-uppercase text-muted mb-2">
+                                    当前文件夹：<b t-out="active_folder.name"/>
+                                </div>
+                                <form method="post"
+                                      t-attf-action="/my/library/folder/#{active_folder.id}/rename"
+                                      class="d-flex gap-1 mb-2">
+                                    <input type="hidden" name="csrf_token"
+                                           t-att-value="request.csrf_token()"/>
+                                    <input type="text" name="name" class="form-control form-control-sm"
+                                           t-att-value="active_folder.name" maxlength="80"/>
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">改名</button>
+                                </form>
+                                <form method="post"
+                                      t-attf-action="/my/library/folder/#{active_folder.id}/delete"
+                                      onsubmit="return confirm('删除文件夹不会删掉里面的文件，它们只是退回「未分类」。确定删除？');">
+                                    <input type="hidden" name="csrf_token"
+                                           t-att-value="request.csrf_token()"/>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger w-100">
+                                        <i class="fa fa-trash me-1"/>删除文件夹（保留里面的文件）
+                                    </button>
+                                </form>
                             </div>
-                            <div class="col-6 col-md-2">
-                                <button type="submit" class="btn btn-primary w-100">
-                                    <i class="fa fa-upload me-1"/>上传
-                                </button>
+                        </div>
+                    </div>
+
+                    <!-- ===== 右：上传 + 检索 + 卡片墙 ===== -->
+                    <div class="col-12 col-lg-9">
+                        <div class="card border-0 shadow-sm mb-3 o_lib_upload" id="o_lib_upload"
+                             data-lib-upload="1" t-att-data-lib-max-file="quota['max_file']">
+                            <div class="card-body">
+                                <form method="post" action="/my/library/upload"
+                                      enctype="multipart/form-data"
+                                      class="row g-2 align-items-end" data-lib-form="1">
+                                    <input type="hidden" name="csrf_token"
+                                           t-att-value="request.csrf_token()"/>
+                                    <div class="col-12">
+                                        <div class="o_lib_drop" data-lib-drop="1">
+                                            <i class="fa fa-cloud-upload fa-2x o_lib_drop_icon"/>
+                                            <div class="small text-muted">
+                                                把文件拖进来，或点下面的按钮选；一次可以选多个
+                                            </div>
+                                            <input type="file" name="file" multiple="multiple"
+                                                   class="form-control form-control-sm mt-2"
+                                                   data-lib-input="1" required="required"/>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small mb-1" for="lib_category">分类</label>
+                                        <select name="category" id="lib_category"
+                                                class="form-select form-select-sm" data-lib-category="1">
+                                            <t t-foreach="categories" t-as="key" t-key="key">
+                                                <option t-att-value="key" t-out="categories[key]"/>
+                                            </t>
+                                        </select>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small mb-1" for="lib_folder">文件夹</label>
+                                        <select name="folder" id="lib_folder"
+                                                class="form-select form-select-sm" data-lib-folder="1">
+                                            <option value="">未分类</option>
+                                            <t t-foreach="folder_entries" t-as="entry" t-key="entry['key']">
+                                                <option t-if="entry['key'] not in ('all', 'none')"
+                                                        t-att-value="entry['key']"
+                                                        t-att-selected="folder_key == entry['key']"
+                                                        t-out="entry['label']"/>
+                                            </t>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-md-3">
+                                        <label class="form-label small mb-1" for="lib_tags">标签</label>
+                                        <input type="text" name="tags" id="lib_tags"
+                                               class="form-control form-control-sm"
+                                               placeholder="逗号分隔，可不填" data-lib-tags="1"/>
+                                    </div>
+                                    <div class="col-12 col-md-3">
+                                        <button type="submit" class="btn btn-primary w-100"
+                                                data-lib-submit="1">
+                                            <i class="fa fa-upload me-1"/>上传
+                                        </button>
+                                    </div>
+                                </form>
+                                <!-- 拖拽/多选时逐个文件的进度条；没 JS 就走上面的表单原样提交 -->
+                                <div class="o_lib_queue mt-2 d-none" data-lib-queue="1"/>
+                            </div>
+                        </div>
+
+                        <form class="row g-2 mb-3" method="get" action="/my/library" role="search">
+                            <t t-foreach="[k for k in url_args if k != 'search']" t-as="k" t-key="k">
+                                <input type="hidden" t-att-name="k" t-att-value="url_args[k]"/>
+                            </t>
+                            <div class="col-12 col-md-6">
+                                <div class="input-group">
+                                    <input type="search" class="form-control" name="search"
+                                           t-att-value="search" placeholder="搜标题、文件名、标签…"/>
+                                    <button class="btn btn-light border" type="submit" title="搜索">
+                                        <i class="fa fa-search" role="img"/>
+                                    </button>
+                                    <a t-if="search" class="btn btn-light border" title="清空搜索"
+                                       t-attf-href="/my/library?{{ keep_query('*', search=None, page=None) }}">×</a>
+                                </div>
                             </div>
                         </form>
-                        <div class="text-muted small mt-2">
-                            练习册、LeetCode 截图、笔记、扫描的资料都能放，传完在下面点标题就能看。
+
+                        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                            <ul class="nav nav-pills gap-1">
+                                <t t-foreach="searchbar_filters.items()" t-as="pair" t-key="pair[0]">
+                                    <li class="nav-item">
+                                        <a t-attf-class="nav-link py-1 px-2 #{'active' if filterby == pair[0] else 'text-body'}"
+                                           t-attf-href="/my/library?{{ keep_query('*', filterby=pair[0], page=None) }}">
+                                            <t t-out="pair[1]['label']"/>
+                                            <span t-attf-class="badge ms-1 #{'text-bg-light' if filterby == pair[0] else 'text-bg-secondary-subtle'}"
+                                                  t-out="filter_counts.get(pair[0], 0)"/>
+                                        </a>
+                                    </li>
+                                </t>
+                            </ul>
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <div class="dropdown">
+                                    <button class="btn btn-light btn-sm border dropdown-toggle" type="button"
+                                            data-bs-toggle="dropdown" aria-expanded="false">
+                                        排序：<t t-out="searchbar_sortings.get(sortby, {}).get('label', '')"/>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end">
+                                        <t t-foreach="searchbar_sortings.items()" t-as="pair" t-key="pair[0]">
+                                            <li>
+                                                <a class="dropdown-item" t-att-class="(pair[0] == sortby) and 'active'"
+                                                   t-attf-href="/my/library?{{ keep_query('*', sortby=pair[0], page=None) }}"
+                                                   t-out="pair[1]['label']"/>
+                                            </li>
+                                        </t>
+                                    </ul>
+                                </div>
+                                <div class="dropdown">
+                                    <button class="btn btn-light btn-sm border dropdown-toggle" type="button"
+                                            data-bs-toggle="dropdown" aria-expanded="false">
+                                        每页 <t t-out="page_size"/>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end">
+                                        <t t-foreach="page_sizes" t-as="n" t-key="n">
+                                            <li>
+                                                <a class="dropdown-item" t-att-class="(n == page_size) and 'active'"
+                                                   t-attf-href="/my/library?{{ keep_query('*', limit=n, page=None) }}"
+                                                   t-out="n"/>
+                                            </li>
+                                        </t>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <t t-if="not items">
+                            <div class="alert alert-info">
+                                <t t-if="search or filterby != 'all'">
+                                    这个筛选下没有文件，换个条件或点左边的文件夹看看。
+                                </t>
+                                <t t-else="">
+                                    <b>这里还是空的。</b>
+                                    用上面那块拖拽区把文件传上来：教辅 PDF、LeetCode 截图、课堂笔记、
+                                    扫描的资料都行，传完在任何设备登录后都能点开看。
+                                </t>
+                            </div>
+                        </t>
+                        <div t-else="" class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
+                            <div class="col" t-foreach="items" t-as="item" t-key="item.id">
+                                <t t-call="tutoring_center.library_card"/>
+                            </div>
+                        </div>
+                        <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3">
+                            <t t-call="portal.pager"/>
                         </div>
                     </div>
                 </div>
-
-                <t t-if="not items">
-                    <div class="alert alert-info">
-                        <b>这里还是空的。</b>
-                        用上面的表单选一个文件传上来，它就会出现在这个列表里，
-                        之后在任何设备上登录后都能点开看。
-                        内容不限类型：教辅、LeetCode 截图、笔记、扫描的资料都行。
-                    </div>
-                </t>
-                <t t-else="" t-call="portal.portal_table">
-                    <thead>
-                        <tr class="active">
-                            <th>标题</th>
-                            <th>分类</th>
-                            <th>标签</th>
-                            <th class="text-end">大小</th>
-                            <th>上传时间</th>
-                            <th class="text-end">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr t-foreach="items" t-as="item" t-key="item.id">
-                            <td>
-                                <a t-attf-href="/my/library/#{item.id}" t-out="item.name"/>
-                                <div class="text-muted small" t-if="item.filename" t-out="item.filename"/>
-                            </td>
-                            <td t-out="categories[item.category]"/>
-                            <td>
-                                <t t-foreach="item.tag_ids" t-as="tag" t-key="tag.id">
-                                    <span class="badge text-bg-light me-1" t-out="tag.name"/>
-                                </t>
-                            </td>
-                            <td class="text-end" t-out="item.size_text"/>
-                            <td t-out="item.upload_date"/>
-                            <td class="text-end">
-                                <a class="btn btn-sm btn-outline-secondary"
-                                   t-attf-href="/tutoring/library/#{item.id}/raw?download=1">
-                                    <i class="fa fa-download"/>下载
-                                </a>
-                            </td>
-                        </tr>
-                    </tbody>
-                </t>
-                <div t-if="pager" class="mt-3"><t t-call="portal.pager"/></div>
             </t>
         </template>
 
-        <!-- ===== 知识库：单个文件（预览 + 改名 + 删除） ===== -->
+        <!-- ===== 知识库：单个文件（预览 + 改名 + 挪文件夹 + 删除） ===== -->
         <template id="portal_my_library_item" name="知识库文件">
             <t t-call="portal.portal_layout">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span class="fw-bold" t-out="item.name"/>
-                        <a class="btn btn-sm btn-secondary" href="/my/library">返回知识库</a>
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-transparent d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                        <span class="fw-bold text-truncate" t-out="item.name"/>
+                        <a class="btn btn-sm btn-secondary text-nowrap"
+                           t-attf-href="/my/library?folder={{ item.folder_id.id or 'all' }}">返回知识库</a>
                     </div>
                     <div class="card-body">
                         <div class="row g-3">
@@ -1174,10 +1349,23 @@
                             </div>
                             <div class="col-12 col-lg-4">
                                 <form t-attf-action="/my/library/#{item.id}/edit" method="post">
-                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                    <input type="hidden" name="csrf_token"
+                                           t-att-value="request.csrf_token()"/>
                                     <div class="mb-2">
                                         <label class="form-label small mb-1">标题</label>
-                                        <input type="text" name="name" class="form-control" t-att-value="item.name"/>
+                                        <input type="text" name="name" class="form-control"
+                                               t-att-value="item.name"/>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label small mb-1">文件夹</label>
+                                        <select name="folder" class="form-select">
+                                            <option value="">未分类</option>
+                                            <t t-foreach="folders" t-as="folder" t-key="folder.id">
+                                                <option t-att-value="folder.id"
+                                                        t-att-selected="folder.id == item.folder_id.id"
+                                                        t-out="folder.name"/>
+                                            </t>
+                                        </select>
                                     </div>
                                     <div class="mb-2">
                                         <label class="form-label small mb-1">分类</label>
@@ -1204,7 +1392,8 @@
                                     <form t-attf-action="/my/library/#{item.id}/delete" method="post"
                                           class="flex-fill"
                                           onsubmit="return confirm('删除后这部分容量立即释放，确定删除？');">
-                                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                        <input type="hidden" name="csrf_token"
+                                               t-att-value="request.csrf_token()"/>
                                         <button type="submit" class="btn btn-outline-danger w-100">
                                             <i class="fa fa-trash"/>删除
                                         </button>
@@ -1212,6 +1401,10 @@
                                 </div>
                                 <div class="text-muted small mt-3">
                                     <div>大小：<t t-out="item.size_text"/></div>
+                                    <div t-if="item.folder_id">文件夹：<t t-out="item.folder_id.name"/></div>
+                                    <div t-if="item.from_workbook">
+                                        练习册：<t t-out="item.from_workbook"/>
+                                    </div>
                                     <div>上传时间：<t t-out="item.upload_date"/></div>
                                     <div t-if="item.filename">文件名：<t t-out="item.filename"/></div>
                                 </div>

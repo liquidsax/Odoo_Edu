@@ -47,13 +47,29 @@
   并跳到它的局部页号（靠 `content_page` 这个核心钩子字段，见 `updates/2026-10-01.md`）。
   《五年高考三年模拟》已按 1–55 / 56–110 / 111–164 页存成 3 份，是这套流程的样板。
 
-- **知识库**（2026-10-05 新增，`19.0.1.12.0`）：每位用户自己的顶层内容空间，**1GB 配额、单文件 ≤64MB**，
+- **知识库**（2026-10-05 新增，`19.0.1.13.0`）：每位用户自己的顶层内容空间，**1GB 配额、单文件 ≤64MB**，
   分类（`workbook` 练习册 / `leetcode` / `note` / `doc` / `other`）只是条目上的一个字段，不限制内容类型。
   **练习册是它的一个分类**：`tutoring.workbook.file` 改为委托继承 `tutoring.library.item`
   （`_inherits`，正文与文件名归条目表），所以教材同样占同一份配额、可被搜索打标签、删除即释放。
   后台页面是卡片看板 + 容量条/拖拽上传区（多选、逐条进度）；门户 `/my/library` 用同一个模型。
   配额统计走 `used_bytes()`（SQL 求和 + 先 flush，见陷阱 23），并发靠 `res_users` 行锁串行化同一用户。
-  细节与迁移见 [updates/2026-10-05.md](updates/2026-10-05.md)。
+  - **文件夹**（`19.0.1.13.0`）：`tutoring.library.folder` 是每人自己的一层收纳格（单层、无嵌套），
+    条目 `folder_id` 可空＝未分类，`ondelete='set null'`——删文件夹只让文件退回未分类，绝不动正文。
+    它和 `category` 并存不打架：分类答"这是什么内容"（教材由委托继承写死 workbook），
+    文件夹答"这个人把它放哪儿"。建的地方有三处：门户左栏「+ 新建」（还有改名/删除）、
+    后台「知识库文件夹」页、条目弹窗的文件夹下拉里直接敲新名字。
+  - **隐私收口**：条目、文件夹、**标签**三张表都挂 `[('user_id','=',user.id)]` 的组规则；
+    标签原来是全共享字典，而标签名本身就是"这个人在学什么"，所以本轮改成按用户私有
+    （新列 + 迁移按"跟着用它的人走"回填、被多人用过的拆成每人一份）。
+    越权访问 `/my/library/<id>`、`/tutoring/library/<id>/raw` 一律 404；判定要用
+    `has_access`/`search`，不能用 `browse().exists()`（见陷阱 26）。
+  - **用户端页**（`/my/library`，非管理员用）：整页重做——容量条 + 左栏文件夹 + 拖拽上传（逐文件进度，
+    没 JS 时同一张表单走原生 multipart POST）+ 搜索/分类药丸/排序/每页 + 卡片墙 + 分页；
+    详情页可就地改名、挪文件夹、改分类标签、下载、删除。取数是服务端 `domain+order+limit/offset`，
+    文件夹与分类计数各一次 `_read_group`。
+  - **网站顶栏第四项「知识库」**（`/my/library`）：靠 `website.menu.group_ids`
+    （内部 + 门户两组）+ 核心全局规则 "Website menu: group_ids" 过滤，**匿名访客看不到这一项**（见陷阱 28）。
+  细节与两轮迁移见 [updates/2026-10-05.md](updates/2026-10-05.md)。
 
 核心自定义模块：`server/addons/tutoring_center`（15 个模型，含练习册 `tutoring.workbook`、教材文件
 `tutoring.workbook.file`、单页缓存 `tutoring.workbook.page` 与速记向导 `tutoring.mistake.quickadd`，详见根 README）。
@@ -115,11 +131,13 @@
 5. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
 6. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
 
-## 五、最重要陷阱（正文 19 条；20~22 见 updates/2026-10-03.md，23~25 见 updates/2026-10-05.md）
+## 五、最重要陷阱（正文 19 条；20~22 见 updates/2026-10-03.md，23~29 见 updates/2026-10-05.md）
 
-> 编号在几份文档里有过错位，以"见哪份 updates"为准：知识库那次新增的三条写在
-> [updates/2026-10-05.md](updates/2026-10-05.md) 第六节（委托继承的字段搬运、
-> stored compute 要 flush 才能 SQL 统计、`@api.model` 方法不能用记录调用）。
+> 编号在几份文档里有过错位，以"见哪份 updates"为准：知识库那两次新增的七条写在
+> [updates/2026-10-05.md](updates/2026-10-05.md) 第六节与第十二节（委托继承的字段搬运、
+> stored compute 要 flush 才能 SQL 统计、`@api.model` 方法不能用记录调用；
+> `browse().exists()` 与缓存值不经过记录规则、SQL 约束炸过要 savepoint、
+> 顶栏菜单可见性的原生 `group_ids` 机制、门户 JS 其实在 `assets_frontend_lazy` 包里）。
 
 1. `db_template = odoo_template_c` **不可改回 template0**（Windows 上 collate≠ctype 库无法连接，已存在库只能删库重建）；
 2. `_sql_constraints` 在 Odoo 19 已弃用，用 `models.Constraint('unique(...)', '消息')`；

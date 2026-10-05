@@ -47,6 +47,8 @@ export class LibraryBanner extends Component {
             quota: null,
             queue: [],
             category: "other",
+            folderId: "",
+            folders: [],
             tags: "",
             dragging: false,
             busy: false,
@@ -70,6 +72,13 @@ export class LibraryBanner extends Component {
                 "tutoring.library.item", "quota_state", []);
         } catch {
             this.state.quota = null;
+        }
+        try {
+            // 不用带域：文件夹那条记录规则本身就只放本人可见的出来
+            this.state.folders = await this.orm.searchRead(
+                "tutoring.library.folder", [], ["name"], { order: "name", limit: 200 });
+        } catch {
+            this.state.folders = [];
         }
     }
 
@@ -165,6 +174,9 @@ export class LibraryBanner extends Component {
             const form = new FormData();
             form.append("file", entry.file);
             form.append("category", this.state.category);
+            if (this.state.folderId) {
+                form.append("folder_id", this.state.folderId);
+            }
             form.append("tags", this.state.tags);
             form.append("csrf_token", odoo.csrf_token || "");
             const xhr = new XMLHttpRequest();

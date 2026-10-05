@@ -66,18 +66,74 @@ def fmt_bytes(num):
     return '%.2f GB' % (size / 1024 ** 3)
 
 
+class TutoringLibraryFolder(models.Model):
+    """知识库文件夹：每个人自己建的一层收纳格。
+
+    和 `category` 是两回事——分类回答"这是什么内容"（练习册教材由委托继承写死成
+    workbook），文件夹回答"这个人把它放哪儿"，所以只对本人生效、可以自建。
+    删除文件夹不动文件：条目上的 `ondelete='set null'` 让它们退回未分类。
+    """
+    _name = 'tutoring.library.folder'
+    _description = '知识库文件夹'
+    _order = 'name, id'
+
+    name = fields.Char('文件夹', required=True, index=True)
+    user_id = fields.Many2one(
+        'res.users', string='所属用户', required=True, index=True,
+        default=lambda self: self.env.user, ondelete='cascade')
+    item_ids = fields.One2many('tutoring.library.item', 'folder_id', string='条目')
+    item_count = fields.Integer('文件数', compute='_compute_item_count')
+    size_text = fields.Char('占用', compute='_compute_size_text')
+
+    _name_uniq = models.Constraint(
+        'unique(name, user_id)', _('这个文件夹已经存在了，换个名字。'))
+
+    @api.depends('item_ids')
+    def _compute_item_count(self):
+        # 一次 read_group 拿完整份计数，别按记录 search_count（一列文件夹就是一条 SQL）
+        counts = {
+            folder.id: count
+            for folder, count in self.env['tutoring.library.item']._read_group(
+                [('folder_id', 'in', self.ids)], ['folder_id'], ['__count'])
+        }
+        for folder in self:
+            folder.item_count = counts.get(folder.id, 0)
+
+    @api.depends('item_ids.file_size')
+    def _compute_size_text(self):
+        sizes = {
+            folder.id: total or 0
+            for folder, _count, total in self.env['tutoring.library.item']._read_group(
+                [('folder_id', 'in', self.ids)],
+                ['folder_id'],
+                ['__count', 'file_size:sum'])
+        }
+        for folder in self:
+            folder.size_text = fmt_bytes(sizes.get(folder.id, 0))
+
+
 class TutoringLibraryTag(models.Model):
+    """标签也是各人的：`rule_library_tag_all` 的域已经是"仅本人"。
+
+    标签名本身就是"这个人在学什么"的信息，共享字典会让别人在补全列表里看到，
+    所以和条目一样按用户隔离；`tags_from_names()` 的 search 天然只命中本人。
+    （xmlid 留着 tag_all 这个名字是有原因的，见 tutoring_security.xml 里那条注释）
+    """
     _name = 'tutoring.library.tag'
     _description = '知识库标签'
     _order = 'name'
 
     name = fields.Char('标签', required=True, index=True)
+    user_id = fields.Many2one(
+        'res.users', string='所属用户', required=True, index=True,
+        default=lambda self: self.env.user, ondelete='cascade')
     color = fields.Integer('颜色序号', help='0~11，用于卡片上的标签底色')
     item_ids = fields.Many2many(
         'tutoring.library.item', 'tutoring_library_item_tag_rel',
         'tag_id', 'item_id', string='条目')
 
-    _name_uniq = models.Constraint('unique(name)', _('已经有同名的标签了。'))
+    _name_uniq = models.Constraint(
+        'unique(name, user_id)', _('你已经有一个同名标签了。'))
 
 
 class TutoringLibraryItem(models.Model):
@@ -110,6 +166,10 @@ class TutoringLibraryItem(models.Model):
     category = fields.Selection(
         CATEGORY_SELECTION, string='分类', required=True, default='other',
         index=True, help='练习册只是其中一个分类，内容类型本身不受限制')
+    folder_id = fields.Many2one(
+        'tutoring.library.folder', string='文件夹', index=True, ondelete='set null',
+        help='自己建的收纳格；留空就是未分类，删掉文件夹只会把文件退回未分类。'
+             '下拉里只会出现本人的文件夹——那条记录规则管着，不用在这里写域')
     tag_ids = fields.Many2many(
         'tutoring.library.tag', 'tutoring_library_item_tag_rel',
         'item_id', 'tag_id', string='标签')
@@ -159,11 +219,15 @@ class TutoringLibraryItem(models.Model):
             books = item.workbook_file_ids.workbook_id
             item.from_workbook = ' · '.join(books.mapped('name')) if books else ''
 
-    @api.depends('kind', 'filename')
+    @api.depends('kind', 'filename', 'file_size')
     def _compute_preview_html(self):
-        """预览区按类型拼：PDF/图片直接内嵌，其余给一个下载链接。"""
+        """预览区按类型拼：PDF/图片直接内嵌，其余给一个下载链接。
+
+        判"有没有正文"要看 file_size（已存库的算字段），不能读 content——
+        读一次就把整本 PDF 的字节拉进内存，而预览本来就是靠那条 raw 路由串流的。
+        """
         for item in self:
-            if not item.id or not item.content:
+            if not item.id or not item.file_size:
                 item.preview_html = ''
                 continue
             url = '/tutoring/library/%s/raw' % item.id

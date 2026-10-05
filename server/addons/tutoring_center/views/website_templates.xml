@@ -17,12 +17,24 @@
             <field name="sequence" type="int">25</field>
         </record>
 
-        <!-- 网站导航"函数图像"入口（顶栏：首页 → 学习平台 → 错题 → 函数图像） -->
+        <!-- 网站导航"函数图像"入口（顶栏：首页 → 学习平台 → 错题 → 函数图像 → 知识库） -->
         <record id="menu_website_function_plot" model="website.menu">
             <field name="name">函数图像</field>
             <field name="url">/tools/function-plot</field>
             <field name="parent_id" ref="website.main_menu"/>
             <field name="sequence" type="int">30</field>
+        </record>
+
+        <!-- 网站导航"知识库"入口。group_ids 是这条记录的关键：核心有条全局规则
+             "Website menu: group_ids"（website/security/website_security.xml），
+             菜单渲染前就按访问者所在组过滤掉了，匿名访客根本看不到这一项。
+             知识库是每个人自己的空间，给访客一个点开就跳登录的入口没意义。 -->
+        <record id="menu_website_library" model="website.menu">
+            <field name="name">知识库</field>
+            <field name="url">/my/library</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence" type="int">35</field>
+            <field name="group_ids" eval="[(4, ref('base.group_user')), (4, ref('base.group_portal'))]"/>
         </record>
 
         <!-- 首页：平台门面（不出现 ERP/CRM 入口） -->

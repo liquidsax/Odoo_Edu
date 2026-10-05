@@ -32,6 +32,14 @@
                         <input type="file" multiple="1" class="d-none" t-ref="fileInput"
                                t-on-change="onPick"/>
                         <select class="form-select form-select-sm o_library_select"
+                                t-att-value="state.folderId" title="这些文件放进哪个文件夹"
+                                t-on-change="(ev) => this.state.folderId = ev.target.value">
+                            <option value="">未分类</option>
+                            <t t-foreach="state.folders" t-as="folder" t-key="folder.id">
+                                <option t-att-value="folder.id" t-out="folder.name"/>
+                            </t>
+                        </select>
+                        <select class="form-select form-select-sm o_library_select"
                                 t-att-value="state.category" title="这些文件存到哪个分类"
                                 t-on-change="(ev) => this.state.category = ev.target.value">
                             <t t-foreach="categories" t-as="cat" t-key="cat[0]">

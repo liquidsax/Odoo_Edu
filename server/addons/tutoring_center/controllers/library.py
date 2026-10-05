@@ -31,6 +31,7 @@ class TutoringLibraryController(http.Controller):
         category = kw.get('category') or 'other'
         if category not in dict(model._fields['category'].selection):
             category = 'other'
+        folder = self._own_folder(kw.get('folder_id'))
 
         uploaded, failed = [], []
         for upload in files:
@@ -42,6 +43,7 @@ class TutoringLibraryController(http.Controller):
                     'filename': filename,
                     'content': base64.b64encode(raw).decode(),
                     'category': category,
+                    'folder_id': folder.id if folder else False,
                     'tag_ids': model.tags_from_names(kw.get('tags')),
                 })
                 # 逐个提交：下一个文件失败要回滚时，不能把已成功的也带走
@@ -107,6 +109,19 @@ class TutoringLibraryController(http.Controller):
 
     def _clean_name(self, filename):
         return SAFE_FILENAME.sub('_', (filename or '').strip()) or '未命名文件'
+
+    def _own_folder(self, folder_id):
+        """把上传时带的 folder_id 收敛成"本人的那一个"。
+
+        必须走 search 而不是 browse().exists()：只有 search 会拼上记录规则，
+        别人文件夹的 id 到这儿就是搜不到，等价于没填。
+        """
+        try:
+            fid = int(folder_id)
+        except (TypeError, ValueError):
+            return None
+        return request.env['tutoring.library.folder'].search(
+            [('id', '=', fid)], limit=1)
 
     def _title_of(self, filename, title):
         """没填标题就用文件名去掉扩展名。"""
