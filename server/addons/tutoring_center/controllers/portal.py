@@ -4,7 +4,7 @@ from urllib.parse import quote, urlencode
 
 from odoo import _, fields, http
 from odoo.exceptions import UserError
-from odoo.fields import Date, Datetime
+from odoo.fields import Date
 from odoo.http import request
 
 from odoo.addons.portal.controllers.portal import CustomerPortal
@@ -22,8 +22,12 @@ class TutoringPortal(CustomerPortal):
             [('partner_id', '=', request.env.user.partner_id.id)], limit=1)
 
     def home(self, **kw):
-        """已绑定学生档案的门户用户，访问 /my 直接进入学习页。"""
-        if self._tutoring_student():
+        """已绑定学习档案的**门户用户**，访问 /my 直接进入学习页。
+
+        内部用户（老师）现在也有一条"我自己"的档案，但他不该因此被丢到自己的
+        空看板上去——他要的是那张卡片页（错题 / 教材 / 知识库都在里面）。
+        """
+        if self._tutoring_student() and not request.env.user._is_internal():
             return request.redirect('/my/learning')
         return super().home(**kw)
 
@@ -35,9 +39,12 @@ class TutoringPortal(CustomerPortal):
                 request.env['tutoring.session'].search_count([('student_id', '=', student.id)])
                 if student and request.env['tutoring.session'].has_access('read') else 0)
         if 'tutoring_mistake_count' in counters:
+            # 不按"当前账号绑定的学生"算：老师/维护者自己没有学生档案，那样永远是 0，
+            # 而核心的 portal_docs_entry 见计数 0 就把卡片 d-none 掉——错题入口会整体消失。
+            # search_count([]) 配合记录规则正好等于"我能读到多少条错题"。
             values['tutoring_mistake_count'] = (
-                request.env['tutoring.mistake'].search_count([('student_id', '=', student.id)])
-                if student and request.env['tutoring.mistake'].has_access('read') else 0)
+                request.env['tutoring.mistake'].search_count([])
+                if request.env['tutoring.mistake'].has_access('read') else 0)
         if 'tutoring_workbook_count' in counters:
             values['tutoring_workbook_count'] = (
                 len(self._tutoring_workbooks(student))
@@ -388,6 +395,7 @@ class TutoringPortal(CustomerPortal):
                 return False
         return {
             'workbook_id': _to_int(post.get('workbook_id')),
+            'student_id': _to_int(post.get('student_id')),
             'page': post.get('page') or '',
             'question_no': post.get('question_no') or '',
             'topic_id': _to_int(post.get('topic_id')),
@@ -428,7 +436,7 @@ class TutoringPortal(CustomerPortal):
             'workbooks': request.env['tutoring.workbook'].search([]),
             'topics': request.env['tutoring.topic'].search([]),
             'causes': request.env['tutoring.mistake.cause'].search([]),
-            'point_groups': self._mistake_point_groups(student),
+            'point_groups': self._mistake_point_groups(student) if student else [],
             'difficulties': Mistake._fields['difficulty'].selection,
         }
 
@@ -462,18 +470,46 @@ class TutoringPortal(CustomerPortal):
 
     @http.route('/my/mistakes', type='http', auth='user', website=True)
     def portal_my_mistakes(self, **kwargs):
-        """顶栏「错题」独立页：速记条 + 带计数的筛选药丸 + 卡片列表。"""
-        student = self._tutoring_student()
-        if not student:
-            return request.redirect('/my')
-        return request.render(
-            'tutoring_center.portal_my_mistakes', self._mistake_page_values(student, kwargs))
+        """顶栏「错题」独立页：速记条 + 带计数的筛选药丸 + 卡片列表。
 
-    def _mistake_page_values(self, student, kwargs=None, form=None, error=None):
+        老师/维护者看的是"哪个学生的错题"可切换的页面（`?scope=`），
+        学生账号只有一份可读档案，切换器对他自然只剩自己，不必特判。
+        """
+        return request.render(
+            'tutoring_center.portal_my_mistakes', self._mistake_page_values(kwargs))
+
+    def _mistake_scope(self, kwargs):
+        """解析 `?scope=` → (列表用的域, 当前档案, 范围键, 可切换的档案列表)。
+
+        `mine`＝自己那份档案（老师是"我自己"，学生是他的学生档案），
+        `all`＝当前账号能读到的全部，数字＝某个学生。
+        能选到谁由 `tutoring.student` 的记录规则说话：门户只有一份，教师全都有。
+        """
+        Student = request.env['tutoring.student']
+        own = self._tutoring_student()
+        readable = Student.search([])
+        raw = (kwargs.get('scope') or '').strip()
+        if raw.isdigit():
+            picked = readable.filtered(lambda s: s.id == int(raw))[:1]
+            if picked:
+                return ([('student_id', '=', picked.id)], picked,
+                        str(picked.id), readable)
+            raw = ''
+        if not raw:
+            raw = 'mine' if own else 'all'
+        if raw == 'mine' and own:
+            return [('student_id', '=', own.id)], own, 'mine', readable
+        # 没有本人档案（迁移会给每个老师补一条，这里是兜底）：退回"全部可读"，
+        # 别把页面卡在一个空范围上
+        return [], Student.browse(), 'all', readable
+
+    def _mistake_page_values(self, kwargs=None, form=None, error=None):
         """/my/mistakes 取数：域内分页 + 白名单排序；速记条校验失败时带 form/error 复用同一页。"""
         kwargs = kwargs or {}
         Mistake = request.env['tutoring.mistake']
-        base_domain = [('student_id', '=', student.id)]
+        base_domain, student, scope_key, readable = self._mistake_scope(kwargs)
+        # 速记条默认记到谁：当前范围选中的档案 > 自己的档案 > 第一个能读的档案
+        form_student = student or self._tutoring_student() or readable[:1]
         today = fields.Date.context_today(request.env.user)
         month_start = today.replace(day=1)
 
@@ -503,7 +539,8 @@ class TutoringPortal(CustomerPortal):
                 drilldowns.append({'field': field, 'label': label,
                                    'value': rec.name, 'id': rec.id})
 
-        url_args = {'sortby': sortby, 'filterby': filterby, 'limit': page_size}
+        url_args = {'sortby': sortby, 'filterby': filterby, 'limit': page_size,
+                    'scope': scope_key}
         if groupby:
             url_args['groupby'] = groupby
         if term:
@@ -537,7 +574,11 @@ class TutoringPortal(CustomerPortal):
             created_count = 0
         return {
             'page_name': 'tutoring_mistakes',
-            'student': student,
+            'student': form_student,
+            'scope_key': scope_key,
+            'scope_students': readable,
+            # 「我自己」那颗药丸是单独画的那颗（scope=mine），循环里再出现一次就成了两颗
+            'other_students': readable - self._tutoring_student(),
             'mistakes': records,
             'result_total': total,
             'groups': groups,
@@ -560,7 +601,10 @@ class TutoringPortal(CustomerPortal):
             'difficulties': list(Mistake._fields['difficulty'].selection),
             'filter_counts': self._mistake_filter_counts(base_domain, month_start),
             'drilldowns': drilldowns,
-            'can_create': Mistake.has_access('create'),
+            # 速记条要往某个档案下写，所以"有可读档案"才给建（老师现在有自己的那份）
+            'can_create': bool(readable) and Mistake.has_access('create'),
+            # 跨档案浏览（scope=all）时卡片上要带档案名，否则分不清是谁的错题
+            'show_student': scope_key == 'all',
             'default_workbook': last_mistake.workbook_id if last_mistake else False,
             'default_date': today.strftime('%Y-%m-%d'),
             'created_count': created_count,
@@ -569,7 +613,7 @@ class TutoringPortal(CustomerPortal):
             'workbooks': request.env['tutoring.workbook'].search([]),
             'topics': request.env['tutoring.topic'].search([]),
             'causes': request.env['tutoring.mistake.cause'].search([]),
-            'point_groups': self._mistake_point_groups(student),
+            'point_groups': self._mistake_point_groups(form_student) if form_student else [],
         }
 
     @http.route('/my/learning/mistakes', type='http', auth='user', website=True)
@@ -590,8 +634,45 @@ class TutoringPortal(CustomerPortal):
             'mistake': mistake,
             'difficulty_labels': dict(request.env['tutoring.mistake']._fields['difficulty'].selection),
             'can_edit': mistake.has_access('write'),
+            # 错题的固有属性之一：题目照片/说明就挂在知识库上，这一页要能看能加
+            'library_items': mistake.library_item_ids.sorted('upload_date desc'),
+            'quota': request.env['tutoring.library.item'].quota_state(),
             'just_saved': bool(kwargs.get('created') or kwargs.get('saved')),
+            'just_attached': bool(kwargs.get('attached')),
         })
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>/attach', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_mistake_attach(self, mistake_id, **kw):
+        """给这道错题传一张题目照片/说明文件：落进知识库，分类固定错题，绑回本条。
+
+        错题本身还是记在 tutoring.mistake 里，这里只是把"题目长什么样"当附件收进来；
+        条目归属当前账号（学生传的就归学生），所以别人在知识库里看不到。
+        """
+        mistake = request.env['tutoring.mistake'].search([('id', '=', mistake_id)], limit=1)
+        if not mistake:
+            return request.not_found()
+        model = request.env['tutoring.library.item']
+        uploads = request.httprequest.files.getlist('file')[:5]
+        attached, errors = 0, []
+        for upload in uploads:
+            filename = upload.filename or ''
+            try:
+                model.create({
+                    'name': (kw.get('title') or '').strip() or filename.rpartition('.')[0] or _('错题照片'),
+                    'filename': filename,
+                    'content': base64.b64encode(upload.read()).decode(),
+                    'category': 'mistake',
+                    'mistake_id': mistake.id,
+                    'tag_ids': model.tags_from_names(kw.get('tags')),
+                })
+                request.env.cr.commit()
+                attached += 1
+            except UserError as err:
+                request.env.cr.rollback()
+                errors.append(str(err))
+        query = ['attached=%s' % attached if attached else 'error=%s' % quote(' '.join(errors)[:200])]
+        return request.redirect('/my/learning/mistakes/%d?%s' % (mistake.id, query[0]))
 
     @http.route('/my/learning/mistakes/<int:mistake_id>/note', type='http', auth='user',
                 website=True, methods=['POST'])
@@ -603,13 +684,32 @@ class TutoringPortal(CustomerPortal):
         mistake.write({'note': (kw.get('note') or '').strip() or False})
         return request.redirect('/my/learning/mistakes/%d?saved=1' % mistake.id)
 
+    def _mistake_target_student(self, kw):
+        """速记条/编辑条要写到的那份档案：优先用表单选的，其次自己的，再其次第一个可读的。
+
+        选的 id 必须过 `search`（记录规则会把别人家的档案滤掉），不能信前端传来的数字。
+        """
+        Student = request.env['tutoring.student']
+        picked = Student.browse()
+        raw = (kw.get('student_id') or '').strip() if isinstance(kw.get('student_id'), str) \
+            else kw.get('student_id')
+        if str(raw or '').isdigit():
+            picked = Student.search([('id', '=', int(raw))], limit=1)
+        return picked or self._tutoring_student() or Student.search([], limit=1)
+
     @http.route('/my/learning/mistakes/new', type='http', auth='user', website=True,
                 methods=['GET', 'POST'])
     def portal_my_mistake_new(self, **kw):
-        """记错题入口：GET 直接进顶栏错题页的速记条；POST 支持题号 1-5 拆多条。"""
-        student = self._tutoring_student()
+        """记错题入口：GET 直接进顶栏错题页的速记条；POST 支持题号 1-5 拆多条。
+
+        老师也能记自己的题——他有一份"我自己"的档案，速记条上的"记到谁"下拉
+        默认就落在那份上，也可以选别的学生。
+        """
+        student = self._mistake_target_student(kw)
         if not student:
-            return request.redirect('/my')
+            values = self._mistake_page_values(
+                kw, error=_('还没有可记录的学习档案，请先在后台建一条。'))
+            return request.render('tutoring_center.portal_my_mistakes', values)
         if not request.env['tutoring.mistake'].has_access('create'):
             return request.not_found()
         if request.httprequest.method != 'POST':
@@ -618,7 +718,7 @@ class TutoringPortal(CustomerPortal):
         if not vals['workbook_id']:
             # 带着已填的值回到速记条，不让用户重打一遍
             values = self._mistake_page_values(
-                student, kw, form=self._mistake_form_from_post(kw), error=_('请先选择练习册。'))
+                kw, form=self._mistake_form_from_post(kw), error=_('请先选择练习册。'))
             return request.render('tutoring_center.portal_my_mistakes', values)
         Mistake = request.env['tutoring.mistake']
         mistakes = Mistake.create([
@@ -631,12 +731,12 @@ class TutoringPortal(CustomerPortal):
     @http.route('/my/learning/mistakes/<int:mistake_id>/edit', type='http', auth='user',
                 website=True, methods=['GET', 'POST'])
     def portal_my_mistake_edit(self, mistake_id, **kw):
-        student = self._tutoring_student()
-        if not student:
-            return request.redirect('/my')
         mistake = request.env['tutoring.mistake'].browse(mistake_id).exists()
         if not mistake or not mistake.has_access('write'):
             return request.not_found()
+        # 年级知识点域、默认练习册这些都跟着这条记录自己的档案走，
+        # 不是跟着"当前登录的人是谁"——老师替学生改题时尤其明显
+        student = mistake.student_id
         error = {}
         if request.httprequest.method == 'POST':
             vals = self._mistake_vals_from_post(student, kw)
@@ -697,58 +797,161 @@ class TutoringPortal(CustomerPortal):
     # 知识库：每个人自己的内容空间，与后台共用同一套模型和容量配额
     # ------------------------------------------------------------
 
-    def _library_searchbar_filters(self):
-        categories = dict(
+    LIBRARY_PAGE_SIZES = (10, 20, 50)
+
+    def _library_categories(self):
+        return dict(
             request.env['tutoring.library.item']._fields['category'].selection)
+
+    def _library_sortings(self):
+        """排序走数据库 order：这个页面是分页的，不能整表捞进内存再排。"""
+        return {
+            'date': {'label': _('最新上传'), 'order': 'upload_date desc, id desc'},
+            'name': {'label': _('按名称'), 'order': 'name asc, id desc'},
+            'size': {'label': _('按大小'), 'order': 'file_size desc, id desc'},
+        }
+
+    def _library_folder(self, folder_param):
+        """folder 查询参数 → (追加域, 文件夹记录, 归一化后的键)。
+
+        只认本人搜得到的文件夹：`search` 会拼记录规则，别人文件夹的 id 到这儿
+        等价于没填——不给越权留缝。`all`/空＝不限，`none`＝未分类。
+        """
+        if not folder_param or folder_param == 'all':
+            return [], None, 'all'
+        if folder_param == 'none':
+            return [('folder_id', '=', False)], None, 'none'
+        try:
+            folder_id = int(folder_param)
+        except (TypeError, ValueError):
+            return [], None, 'all'
+        folder = request.env['tutoring.library.folder'].search(
+            [('id', '=', folder_id)], limit=1)
+        if not folder:
+            return [], None, 'all'
+        return [('folder_id', '=', folder.id)], folder, str(folder.id)
+
+    def _library_folder_entries(self, base_domain, folder_key):
+        """左侧文件夹栏：全部 / 各文件夹 / 未分类，计数一次 read_group 全拿。
+
+        域用 base_domain（不含当前文件夹）：这样在某个文件夹里也看得见别的
+        文件夹还有多少文件，切过去不用先退出来。
+        """
+        Item = request.env['tutoring.library.item']
+        counts, unfiled = {}, 0
+        for folder, count in Item._read_group(base_domain, ['folder_id'], ['__count']):
+            if folder:
+                counts[folder.id] = count
+            else:
+                unfiled = count
+        entries = [{
+            'key': 'all', 'label': _('全部文件'), 'icon': 'th-large',
+            'count': sum(counts.values()) + unfiled,
+        }]
+        for folder in request.env['tutoring.library.folder'].search([]):
+            entries.append({
+                'key': str(folder.id), 'label': folder.name, 'icon': 'folder',
+                'count': counts.get(folder.id, 0),
+            })
+        entries.append({
+            'key': 'none', 'label': _('未分类'), 'icon': 'folder-open-o',
+            'count': unfiled,
+        })
+        for entry in entries:
+            entry['active'] = entry['key'] == folder_key
+        return entries
+
+    def _library_searchbar_filters(self):
         return dict(
             [('all', {'label': _('全部'), 'domain': []})] +
             [(key, {'label': label, 'domain': [('category', '=', key)]})
-             for key, label in categories.items()])
+             for key, label in self._library_categories().items()])
 
     @http.route('/my/library', type='http', auth='user', website=True)
-    def portal_my_library(self, sortby=None, filterby=None, search=None, page=1, **kwargs):
-        model = request.env['tutoring.library.item']
+    def portal_my_library(self, sortby=None, filterby=None, search=None, folder=None,
+                          page=1, limit=None, **kwargs):
+        Item = request.env['tutoring.library.item']
+        base_domain = [('user_id', '=', request.env.user.id)]
+        folder_domain, active_folder, folder_key = self._library_folder(folder)
+        scope_domain = base_domain + folder_domain
+
         searchbar_filters = self._library_searchbar_filters()
         if filterby not in searchbar_filters:
             filterby = 'all'
-        domain = [('user_id', '=', request.env.user.id)] + searchbar_filters[filterby]['domain']
+        domain = scope_domain + searchbar_filters[filterby]['domain']
+        search_domain = []
         if search:
-            domain += ['|', '|', ('name', 'ilike', search),
-                       ('filename', 'ilike', search), ('tag_ids.name', 'ilike', search)]
-        values = self._tutoring_list_values(
-            model.search(domain), sortby, page,
-            sortings={
-                'date': {
-                    'label': _('最新上传'),
-                    'key': lambda r: (r.upload_date or Datetime.MIN, r.id), 'reverse': True,
-                },
-                'name': {
-                    'label': _('按名称'),
-                    'key': lambda r: (r.name or '', r.id), 'reverse': False,
-                },
-                'size': {
-                    'label': _('按大小'),
-                    'key': lambda r: (r.file_size or 0, r.id), 'reverse': True,
-                },
-            },
-            url='/my/library', filterby=filterby, searchbar_filters=searchbar_filters)
-        values.update({
+            search_domain = ['|', '|', ('name', 'ilike', search),
+                             ('filename', 'ilike', search), ('tag_ids.name', 'ilike', search)]
+            domain += search_domain
+
+        sortings = self._library_sortings()
+        if sortby not in sortings:
+            sortby = 'date'
+        try:
+            page_size = int(limit)
+        except (TypeError, ValueError):
+            page_size = self.LIBRARY_PAGE_SIZES[0]
+        if page_size not in self.LIBRARY_PAGE_SIZES:
+            page_size = self.LIBRARY_PAGE_SIZES[0]
+        try:
+            page = max(int(page), 1)
+        except (TypeError, ValueError):
+            page = 1
+
+        total = Item.search_count(domain)
+        items = Item.search(
+            domain, order=sortings[sortby]['order'],
+            limit=page_size, offset=(page - 1) * page_size)
+
+        # 分类药丸上的计数：在当前文件夹 + 搜索词下按分类一次 read_group
+        filter_counts = {}
+        for key, count in Item._read_group(scope_domain + search_domain, ['category'], ['__count']):
+            filter_counts[key] = count
+        filter_counts['all'] = sum(filter_counts.values())
+
+        url_args = {
+            'sortby': sortby, 'filterby': filterby,
+            'folder': folder_key, 'limit': page_size,
+        }
+        if search:
+            url_args['search'] = search
+        values = {
             'page_name': 'library',
-            'items': values.pop('records'),
-            'quota': model.quota_state(),
+            'items': items,
+            'total': total,
+            'quota': Item.quota_state(),
+            'categories': self._library_categories(),
             'search': search or '',
-            'categories': dict(model._fields['category'].selection),
-        })
+            'sortby': sortby,
+            'searchbar_sortings': sortings,
+            'filterby': filterby,
+            'searchbar_filters': searchbar_filters,
+            'filter_counts': filter_counts,
+            'page_size': page_size,
+            'page_sizes': self.LIBRARY_PAGE_SIZES,
+            'folder_entries': self._library_folder_entries(base_domain, folder_key),
+            'active_folder': active_folder,
+            'folder_key': folder_key,
+            'url_args': url_args,
+            'pager': portal_pager(
+                url='/my/library', url_args=url_args,
+                total=total, page=page, step=page_size),
+        }
         return request.render('tutoring_center.portal_my_library', values)
 
     @http.route('/my/library/upload', type='http', auth='user', methods=['POST'],
                 website=True, csrf=True)
     def portal_my_library_upload(self, **kw):
-        """门户上传：走 multipart，与后台同一个模型、同一份配额。"""
+        """门户上传的无 JS 退路：拖拽那条走 /tutoring/library/upload 的 JSON 接口。
+
+        两条路写的是同一个模型、同一份配额，参数也对齐（category/folder/tags）。
+        """
         model = request.env['tutoring.library.item']
         category = kw.get('category') or 'other'
-        if category not in dict(model._fields['category'].selection):
+        if category not in self._library_categories():
             category = 'other'
+        _domain, folder, folder_key = self._library_folder(kw.get('folder'))
         uploaded, errors = 0, []
         for upload in request.httprequest.files.getlist('file')[:10]:
             filename = upload.filename or ''
@@ -758,6 +961,7 @@ class TutoringPortal(CustomerPortal):
                     'filename': filename,
                     'content': base64.b64encode(upload.read()).decode(),
                     'category': category,
+                    'folder_id': folder.id if folder else False,
                     'tag_ids': model.tags_from_names(kw.get('tags')),
                 })
                 # 逐个提交：下一个失败要回滚时不能把已成功的带走
@@ -766,12 +970,56 @@ class TutoringPortal(CustomerPortal):
             except UserError as err:
                 request.env.cr.rollback()
                 errors.append('%s：%s' % (filename, err))
-        query = []
+        params = ['folder=%s' % folder_key]
         if uploaded:
-            query.append('uploaded=%s' % uploaded)
+            params.append('uploaded=%s' % uploaded)
         if errors:
-            query.append('error=%s' % quote(' '.join(errors)[:200]))
-        return request.redirect('/my/library%s' % ('?' + '&'.join(query) if query else ''))
+            params.append('error=%s' % quote(' '.join(errors)[:200]))
+        return request.redirect('/my/library?' + '&'.join(params))
+
+    # ---- 文件夹：新建 / 改名 / 删除（都只动本人可见的那一个） ----
+
+    @http.route('/my/library/folder', type='http', auth='user', methods=['POST'],
+                website=True, csrf=True)
+    def portal_my_library_folder_new(self, **kw):
+        name = (kw.get('name') or '').strip()[:80]
+        if not name:
+            return request.redirect('/my/library?error=%s' % quote(_('文件夹名字没填。')))
+        Folder = request.env['tutoring.library.folder']
+        # 判重按约束同一条域来查（规则已经把范围收成本人的了）
+        if Folder.search_count([('name', '=', name)]):
+            return request.redirect(
+                '/my/library?error=%s' % quote(_('已经有同名文件夹了，换个名字。')))
+        folder = Folder.create({'name': name})
+        return request.redirect('/my/library?folder=%s' % folder.id)
+
+    @http.route('/my/library/folder/<int:folder_id>/rename', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_library_folder_rename(self, folder_id, **kw):
+        folder = request.env['tutoring.library.folder'].search(
+            [('id', '=', folder_id)], limit=1)
+        name = (kw.get('name') or '').strip()[:80]
+        if not folder or not name:
+            return request.redirect('/my/library')
+        if folder.name == name:
+            return request.redirect('/my/library?folder=%s' % folder.id)
+        if request.env['tutoring.library.folder'].search_count(
+                [('name', '=', name), ('id', '!=', folder.id)]):
+            return request.redirect(
+                '/my/library?folder=%s&error=%s'
+                % (folder.id, quote(_('已经有同名文件夹了，换个名字。'))))
+        folder.write({'name': name})
+        return request.redirect('/my/library?folder=%s' % folder.id)
+
+    @http.route('/my/library/folder/<int:folder_id>/delete', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_library_folder_delete(self, folder_id, **kw):
+        folder = request.env['tutoring.library.folder'].search(
+            [('id', '=', folder_id)], limit=1)
+        if folder:
+            # 条目上的 ondelete='set null' 会把里面的文件留在"未分类"，不动正文
+            folder.unlink()
+        return request.redirect('/my/library')
 
     @http.route('/my/library/<int:item_id>', type='http', auth='user', website=True)
     def portal_my_library_item(self, item_id, **kwargs):
@@ -782,29 +1030,57 @@ class TutoringPortal(CustomerPortal):
             'page_name': 'library',
             'item': item,
             'categories': dict(item._fields['category'].selection),
+            'folders': request.env['tutoring.library.folder'].search([]),
         })
 
     @http.route('/my/library/<int:item_id>/edit', type='http', auth='user', methods=['POST'],
                 website=True, csrf=True)
     def portal_my_library_item_edit(self, item_id, **kw):
-        item = request.env['tutoring.library.item'].browse(item_id).exists()
-        if not item or item.user_id != request.env.user:
+        # 走 search 而不是 browse：规则会直接把别人那条过滤成"不存在"，
+        # 用 browse 再读 user_id 判归属，越权请求是先炸 500 再被规则拦住
+        item = request.env['tutoring.library.item'].search(
+            [('id', '=', item_id)], limit=1)
+        if not item:
             return request.not_found()
         category = kw.get('category') or item.category
-        if category not in dict(item._fields['category'].selection):
+        if category not in self._library_categories():
             category = item.category
+        _domain, folder, _key = self._library_folder(kw.get('folder'))
         item.write({
             'name': (kw.get('name') or '').strip() or item.name,
             'category': category,
-            'tag_ids': model.tags_from_names(kw.get('tags')),
+            'folder_id': folder.id if folder else False,
+            'tag_ids': request.env['tutoring.library.item'].tags_from_names(kw.get('tags')),
         })
         return request.redirect('/my/library/%s' % item.id)
+
+    @http.route('/my/library/<int:item_id>/save', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_library_item_save(self, item_id, **kw):
+        """就地改正文。
+
+        只有 `editable` 的条目走得通——超限的二进制文件在模型那边就被判成不可编，
+        页面不给按钮，这里再挡一次（免得有人直接 POST）。
+        配额由条目的 write() 按增量重算，超了会抛 UserError，转成一句人话回去。
+        """
+        item = request.env['tutoring.library.item'].search([('id', '=', item_id)], limit=1)
+        if not item:
+            return request.not_found()
+        if not item.editable:
+            return request.redirect('/my/library/%s?error=%s' % (
+                item.id, quote(item.read_note or _('这种文件不能在网页里编辑。'))))
+        try:
+            item.write({'text_body': kw.get('body') or ''})
+        except UserError as err:
+            return request.redirect('/my/library/%s?error=%s' % (
+                item.id, quote(str(err)[:200])))
+        return request.redirect('/my/library/%s?saved=1' % item.id)
 
     @http.route('/my/library/<int:item_id>/delete', type='http', auth='user', methods=['POST'],
                 website=True, csrf=True)
     def portal_my_library_item_delete(self, item_id, **kw):
-        item = request.env['tutoring.library.item'].browse(item_id).exists()
-        if item and item.user_id == request.env.user and item.has_access('unlink'):
+        item = request.env['tutoring.library.item'].search([('id', '=', item_id)], limit=1)
+        if item:
             item.unlink()
         return request.redirect('/my/library')
 

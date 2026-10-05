@@ -14,15 +14,21 @@
                            filter_domain="['|', '|', ('name', 'ilike', self),
                                            ('filename', 'ilike', self),
                                            ('tag_ids.name', 'ilike', self)]"/>
+                    <field name="folder_id"/>
                     <field name="tag_ids"/>
+                    <field name="mistake_id"/>
                     <separator/>
                     <filter string="练习册" name="cat_workbook" domain="[('category', '=', 'workbook')]"/>
+                    <filter string="错题" name="cat_mistake" domain="[('category', '=', 'mistake')]"/>
                     <filter string="LeetCode" name="cat_leetcode" domain="[('category', '=', 'leetcode')]"/>
                     <filter string="笔记" name="cat_note" domain="[('category', '=', 'note')]"/>
                     <filter string="资料文档" name="cat_doc" domain="[('category', '=', 'doc')]"/>
+                    <separator/>
+                    <filter string="未分类" name="unfiled" domain="[('folder_id', '=', False)]"/>
                     <filter string="我的" name="mine" domain="[('user_id', '=', uid)]"/>
                     <group>
                         <filter string="分类" name="group_category" context="{'group_by': 'category'}"/>
+                        <filter string="文件夹" name="group_folder" context="{'group_by': 'folder_id'}"/>
                         <filter string="标签" name="group_tag" context="{'group_by': 'tag_ids'}"/>
                     </group>
                 </search>
@@ -35,11 +41,13 @@
             <field name="arch" type="xml">
                 <list string="知识库" type="object" action="action_preview" create="false">
                     <field name="name" string="标题"/>
+                    <field name="folder_id" optional="show"/>
                     <field name="category" optional="show"/>
                     <field name="tag_ids" widget="many2many_tags" optional="show"/>
                     <field name="size_text" string="大小"/>
                     <field name="upload_date" string="上传时间" optional="show"/>
                     <field name="from_workbook" string="练习册" optional="hide"/>
+                    <field name="mistake_label" string="错题出处" optional="hide"/>
                     <field name="filename" optional="hide"/>
                 </list>
             </field>
@@ -58,16 +66,18 @@
                         default_group_by="category">
                     <field name="name"/>
                     <field name="category"/>
+                    <field name="folder_id"/>
                     <field name="tag_ids"/>
                     <field name="size_text"/>
                     <field name="upload_date"/>
                     <field name="from_workbook"/>
+                    <field name="mistake_label"/>
                     <field name="kind"/>
                     <templates>
                         <t t-name="card">
                             <div class="o_library_card">
                                 <div class="o_library_card_head">
-                                    <i t-attf-class="fa fa-{{ record.kind.raw_value == 'pdf' ? 'file-pdf-o' : (record.kind.raw_value == 'image' ? 'picture-o' : 'file-o') }} o_library_icon"/>
+                                    <i t-attf-class="fa fa-{{ record.kind.raw_value == 'pdf' ? 'file-pdf-o' : (record.kind.raw_value == 'image' ? 'picture-o' : (record.kind.raw_value == 'text' ? 'file-code-o' : (record.kind.raw_value == 'markdown' ? 'file-text-o' : 'file-o'))) }} o_library_icon"/>
                                     <b class="o_library_title"><t t-out="record.name.value"/></b>
                                 </div>
                                 <div class="o_library_meta text-muted">
@@ -76,6 +86,10 @@
                                 </div>
                                 <div t-if="record.from_workbook.value" class="o_library_meta text-muted">
                                     《<t t-out="record.from_workbook.value"/>》的教材
+                                </div>
+                                <div t-if="record.mistake_label.value" class="o_library_meta text-muted">
+                                    <i class="fa fa-exclamation-circle me-1"/>
+                                    <t t-out="record.mistake_label.value"/>
                                 </div>
                                 <div t-if="record.tag_ids.value" class="o_library_tags">
                                     <t t-foreach="record.tag_ids.value" t-as="tag" t-key="tag.id">
@@ -112,6 +126,8 @@
                         <group>
                             <group>
                                 <field name="category"/>
+                                <!-- 不给 no_create：直接在下拉里输一个新名字就能建文件夹 -->
+                                <field name="folder_id" placeholder="未分类"/>
                                 <field name="tag_ids" widget="many2many_tags"
                                        options="{'color_field': 'color', 'no_create': False}"
                                        placeholder="如 三角函数、期末复习"/>
@@ -122,14 +138,72 @@
                                 <field name="filename" readonly="1" invisible="not filename"/>
                                 <field name="from_workbook" readonly="1"
                                        invisible="not from_workbook"/>
+                                <field name="mistake_id" placeholder="（不关联）"
+                                       title="错题的照片或说明挂在哪一条错题上"/>
                             </group>
                         </group>
                         <div class="o_library_preview">
                             <field name="preview_html" readonly="1" nolabel="1"
                                    class="o_library_preview_field"/>
                         </div>
+                        <field name="editable" invisible="1"/>
+                        <div class="text-muted small mt-2" invisible="not read_note">
+                            <field name="read_note" nolabel="1"/>
+                        </div>
+                        <!-- 纯文本条目就地可改：写回 content 走模型自己的 write()，
+                             配额按增量重算；PDF/图片这类只给上面的预览 -->
+                        <group string="正文" col="1" invisible="not editable">
+                            <field name="text_body" nolabel="1" placeholder="直接改正文，改完点保存…"/>
+                        </group>
                     </sheet>
                 </form>
+            </field>
+        </record>
+
+        <!-- ===== 知识库文件夹（每人自己的一层收纳格） ===== -->
+        <record id="view_tutoring_library_folder_list" model="ir.ui.view">
+            <field name="name">tutoring.library.folder.list</field>
+            <field name="model">tutoring.library.folder</field>
+            <field name="arch" type="xml">
+                <list string="知识库文件夹" editable="bottom">
+                    <field name="name" placeholder="如 五三·函数专题"/>
+                    <field name="item_count" string="文件数"/>
+                    <field name="size_text" string="占用"/>
+                    <field name="user_id" string="所属用户" optional="hide" readonly="1"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_tutoring_library_folder_form" model="ir.ui.view">
+            <field name="name">tutoring.library.folder.form</field>
+            <field name="model">tutoring.library.folder</field>
+            <field name="arch" type="xml">
+                <form string="知识库文件夹">
+                    <sheet>
+                        <div class="oe_title">
+                            <h1><field name="name" placeholder="文件夹名字"/></h1>
+                        </div>
+                        <group>
+                            <field name="item_count" string="里面的文件"/>
+                            <field name="size_text" string="占用"/>
+                            <field name="user_id" readonly="1"/>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="action_tutoring_library_folder" model="ir.actions.act_window">
+            <field name="name">知识库文件夹</field>
+            <field name="res_model">tutoring.library.folder</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">建一个文件夹</p>
+                <p>
+                    文件夹只对你自己可见：在知识库里点开某个文件、于「文件夹」下拉里
+                    直接打一个新名字就能顺手建一个；学生端在 /my/library 左侧也有「新建文件夹」。
+                </p>
+                <p>删掉文件夹不会删掉里面的文件，它们只是退回「未分类」。</p>
             </field>
         </record>
 
@@ -158,5 +232,8 @@
 
         <menuitem id="menu_tutoring_library" name="知识库" parent="menu_tutoring_root"
                   action="action_tutoring_library" sequence="35"/>
+        <menuitem id="menu_tutoring_library_folder" name="知识库文件夹"
+                  parent="menu_tutoring_root" action="action_tutoring_library_folder"
+                  sequence="36"/>
     </data>
 </odoo>

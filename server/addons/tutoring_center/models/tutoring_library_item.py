@@ -2,13 +2,18 @@ import base64
 import logging
 import re
 
+from markupsafe import escape
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+
+from .library_markdown import render_markdown
 
 _logger = logging.getLogger(__name__)
 
 CATEGORY_SELECTION = [
     ('workbook', '练习册 / 教辅'),
+    ('mistake', '错题'),
     ('leetcode', 'LeetCode'),
     ('note', '笔记'),
     ('doc', '资料文档'),
@@ -16,7 +21,35 @@ CATEGORY_SELECTION = [
 ]
 
 # 允许在网页里直接内嵌预览的类型；其余一律给下载链接
-IMAGE_EXTS = ('png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg')
+# **svg 故意不放进来**：SVG 是 XML，能内嵌脚本，同源内联回吐等于给自己种一个 XSS
+# （控制器那边也兜了一道，两头都拦住）
+IMAGE_EXTS = ('png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp')
+
+# 能在知识库里就地编辑的纯文本后缀。Markdown 单列出来，因为它的预览要渲染。
+MARKDOWN_EXTS = ('md', 'markdown', 'mdown')
+TEXT_EXTS = (
+    'txt', 'text', 'log', 'csv', 'tsv', 'json', 'jsonl', 'xml', 'html', 'htm',
+    'yaml', 'yml', 'toml', 'ini', 'conf', 'cfg', 'md', 'markdown', 'mdown',
+    'py', 'js', 'mjs', 'cjs', 'ts', 'jsx', 'tsx', 'json5',
+    'c', 'h', 'cpp', 'hpp', 'java', 'kt', 'go', 'rs', 'php', 'rb', 'pl', 'swift',
+    'sql', 'sh', 'bash', 'ps1', 'bat', 'css', 'scss',
+)
+# Prism 只带了自己那一份语法表，映射里没有的后缀就纯文本显示（不硬撑高亮）
+PRISM_LANGUAGES = {
+    'md': 'markdown', 'markdown': 'markdown', 'mdown': 'markdown',
+    'py': 'python',
+    'js': 'javascript', 'mjs': 'javascript', 'cjs': 'javascript',
+    'jsx': 'javascript',
+    'ts': 'typescript', 'tsx': 'typescript',
+    'json': 'json', 'jsonl': 'json', 'json5': 'json', 'webmanifest': 'json',
+    'xml': 'xml', 'svg': 'svg', 'html': 'markup', 'htm': 'markup',
+    'css': 'css', 'scss': 'scss', 'sql': 'sql', 'java': 'java',
+    'c': 'c', 'h': 'c', 'cpp': 'c', 'hpp': 'c', 'conf': 'ini', 'ini': 'ini',
+    'sh': 'bash', 'bash': 'bash',
+}
+# 就地编辑的体积闸值：超了就只读。textarea 塞几 MB 进去，浏览器和服务端都难看，
+# 而且这类文件本来也不是靠网页改的
+MAX_EDIT_BYTES = 512 * 1024
 MIMETYPES = {
     'pdf': 'application/pdf',
     'png': 'image/png',
@@ -48,6 +81,21 @@ def bytes_from_base64(value):
     return max(len(text) * 3 // 4 - padding, 0)
 
 
+def b64_to_bytes(value):
+    """Binary 字段 → 原始字节。ORM 交出来的形状有三种，都得接。
+
+    `memoryview` 是裸读 bytea 的结果（直接 str() 会变成 "<memory at 0x...>"
+    存回库里，真踩过），str 是 base64 文本本身，bytes 是常规路径。
+    """
+    if not value:
+        return b''
+    if isinstance(value, memoryview):
+        value = bytes(value)
+    if isinstance(value, str):
+        value = value.encode()
+    return base64.b64decode(value)
+
+
 def fmt_bytes(num):
     """1024 进位的易读体积；配额提示都走它，避免各处口径不一。
 
@@ -66,18 +114,105 @@ def fmt_bytes(num):
     return '%.2f GB' % (size / 1024 ** 3)
 
 
+class TutoringLibraryFolder(models.Model):
+    """知识库文件夹：每个人自己建的一层收纳格。
+
+    和 `category` 是两回事——分类回答"这是什么内容"（练习册教材由委托继承写死成
+    workbook），文件夹回答"这个人把它放哪儿"，所以只对本人生效、可以自建。
+    删除文件夹不动文件：条目上的 `ondelete='set null'` 让它们退回未分类。
+    """
+    _name = 'tutoring.library.folder'
+    _description = '知识库文件夹'
+    _order = 'name, id'
+
+    name = fields.Char('文件夹', required=True, index=True)
+    user_id = fields.Many2one(
+        'res.users', string='所属用户', required=True, index=True,
+        default=lambda self: self.env.user, ondelete='cascade')
+    item_ids = fields.One2many('tutoring.library.item', 'folder_id', string='条目')
+    item_count = fields.Integer('文件数', compute='_compute_item_count')
+    size_text = fields.Char('占用', compute='_compute_size_text')
+
+    _name_uniq = models.Constraint(
+        'unique(name, user_id)', _('这个文件夹已经存在了，换个名字。'))
+
+    @api.depends('item_ids')
+    def _compute_item_count(self):
+        # 一次 read_group 拿完整份计数，别按记录 search_count（一列文件夹就是一条 SQL）
+        counts = {
+            folder.id: count
+            for folder, count in self.env['tutoring.library.item']._read_group(
+                [('folder_id', 'in', self.ids)], ['folder_id'], ['__count'])
+        }
+        for folder in self:
+            folder.item_count = counts.get(folder.id, 0)
+
+    @api.depends('item_ids.file_size')
+    def _compute_size_text(self):
+        sizes = {
+            folder.id: total or 0
+            for folder, _count, total in self.env['tutoring.library.item']._read_group(
+                [('folder_id', 'in', self.ids)],
+                ['folder_id'],
+                ['__count', 'file_size:sum'])
+        }
+        for folder in self:
+            folder.size_text = fmt_bytes(sizes.get(folder.id, 0))
+
+
 class TutoringLibraryTag(models.Model):
+    """标签也是各人的：`rule_library_tag_all` 的域已经是"仅本人"。
+
+    标签名本身就是"这个人在学什么"的信息，共享字典会让别人在补全列表里看到，
+    所以和条目一样按用户隔离；`tags_from_names()` 的 search 天然只命中本人。
+    （xmlid 留着 tag_all 这个名字是有原因的，见 tutoring_security.xml 里那条注释）
+    """
     _name = 'tutoring.library.tag'
     _description = '知识库标签'
     _order = 'name'
 
     name = fields.Char('标签', required=True, index=True)
+    user_id = fields.Many2one(
+        'res.users', string='所属用户', required=True, index=True,
+        default=lambda self: self.env.user, ondelete='cascade')
     color = fields.Integer('颜色序号', help='0~11，用于卡片上的标签底色')
     item_ids = fields.Many2many(
         'tutoring.library.item', 'tutoring_library_item_tag_rel',
         'tag_id', 'item_id', string='条目')
 
-    _name_uniq = models.Constraint('unique(name)', _('已经有同名的标签了。'))
+    _name_uniq = models.Constraint(
+        'unique(name, user_id)', _('你已经有一个同名标签了。'))
+
+    @api.model
+    def _assign_owner_from_items(self):
+        """把每个标签归到"用它的人"名下，被多人用过的拆成每人一份。
+
+        升级迁移（19.0.1.13.0）和一次性修数都走这里。**判据不能是
+        `user_id IS NULL`**：Odoo 给存量表加 required 列时会把现有一行填成
+        "升级那一刻的当前用户"，等业务库里查就全是非空了——只能拿条目重新核对。
+
+        以 sudo 调用（要跨用户看全部标签）；可重复执行。
+        返回 (归位数, 拆出副本数, 删掉的孤儿数)。
+        """
+        moved = split = dropped = 0
+        for tag in self.search([]):
+            users = tag.item_ids.user_id
+            if not users:
+                # 没人用的孤儿：留着既不会出现在任何人手里，又占着这条 unique(name, user_id)
+                tag.unlink()
+                dropped += 1
+                continue
+            if len(users) == 1 and tag.user_id == users[0]:
+                continue
+            tag.user_id = users[0].id
+            moved += 1
+            for user in users[1:]:
+                copy = self.create({
+                    'name': tag.name, 'color': tag.color, 'user_id': user.id})
+                for item in tag.item_ids.filtered(lambda r: r.user_id == user):
+                    item.write({'tag_ids': [(3, tag.id), (4, copy.id)]})
+                split += 1
+        return moved, split, dropped
 
 
 class TutoringLibraryItem(models.Model):
@@ -110,9 +245,18 @@ class TutoringLibraryItem(models.Model):
     category = fields.Selection(
         CATEGORY_SELECTION, string='分类', required=True, default='other',
         index=True, help='练习册只是其中一个分类，内容类型本身不受限制')
+    folder_id = fields.Many2one(
+        'tutoring.library.folder', string='文件夹', index=True, ondelete='set null',
+        help='自己建的收纳格；留空就是未分类，删掉文件夹只会把文件退回未分类。'
+             '下拉里只会出现本人的文件夹——那条记录规则管着，不用在这里写域')
     tag_ids = fields.Many2many(
         'tutoring.library.tag', 'tutoring_library_item_tag_rel',
         'item_id', 'tag_id', string='标签')
+    mistake_id = fields.Many2one(
+        'tutoring.mistake', string='关联错题', index=True, ondelete='set null',
+        help='错题的照片或说明挂在哪一条错题上；删掉错题不会删掉文件，'
+             '练习册教材那类文件不用填')
+    mistake_label = fields.Char('错题出处', compute='_compute_mistake_label')
 
     content = fields.Binary('文件', attachment=False)
     filename = fields.Char('文件名')
@@ -124,7 +268,8 @@ class TutoringLibraryItem(models.Model):
     ext = fields.Char('扩展名', compute='_compute_file_meta', store=True)
     mimetype = fields.Char('类型', compute='_compute_file_meta', store=True)
     kind = fields.Selection(
-        [('pdf', 'PDF'), ('image', '图片'), ('other', '文件')],
+        [('pdf', 'PDF'), ('image', '图片'), ('markdown', 'Markdown'),
+         ('text', '文本 / 代码'), ('other', '文件')],
         string='预览方式', compute='_compute_file_meta', store=True)
     size_text = fields.Char('大小', compute='_compute_size_text')
 
@@ -133,6 +278,13 @@ class TutoringLibraryItem(models.Model):
     from_workbook = fields.Char('练习册', compute='_compute_from_workbook')
 
     preview_html = fields.Html('预览', compute='_compute_preview_html', sanitize=False)
+
+    # 就地编辑那一套：四个字段共用一次解码，别各读一遍正文
+    text_body = fields.Text('正文', compute='_compute_readable',
+                            inverse='_inverse_readable')
+    text_language = fields.Char('高亮语言', compute='_compute_readable')
+    editable = fields.Boolean('可直接编辑', compute='_compute_readable')
+    read_note = fields.Char('不可编辑原因', compute='_compute_readable')
 
     @api.depends('content', 'filename')
     def _compute_file_meta(self):
@@ -145,6 +297,10 @@ class TutoringLibraryItem(models.Model):
                 item.kind = 'pdf'
             elif ext in IMAGE_EXTS:
                 item.kind = 'image'
+            elif ext in MARKDOWN_EXTS:
+                item.kind = 'markdown'
+            elif ext in TEXT_EXTS:
+                item.kind = 'text'
             else:
                 item.kind = 'other'
 
@@ -153,27 +309,106 @@ class TutoringLibraryItem(models.Model):
         for item in self:
             item.size_text = fmt_bytes(item.file_size)
 
+    @api.depends('kind', 'filename', 'file_size', 'content')
+    def _compute_readable(self):
+        """纯文本条目：把正文解出来给编辑器与预览，顺便说清能不能编辑、为什么不能。
+
+        三道门，缺一不可：`kind` 是 markdown/text、体积不超过 `MAX_EDIT_BYTES`、
+        UTF-8 真能解码。任何一道不过就 `editable=False` 并把原因写进 `read_note`——
+        界面上绝不摆一个点了没反应的"编辑"按钮。
+
+        正文只在过了前两道门之后才读，所以几 MB 的 PDF/压缩包不会被这一次计算拉进内存。
+        """
+        for item in self:
+            item.text_body = False
+            item.text_language = PRISM_LANGUAGES.get(item.ext or '', '')
+            item.editable = False
+            item.read_note = ''
+            if item.kind not in ('markdown', 'text'):
+                continue
+            if not item.file_size:
+                item.read_note = _('这个文件是空的。')
+                continue
+            if item.file_size > MAX_EDIT_BYTES:
+                item.read_note = _('文件 %s，超过网页内编辑的上限 %s；'
+                                  '请下载到本机改完再传上来。') % (
+                                      fmt_bytes(item.file_size), fmt_bytes(MAX_EDIT_BYTES))
+                continue
+            try:
+                text = b64_to_bytes(item.content).decode('utf-8')
+            except Exception:  # noqa: BLE001 - 非 UTF-8 的文本宁可只读也别改坏它
+                item.read_note = _('不是 UTF-8 文本，在网页里编辑会改坏内容。')
+                continue
+            item.text_body = text
+            item.editable = True
+
+    def _inverse_readable(self):
+        """改完写回 `content`：走模型自己的 write()，配额按"旧的让开、新的占上"重算。"""
+        for item in self:
+            if item.kind not in ('markdown', 'text'):
+                continue
+            body = item.text_body or ''
+            try:
+                raw = body.encode('utf-8')
+            except UnicodeEncodeError as err:
+                raise UserError(_('正文里有存不进去的字符：%s') % err) from err
+            item.content = base64.b64encode(raw).decode()
+
+    @api.depends('mistake_id')
+    def _compute_mistake_label(self):
+        """错题条目要能看出是哪道题：书名 + 页码 + 题号。"""
+        for item in self:
+            mistake = item.mistake_id
+            if not mistake:
+                item.mistake_label = ''
+                continue
+            where = ' · '.join(part for part in (
+                mistake.page and _('P%s') % mistake.page,
+                mistake.question_no and _('第 %s 题') % mistake.question_no) if part)
+            item.mistake_label = ' · '.join(part for part in (
+                mistake.workbook_id.display_name or mistake.student_id.display_name,
+                where) if part) or mistake.display_name
+
     @api.depends('workbook_file_ids.workbook_id')
     def _compute_from_workbook(self):
         for item in self:
             books = item.workbook_file_ids.workbook_id
             item.from_workbook = ' · '.join(books.mapped('name')) if books else ''
 
-    @api.depends('kind', 'filename')
+    @api.depends('kind', 'filename', 'file_size', 'text_body', 'text_language')
     def _compute_preview_html(self):
-        """预览区按类型拼：PDF/图片直接内嵌，其余给一个下载链接。"""
+        """预览区按类型拼：PDF/图片直接内嵌，其余给一个下载链接。
+
+        判"有没有正文"要看 file_size（已存库的算字段），不能读 content——
+        读一次就把整本 PDF 的字节拉进内存，而预览本来就是靠那条 raw 路由串流的。
+
+        这是 `sanitize=False` 的裸 HTML，而文件名/标题是外来输入：进属性位之前
+        必须转义。`_clean_name` 只护住走控制器那条路，后台用 JSON-RPC 直接 write
+        filename 是不经过它的。
+        """
         for item in self:
-            if not item.id or not item.content:
+            if not item.id or not item.file_size:
                 item.preview_html = ''
                 continue
             url = '/tutoring/library/%s/raw' % item.id
-            label = item.filename or item.name or ''
+            label = escape(item.filename or item.name or '')
             if item.kind == 'pdf':
                 item.preview_html = (
                     '<iframe class="o_library_preview_pdf" src="%s" title="%s"></iframe>' % (url, label))
             elif item.kind == 'image':
                 item.preview_html = (
                     '<div class="o_library_preview_img"><img src="%s" alt="%s"/></div>' % (url, label))
+            elif item.kind == 'markdown':
+                # 渲染只在服务端做这一份（models/library_markdown.py），
+                # 门户与后台弹窗拿到的是同一串 HTML，不存在两套解析器行为不一致
+                item.preview_html = (
+                    '<div class="o_library_preview_md">%s</div>'
+                    % render_markdown(item.text_body or ''))
+            elif item.kind == 'text':
+                cls = ' class="language-%s"' % item.text_language if item.text_language else ''
+                item.preview_html = (
+                    '<pre class="o_library_preview_code"><code%s>%s</code></pre>'
+                    % (cls, escape(item.text_body or '')))
             else:
                 item.preview_html = (
                     '<div class="o_library_preview_file">'

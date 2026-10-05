@@ -16,4 +16,5 @@ from . import tutoring_mistake_quickadd
 from . import ir_ui_menu
 from . import ir_ui_view
 from . import res_partner
+from . import res_users
 from . import website
