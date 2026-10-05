@@ -65,6 +65,9 @@
     `has_access`/`search`，不能用 `browse().exists()`（见陷阱 26）。
     正文回吐那道口还堵了 SVG：`kind` 不再把 svg 当可内联图片，raw 路由对 svg 一律按附件
     + `X-Content-Type-Options: nosniff`（SVG 能嵌脚本，同源内联等于给自己种 XSS）。
+    预览 HTML 是 `sanitize=False` 的裸拼串，所以进 `title`/`alt` 属性位的文件名/标题
+    一律 `markupsafe.escape`——`_clean_name` 只护住控制器那条路，JSON-RPC 直接 write
+    `filename` 不经过它（实测能撑破属性，属 self-XSS，但分享功能一开就是现成的存储型 XSS）。
   - **用户端页**（`/my/library`，非管理员用）：整页重做——容量条 + 左栏文件夹 + 拖拽上传（逐文件进度，
     没 JS 时同一张表单走原生 multipart POST）+ 搜索/分类药丸/排序/每页 + 卡片墙 + 分页；
     详情页可就地改名、挪文件夹、改分类标签、下载、删除。取数是服务端 `domain+order+limit/offset`，

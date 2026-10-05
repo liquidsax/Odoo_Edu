@@ -2,6 +2,8 @@ import base64
 import logging
 import re
 
+from markupsafe import escape
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
@@ -258,13 +260,17 @@ class TutoringLibraryItem(models.Model):
 
         判"有没有正文"要看 file_size（已存库的算字段），不能读 content——
         读一次就把整本 PDF 的字节拉进内存，而预览本来就是靠那条 raw 路由串流的。
+
+        这是 `sanitize=False` 的裸 HTML，而文件名/标题是外来输入：进属性位之前
+        必须转义。`_clean_name` 只护住走控制器那条路，后台用 JSON-RPC 直接 write
+        filename 是不经过它的。
         """
         for item in self:
             if not item.id or not item.file_size:
                 item.preview_html = ''
                 continue
             url = '/tutoring/library/%s/raw' % item.id
-            label = item.filename or item.name or ''
+            label = escape(item.filename or item.name or '')
             if item.kind == 'pdf':
                 item.preview_html = (
                     '<iframe class="o_library_preview_pdf" src="%s" title="%s"></iframe>' % (url, label))
