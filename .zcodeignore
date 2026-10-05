@@ -24,9 +24,6 @@
 # --- 本机配置与日志（含数据库密码等敏感信息） ---
 odoo.conf
 *.log
-# 服务器上的部署覆盖文件与口令表（只存在于机器上，永不入库）
-.env
-docker-compose.override.yml
 
 # --- 数据库备份与附件（含学生真实数据） ---
 /backup/
@@ -53,8 +50,36 @@ dev/lazy.js
 # --- IDE / 系统杂项 ---
 .idea/
 .vscode/
-.zcode/
-.workbuddy/
 *.swp
 Thumbs.db
 .DS_Store
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+node_modules/
+bower_components/
+jspm_packages/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）
