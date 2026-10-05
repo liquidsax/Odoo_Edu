@@ -35,6 +35,21 @@
             <field name="perm_unlink" eval="False"/>
         </record>
 
+        <!-- 内部用户之间：真实学生全体可见（老师要互相接手），但"别人给自己建的学习档案"不可见。
+             每位老师都被自动发一条「我自己」，不收口的话它会成对出现在同事的学生列表、
+             错题范围药丸和「记到谁」下拉里。 -->
+        <record id="rule_student_internal" model="ir.rule">
+            <field name="name">学生档案：别人的本人档案不可见</field>
+            <field name="model_id" ref="model_tutoring_student"/>
+            <field name="domain_force">['|', ('is_self_profile', '=', False),
+                                         ('partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
         <record id="rule_session_portal" model="ir.rule">
             <field name="name">辅导课次：仅门户本人学生</field>
             <field name="model_id" ref="model_tutoring_session"/>
@@ -109,6 +124,20 @@
             <field name="perm_write" eval="True"/>
             <field name="perm_create" eval="True"/>
             <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <!-- 档案收口了，档案名下的错题也要跟着收：否则同事在错题列表里仍然读得到
+             另一个老师私人记的那道题，只是点不开它的档案。真实学生的错题照旧全体教师可见。 -->
+        <record id="rule_mistake_internal" model="ir.rule">
+            <field name="name">错题记录：别人本人档案下的不可见</field>
+            <field name="model_id" ref="model_tutoring_mistake"/>
+            <field name="domain_force">['|', ('student_id.is_self_profile', '=', False),
+                                         ('student_id.partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
         </record>
 
         <record id="rule_workbook_portal" model="ir.rule">

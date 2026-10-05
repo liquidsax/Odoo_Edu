@@ -9,7 +9,7 @@ class ResUsers(models.Model):
         """新老师/新管理员一进来就有一份自己的学习档案。
 
         错题必须挂在某个档案下（`student_id` 必填），没有档案的人就记不了题；
-        存量的人由 `migrations/19.0.1.15.0/post-migrate.py` 补齐。
+        存量的人由 `data/self_profile_data.xml` 里的 `<function>` 在每次升级时补齐。
         """
         users = super().create(vals_list)
         students = self.env['tutoring.student']
