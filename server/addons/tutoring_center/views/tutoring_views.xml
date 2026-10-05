@@ -674,7 +674,7 @@
                     <field name="cause_id"/>
                     <field name="point_id"/>
                     <field name="note"/>
-                    <field name="ai_summary"/>
+                    <field name="ai_readable_summary"/>
                     <field name="difficulty"/>
                     <progressbar field="difficulty"
                                  colors='{"2": "success", "3": "info", "4": "warning", "5": "danger"}'/>
@@ -693,8 +693,8 @@
                                     </span>
                                 </div>
                                 <!-- AI 抄回来的一句话摘要：看板上一眼能看出这是道什么题 -->
-                                <div class="o_mistake_card_note small text-body-secondary" t-if="record.ai_summary.value">
-                                    <t t-out="record.ai_summary.value"/>
+                                <div class="o_mistake_card_note small text-body-secondary" t-if="record.ai_readable_summary.value">
+                                    <t t-out="record.ai_readable_summary.value"/>
                                 </div>
                                 <div class="o_mistake_card_note small text-body-secondary" t-if="record.note.value">
                                     <t t-out="record.note.value"/>
@@ -750,7 +750,7 @@
                     <field name="cause_id" optional="show"/>
                     <field name="point_id" optional="show"/>
                     <field name="note" optional="show"/>
-                    <field name="ai_summary" optional="show"/>
+                    <field name="ai_readable_summary" optional="show"/>
                     <field name="ai_state" optional="hide"/>
                     <field name="topic_id" optional="hide"/>
                     <field name="create_date" string="记录时刻" readonly="1" optional="hide"/>
@@ -803,13 +803,13 @@
                             <field name="ai_state" readonly="1" string="状态"/>
                             <field name="ai_done_at" readonly="1" string="生成于"
                                    invisible="not ai_done_at"/>
-                            <field name="ai_summary" readonly="1" nolabel="1" colspan="2"
-                                   placeholder="（还没有摘要）" invisible="not ai_summary"/>
+                            <field name="ai_readable_summary" readonly="1" nolabel="1" colspan="2"
+                                   placeholder="（还没有摘要）" invisible="not ai_readable_summary"/>
                             <field name="ai_hint" readonly="1" nolabel="1" colspan="2"
                                    class="text-muted" invisible="not ai_hint"/>
-                            <field name="ai_question_text" readonly="1" nolabel="1" colspan="2"
+                            <field name="ai_readable_text" readonly="1" nolabel="1" colspan="2"
                                    string="题目原文" placeholder="（还没有题目原文）"
-                                   invisible="not ai_question_text"/>
+                                   invisible="not ai_readable_text"/>
                         </group>
                         <group string="出错的那一页">
                             <field name="page_pdf" widget="pdf_viewer" readonly="1"

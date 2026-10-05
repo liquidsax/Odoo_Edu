@@ -126,7 +126,13 @@
   ——任务转 `error`、错题退回未生成、**不扣额度**；之后的一切失败才扣并锁死。
   密钥优先环境变量 `DEEPSEEK_API_KEY`，兜底系统参数 `tutoring_center.deepseek_api_key`
   （`data/ai_job_data.xml` 是 `noupdate=1`，否则每次升级会把填好的值抹空）。
-  细节与新陷阱 44~47 见 [updates/2026-10-05.md](updates/2026-10-05.md) 第二十八节。
+  **抄回来的题目带 LaTeX**，所以有 `models/math_text.py` 把子集转成**纯文本**
+  （`a^x`→`aˣ`、`\frac{a}{b}`→`(a)/(b)`、`cases`→`分段：式子（条件）`），
+  页面显示 `ai_readable_summary`/`ai_readable_text`，原始字段照旧留着；
+  刻意不产 HTML（后台 Char 字段不渲染标签，产标签就得再写一个字段组件、维护第二份实现），
+  也刻意不引 KaTeX/MathJax（核心没有，前端零依赖是纪律）。**不认识的记号原样留着，绝不改题意。**
+  提示词不在 .py 里：`prompts/summary_system.txt` 与 `prompts/summary_user.txt`，改文案不必碰代码。
+  细节与新陷阱 44~49 见 [updates/2026-10-05.md](updates/2026-10-05.md) 第二十八、二十九节。
 
 核心自定义模块：`server/addons/tutoring_center`（19 个模型，含练习册 `tutoring.workbook`、教材文件
 `tutoring.workbook.file`、单页缓存 `tutoring.workbook.page` 与速记向导 `tutoring.mistake.quickadd`，详见根 README）。
@@ -188,7 +194,7 @@
 5. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
 6. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
 
-## 五、最重要陷阱（正文 19 条；20~22 见 updates/2026-10-03.md，23~47 见 updates/2026-10-05.md）
+## 五、最重要陷阱（正文 19 条；20~22 见 updates/2026-10-03.md，23~49 见 updates/2026-10-05.md）
 
 > 编号在几份文档里有过错位，以"见哪份 updates"为准：知识库那两次新增的八条写在
 > [updates/2026-10-05.md](updates/2026-10-05.md) 第六节与第十二节（委托继承的字段搬运、

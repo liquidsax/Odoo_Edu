@@ -4,6 +4,8 @@ from datetime import timedelta
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
+from .math_text import to_plain_math
+
 # 一次最多生成多少条，防止把"1-9999"当成批量录入（后台速记与门户速记条共用）
 MAX_QUESTION_LINES = 100
 
@@ -93,11 +95,22 @@ class TutoringMistake(models.Model):
     ], string='AI 摘要', default='none', required=True, copy=False, index=True)
     ai_summary = fields.Char('题目摘要', copy=False)
     ai_question_text = fields.Text('题目原文（AI 抄录）', copy=False)
+    # 给人看的那一份：AI 抄回来的题目带 LaTeX，直接印出来是 \begin{cases} 这种。
+    # 渲染只在服务端做这一份（models/math_text.py），门户与后台拿的是同一个字符串——
+    # 后台的 Char/Text 字段不渲染 HTML，所以这里产纯文本而不是 <sup> 那类标签。
+    ai_readable_summary = fields.Char('题目摘要', compute='_compute_ai_readable')
+    ai_readable_text = fields.Text('题目原文', compute='_compute_ai_readable')
     ai_hint = fields.Char('AI 提示', copy=False)
     ai_done_at = fields.Datetime('AI 生成时间', copy=False)
     # 只给表单用：定位不到那一页的题没有资料可分析，按钮就不出现。
     # 刻意不依赖 page_pdf——那个 compute 会真去抽页，列表页每行算一次就是灾难。
     can_ai_summary = fields.Boolean('可生成摘要', compute='_compute_can_ai_summary')
+
+    @api.depends('ai_summary', 'ai_question_text')
+    def _compute_ai_readable(self):
+        for mistake in self:
+            mistake.ai_readable_summary = to_plain_math(mistake.ai_summary) or False
+            mistake.ai_readable_text = to_plain_math(mistake.ai_question_text) or False
 
     @api.depends('page', 'workbook_id', 'ai_state')
     def _compute_can_ai_summary(self):

@@ -16,7 +16,9 @@ import requests
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
+from odoo.tools import file_open
 
+from .math_text import to_plain_math
 from .tutoring_knowledge import GRADE_LABEL
 
 _logger = logging.getLogger(__name__)
@@ -29,19 +31,12 @@ LONG_SIDE = 1600          # 扫描页缩到长边 1600 仍能抄对公式（探�
 JPEG_QUALITY = 82
 CANDIDATE_LIMIT = 200     # 候选知识点条数，控输入 token
 
-SYSTEM_PROMPT = (
-    '你是学习记录助手。给你的是教辅书的**其中一页**，以及要在这页里找的一道题的出处。\n'
-    '只做三件事：1) 找到这道题并把题目原文抄出来；2) 用不超过 40 个字概括它在问什么；'
-    '3) 从候选知识点里挑出这道题真正考的那一个。\n'
-    '规则：\n'
-    '- 只依据给你的这一页。这一页里没有这道题时，**立刻**只回 {"found": false}，'
-    '不要解释、不要猜测、不要输出别的字。\n'
-    '- 不要解题、不要讲思路、不要给答案。\n'
-    '- 知识点必须从候选列表里逐字选一个，列表里没有就填 null，不要自己造名字。\n'
-    '- 只输出一个 JSON 对象，不要 markdown 代码块，不要多余文字。\n'
-    '输出字段：{"found": true, "question_text": "题目原文", '
-    '"summary": "≤40字摘要", "point": "候选中的知识点原名或 null"}'
-)
+# 提示词存在模块里的独立文件，改文案不必碰代码（维护者要求的）。
+# 措辞会直接影响 token 数与"找不到题时是否快速回绝"，改之前先看一眼实测记录。
+PROMPT_FILES = {
+    'system': 'tutoring_center/prompts/summary_system.txt',
+    'user': 'tutoring_center/prompts/summary_user.txt',
+}
 
 # 失败时写在题上的那句话：告诉人要手工补，而不是再点一次
 FAIL_HINT = _(
@@ -198,11 +193,17 @@ class TutoringMistakeAiJob(models.Model):
             [('grade', 'in', grades)], order='grade, name', limit=CANDIDATE_LIMIT)
         return {p.full_name: p.id for p in points}
 
+    @api.model
+    def _prompt(self, kind):
+        r"""读 prompts/ 下的文案。rb + 显式 decode：Windows 上文本模式会按控制台代码页读。"""
+        path = PROMPT_FILES[kind]
+        try:
+            return file_open(path, 'rb').read().decode('utf-8').strip()
+        except (FileNotFoundError, IsADirectoryError):
+            raise UserError(_('找不到提示词文件 %s') % path)
+
     def _user_text(self, mistake, candidates):
-        return _(
-            '出处：《%(book)s》第 %(page)s 页，题号：%(no)s。\n'
-            '学生年级：%(grade)s。当前已填知识点：%(point)s。\n'
-            '候选知识点（只能从中选，逐字）：\n%(points)s\n') % {
+        return self._prompt('user') % {
             'book': mistake.workbook_id.name,
             'page': mistake.page,
             'no': mistake.question_no or _('（未填题号）'),
@@ -258,7 +259,7 @@ class TutoringMistakeAiJob(models.Model):
         return {
             'model': model,
             'messages': [
-                {'role': 'system', 'content': SYSTEM_PROMPT},
+                {'role': 'system', 'content': self._prompt('system')},
                 {'role': 'user', 'content': [
                     {'type': 'text', 'text': self._user_text(mistake, candidates)},
                     {'type': 'image_url',
