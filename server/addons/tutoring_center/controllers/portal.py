@@ -3,7 +3,7 @@ import json
 from urllib.parse import quote, urlencode
 
 from odoo import _, fields, http
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Date
 from odoo.http import request
 
@@ -639,6 +639,9 @@ class TutoringPortal(CustomerPortal):
             'quota': request.env['tutoring.library.item'].quota_state(),
             'just_saved': bool(kwargs.get('created') or kwargs.get('saved')),
             'just_attached': bool(kwargs.get('attached')),
+            # 额度只拿来写提示，真正的拦截在任务模型的 create 里（越权/超额都那儿报）
+            'quota_left': (request.env['tutoring.mistake.ai.job'].quota_left()
+                           if mistake.can_ai_summary else None),
         })
 
     @http.route('/my/learning/mistakes/<int:mistake_id>/attach', type='http', auth='user',
@@ -673,6 +676,24 @@ class TutoringPortal(CustomerPortal):
                 errors.append(str(err))
         query = ['attached=%s' % attached if attached else 'error=%s' % quote(' '.join(errors)[:200])]
         return request.redirect('/my/learning/mistakes/%d?%s' % (mistake.id, query[0]))
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>/ai_summary', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_mistake_ai_summary(self, mistake_id, **kw):
+        """发起一次 AI 摘要：只建任务，真正调用交给 ir.cron。
+
+        一题一次、每人每天五条，都由 `tutoring.mistake.ai.job.create()` 说话；
+        这里只负责把它的报错原样带回那一页显示。
+        """
+        mistake = request.env['tutoring.mistake'].search([('id', '=', mistake_id)], limit=1)
+        if not mistake:
+            return request.not_found()
+        try:
+            request.env['tutoring.mistake.ai.job'].create({'mistake_id': mistake.id})
+        except ValidationError as err:
+            return request.redirect('/my/learning/mistakes/%d?error=%s'
+                                    % (mistake.id, quote(str(err)[:200])))
+        return request.redirect('/my/learning/mistakes/%d?ai_queued=1' % mistake.id)
 
     @http.route('/my/learning/mistakes/<int:mistake_id>/note', type='http', auth='user',
                 website=True, methods=['POST'])

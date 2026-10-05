@@ -823,6 +823,10 @@
                         <t t-out="m.workbook_id.name"/>
                         <t t-if="m.page"> · P<t t-out="m.page"/></t><t t-if="m.question_no"> · 第<t t-out="m.question_no"/>题</t>
                     </div>
+                    <!-- AI 抄回来的一句话摘要：不点开就知道这道题在问什么 -->
+                    <p class="mb-0 small text-body-secondary" t-if="m.ai_summary"
+                       style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;"
+                       t-out="m.ai_summary"/>
                     <div class="d-flex flex-wrap align-items-center gap-1 mt-auto">
                         <span class="badge rounded-pill bg-warning-subtle text-warning-emphasis"
                               t-if="m.cause_id" t-out="m.cause_id.name"/>
@@ -855,8 +859,37 @@
                                     <t t-if="mistake.page">P<t t-out="mistake.page"/></t><t t-if="mistake.question_no"> · 第<t t-out="mistake.question_no"/>题</t>
                                 </span>
                             </h4>
-                            <a t-if="can_edit" class="btn btn-secondary"
-                               t-attf-href="/my/learning/mistakes/#{mistake.id}/edit">编辑</a>
+                            <div class="d-flex align-items-center gap-2">
+                                <a t-if="can_edit" class="btn btn-secondary"
+                                   t-attf-href="/my/learning/mistakes/#{mistake.id}/edit">编辑</a>
+                                <!-- 只有"能定位到那一页、而且从没生成过"的题才给这个按钮：
+                                     没有资料就没得分析，生成过一次就不许再来（额度是人的、不是题的） -->
+                                <form t-if="mistake.can_ai_summary" method="post"
+                                      t-attf-action="/my/learning/mistakes/#{mistake.id}/ai_summary">
+                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                    <button type="submit" class="btn btn-primary"
+                                            title="把出错那一页交给 AI，抄回题目、生成一句摘要、比对知识点">
+                                        <i class="fa fa-magic me-1"/>生成摘要
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        <div t-if="mistake.can_ai_summary and quota_left is not None"
+                             class="small text-muted mb-2">
+                            今天还能生成 <b t-out="quota_left"/> 条；
+                            一道题只许生成一次，成败都算一条。
+                        </div>
+                        <!-- 排队中：这一页刷新就会变，不需要用户盯着转圈 -->
+                        <div t-if="mistake.ai_state == 'pending'" class="alert alert-info py-2">
+                            <i class="fa fa-circle-o-notch fa-spin me-1"/>正在生成中，大约需要 2 分钟。
+                            生成完成后刷新这一页就能看到摘要。
+                        </div>
+                        <div t-if="request.params.get('ai_queued')" class="alert alert-success py-2 small">
+                            已排进队列，正在生成中，大约需要 2 分钟。
+                        </div>
+                        <div t-if="mistake.ai_state == 'failed'" class="alert alert-warning py-2 small">
+                            <b>这道题不再自动生成了。</b>
+                            <span t-out="mistake.ai_hint"/>
                         </div>
                         <table class="table table-sm">
                             <tbody>
@@ -864,6 +897,8 @@
                                 <tr><td class="text-muted">练习册</td><td t-out="mistake.workbook_id.name"/></tr>
                                 <tr t-if="mistake.page"><td class="text-muted">页码</td><td t-out="mistake.page"/></tr>
                                 <tr t-if="mistake.question_no"><td class="text-muted">题号</td><td t-out="mistake.question_no"/></tr>
+                                <tr t-if="mistake.ai_summary"><td class="text-muted">题目摘要</td>
+                                    <td t-out="mistake.ai_summary"/></tr>
                                 <tr><td class="text-muted">知识点</td>
                                     <td>
                                         <a t-if="mistake.point_id" t-attf-href="/my/mistakes?point_id=#{mistake.point_id.id}"
@@ -884,6 +919,15 @@
                                 <tr><td class="text-muted">记录时刻</td><td t-out="mistake.recorded_at_text or '—'"/></tr>
                             </tbody>
                         </table>
+                        <!-- AI 从那一页抄下来的题目原文：只当"不用翻书"的便利，
+                             错了以教材为准（错题记录本身仍只记出处） -->
+                        <t t-if="mistake.ai_question_text">
+                            <h5 class="mt-4 mb-2">题目原文
+                                <span class="small text-muted">AI 从这一页抄的，可能有错字</span>
+                            </h5>
+                            <p class="small mb-0" style="white-space: pre-wrap;"
+                               t-out="mistake.ai_question_text"/>
+                        </t>
                         <h5 class="mt-4 mb-2">补充说明</h5>
                         <!-- 复习的落点：想通了一步就就地补一句，不必跳去整张编辑表重填 -->
                         <form t-if="can_edit" method="post"

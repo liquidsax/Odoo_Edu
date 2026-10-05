@@ -140,6 +140,18 @@
             <field name="perm_unlink" eval="True"/>
         </record>
 
+        <!-- 摘要任务与额度：只看得到自己发起的那些（cron 用 sudo 跑，不受这条限制） -->
+        <record id="rule_mistake_ai_job_own" model="ir.rule">
+            <field name="name">AI 摘要任务：仅发起人</field>
+            <field name="model_id" ref="model_tutoring_mistake_ai_job"/>
+            <field name="domain_force">[('user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user')), (4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
         <record id="rule_workbook_portal" model="ir.rule">
             <field name="name">练习册：门户可读</field>
             <field name="model_id" ref="model_tutoring_workbook"/>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- noupdate=1：这两样都是"装的时候建一次、之后归用户"的东西。
+         尤其系统参数——不锁住的话每次升级都会把填好的密钥重新抹成空值。 -->
+    <data noupdate="1">
+        <record id="ir_cron_mistake_ai_job" model="ir.cron">
+            <field name="name">错题 AI 摘要：跑排队中的任务</field>
+            <field name="model_id" ref="model_tutoring_mistake_ai_job"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_process_pending()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="nextcall"
+                   eval="(DateTime.now() + timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')"/>
+        </record>
+
+        <!-- 密钥优先读服务的环境变量 DEEPSEEK_API_KEY，这里是给没有环境变量的场合兜底的 -->
+        <record id="param_deepseek_api_key" model="ir.config_parameter">
+            <field name="key">tutoring_center.deepseek_api_key</field>
+            <field name="value"></field>
+        </record>
+        <record id="param_deepseek_model" model="ir.config_parameter">
+            <field name="key">tutoring_center.deepseek_model</field>
+            <field name="value">deepseek-flash</field>
+        </record>
+        <record id="param_deepseek_base_url" model="ir.config_parameter">
+            <field name="key">tutoring_center.deepseek_base_url</field>
+            <field name="value">https://api.deepseek.com/v1/chat/completions</field>
+        </record>
+    </data>
+</odoo>

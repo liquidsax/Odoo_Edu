@@ -86,6 +86,25 @@ class TutoringMistake(models.Model):
         'tutoring.library.item', 'mistake_id', string='题目文件')
     library_count = fields.Integer('题目文件数', compute='_compute_library_count')
 
+    # AI 摘要（见 tutoring.mistake.ai.job）：一题只许发起一次，成败都扣发起人的当日额度。
+    # 之所以长在错题上而不是知识库条目上——"能被 AI 分析"正是错题区别于其它资料的地方。
+    ai_state = fields.Selection([
+        ('none', '未生成'), ('pending', '生成中'), ('done', '已生成'), ('failed', '没成功'),
+    ], string='AI 摘要', default='none', required=True, copy=False, index=True)
+    ai_summary = fields.Char('题目摘要', copy=False)
+    ai_question_text = fields.Text('题目原文（AI 抄录）', copy=False)
+    ai_hint = fields.Char('AI 提示', copy=False)
+    ai_done_at = fields.Datetime('AI 生成时间', copy=False)
+    # 只给表单用：定位不到那一页的题没有资料可分析，按钮就不出现。
+    # 刻意不依赖 page_pdf——那个 compute 会真去抽页，列表页每行算一次就是灾难。
+    can_ai_summary = fields.Boolean('可生成摘要', compute='_compute_can_ai_summary')
+
+    @api.depends('page', 'workbook_id', 'ai_state')
+    def _compute_can_ai_summary(self):
+        for mistake in self:
+            file, _local, _hint = mistake.workbook_id._locate_page(mistake.page)
+            mistake.can_ai_summary = bool(file) and mistake.ai_state == 'none'
+
     @api.depends('page', 'workbook_id.page_mode', 'workbook_id.page_offset',
                  'workbook_id.file_ids.content')
     def _compute_page_pdf(self):
@@ -199,6 +218,25 @@ class TutoringMistake(models.Model):
         刻意不加 @api.model：列表按钮 RPC 恒以 [ids] 作为第一个位置参数（空选区是 [[]]）。
         """
         return self._form_dialog('view_tutoring_mistake_form', _('新建错题记录'), False)
+
+    def action_ai_generate(self):
+        """只读详情里的「生成摘要」：只建一条任务，真正调用交给 ir.cron。
+
+        刻意不同步等：一个请求占住 worker 几秒到几十秒不值得，而且关掉页面就前功尽弃。
+        刻意不加 @api.model：表单按钮 RPC 也恒以 [ids] 作为第一个位置参数。
+        """
+        self.ensure_one()
+        self.env['tutoring.mistake.ai.job'].create({'mistake_id': self.id})
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'type': 'info',
+                'title': _('正在生成中，大约需要 2 分钟'),
+                'message': _('生成完成后，摘要会出现在这道题上；一道题只能生成一次。'),
+                'sticky': False,
+            },
+        }
 
     @api.model
     def _migration_backfill_workbook(self):
