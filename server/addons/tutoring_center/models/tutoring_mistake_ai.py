@@ -17,6 +17,8 @@ import requests
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
+from .tutoring_knowledge import GRADE_LABEL
+
 _logger = logging.getLogger(__name__)
 
 DAILY_QUOTA = 5           # 每人每天几条
@@ -65,15 +67,16 @@ class TutoringMistakeAiJob(models.Model):
         '日期', required=True, index=True, default=fields.Date.context_today)
     state = fields.Selection([
         ('pending', '排队中'), ('done', '已生成'), ('failed', '失败'),
+        ('error', '系统出错'),
     ], string='状态', required=True, default='pending', index=True)
     error = fields.Char('失败原因')
     prompt_tokens = fields.Integer('输入 token')
     completion_tokens = fields.Integer('输出 token')
     response_raw = fields.Text('响应原文')
 
-    _mistake_uniq = models.Constraint(
-        'unique(mistake_id)',
-        _('这道题已经生成过一次，不能再生成摘要。'))
+    # 刻意不加 unique(mistake_id)：系统出错的那次要能重来，同一题就会留下多行历史。
+    # "一题一次"由错题上的 ai_state 与下面的 create() 把关，比数据库约束更贴合语义。
+    CHARGED = ('pending', 'done', 'failed')   # 算进当日额度的三种；error 是我们自己的锅
 
     # ---- 发起 ----
 
@@ -83,6 +86,7 @@ class TutoringMistakeAiJob(models.Model):
         used = self.search_count([
             ('user_id', '=', self.env.uid),
             ('day', '=', fields.Date.context_today(self)),
+            ('state', 'in', self.CHARGED),
         ])
         return max(0, DAILY_QUOTA - used)
 
@@ -101,10 +105,15 @@ class TutoringMistakeAiJob(models.Model):
                     '这道题已经%s过，一道题只能生成一次。' % (
                         {'pending': '排进队列', 'done': '生成过摘要',
                          'failed': '尝试过生成'}.get(mistake.ai_state), )))
+            # 约束之外再兜一层：同一题不允许有第二条排队中或已生成的任务
+            if self.sudo().search_count([
+                    ('mistake_id', '=', mistake.id), ('state', 'in', self.CHARGED)]):
+                raise ValidationError(_('这道题已经生成过一次，不能再生成摘要。'))
             uid = vals.get('user_id') or self.env.uid
             if uid not in used:
                 used[uid] = self.sudo().search_count([
-                    ('user_id', '=', uid), ('day', '=', vals['day'])])
+                    ('user_id', '=', uid), ('day', '=', vals['day']),
+                    ('state', 'in', self.CHARGED)])
             if used[uid] >= DAILY_QUOTA:
                 raise ValidationError(_(
                     '今天 %d 条摘要额度已经用完了，明天再来。' % DAILY_QUOTA))
@@ -152,10 +161,12 @@ class TutoringMistakeAiJob(models.Model):
         from odoo.tools.pdf import PdfReader
         from PIL import Image
 
-        file, local, hint = mistake.workbook_id._locate_page(mistake.page)
+        file, local, hint = mistake.sudo().workbook_id._locate_page(mistake.page)
         if not file:
             raise AiPageError(hint or _('定位不到这一页。'))
-        data = self.env['tutoring.workbook.page']._pdf_for(file, local)
+        # 整条取页都走 sudo：教材正文挂在上传者自己的知识库条目上，门户用户按记录规则
+        # 读不到那些行（这是另一条待修的既有 bug），而"能不能分析这一页"不该由他决定。
+        data = self.env['tutoring.workbook.page'].sudo()._pdf_for(file, local)
         if not data:
             raise AiPageError(_('《%s》里抽不出第 %s 页。') % (
                 mistake.workbook_id.name, mistake.page))
@@ -195,7 +206,7 @@ class TutoringMistakeAiJob(models.Model):
             'book': mistake.workbook_id.name,
             'page': mistake.page,
             'no': mistake.question_no or _('（未填题号）'),
-            'grade': mistake.student_id.grade_label,
+            'grade': GRADE_LABEL.get(mistake.student_id.grade, mistake.student_id.grade or '—'),
             'point': mistake.point_id.name or _('（无）'),
             'points': '\n'.join('- ' + name for name in candidates),
         }
@@ -207,29 +218,45 @@ class TutoringMistakeAiJob(models.Model):
         """ir.cron 入口：每次最多处理 PER_TICK 条。"""
         jobs = self.sudo().search([('state', '=', 'pending')], order='id', limit=PER_TICK)
         for job in jobs:
-            try:
-                job._run()
-            except Exception as exc:  # noqa: BLE001 - 一条坏任务不能带崩整个 cron
-                _logger.exception('AI 摘要任务 %s 异常', job.id)
-                job._fail('%s: %s' % (type(exc).__name__, exc))
+            job._run()
             # 一条一提交：中途服务被重启，已完成的结果与已扣的额度不会一起回滚
             self.env.cr.commit()
         return len(jobs)
 
     def _run(self):
+        """跑一条任务。分界线是"token 花出去了没有"。
+
+        花出去之前崩掉（没密钥、取料/组装时我们自己的代码出错）→ `_abort()`：
+        不扣额度、这道题退回未生成，用户可以重来——我们的错不该让人承担。
+        花出去之后（含这一页里没有这道题）→ `_fail()`：按维护者定的口径
+        扣一条额度并永久锁死这一题，不给无限重试烧钱的机会。
+        """
         self.ensure_one()
         mistake = self.mistake_id
         conf = self._config()
         if not conf['key']:
-            return self._fail(_('没有 DeepSeek 密钥：在系统参数 tutoring_center.deepseek_api_key '
-                               '里填，或给服务配环境变量 DEEPSEEK_API_KEY。'))
+            return self._abort(_(
+                '没有 DeepSeek 密钥：填系统参数 tutoring_center.deepseek_api_key，'
+                '或给服务配环境变量 DEEPSEEK_API_KEY。'))
         try:
-            img_b64 = self._page_image(mistake)
+            candidates = self._candidates(mistake)
+            payload = self._payload(
+                mistake, self._page_image(mistake), candidates, conf['model'])
         except AiPageError as exc:
             return self._fail(str(exc))
-        candidates = self._candidates(mistake)
-        payload = {
-            'model': conf['model'],
+        except Exception as exc:  # noqa: BLE001
+            _logger.exception('AI 摘要任务 %s 取料或组装出错', self.id)
+            return self._abort('%s: %s' % (type(exc).__name__, exc))
+        try:
+            return self._call(conf, payload, mistake, candidates)
+        except Exception as exc:  # noqa: BLE001
+            _logger.exception('AI 摘要任务 %s 调用或回写出错', self.id)
+            return self._fail('%s: %s' % (type(exc).__name__, exc))
+
+    @api.model
+    def _payload(self, mistake, img_b64, candidates, model):
+        return {
+            'model': model,
             'messages': [
                 {'role': 'system', 'content': SYSTEM_PROMPT},
                 {'role': 'user', 'content': [
@@ -244,6 +271,8 @@ class TutoringMistakeAiJob(models.Model):
             # 这版模型不传就自己思考（实测默认烧掉 150+ reasoning token），必须显式关掉
             'thinking': {'type': 'disabled'},
         }
+
+    def _call(self, conf, payload, mistake, candidates):
         try:
             resp = requests.post(
                 conf['url'], headers={'Authorization': 'Bearer ' + conf['key']},
@@ -309,3 +338,9 @@ class TutoringMistakeAiJob(models.Model):
             'ai_state': 'failed',
             'ai_hint': '%s（%s）' % (FAIL_HINT, reason) if reason else FAIL_HINT,
         })
+
+    def _abort(self, reason):
+        """我们这边出错（还没花钱）：记一行审计，但不扣额度，这道题退回未生成。"""
+        self.ensure_one()
+        self.sudo().write({'state': 'error', 'error': str(reason)[:400]})
+        self.mistake_id.sudo().write({'ai_state': 'none', 'ai_hint': False})

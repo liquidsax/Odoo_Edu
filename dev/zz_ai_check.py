@@ -13,6 +13,18 @@ import time
 
 from odoo.exceptions import ValidationError
 
+from odoo.addons.tutoring_center.models.tutoring_mistake_ai import DAILY_QUOTA as DAILY
+
+
+def _raises(fn):
+    try:
+        fn()
+    except ValidationError:
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
 # cron 里是"一条任务一提交"（生产上对），所以本脚本建的数据会真留在库里；
 # 每次跑用一个新的标记，免得撞登录名。反正这库验完就删。
 TAG = os.environ.get('ZZ_TAG') or str(int(time.time()))[-6:]
@@ -152,26 +164,38 @@ job3._apply(m3, {'found': True, 'question_text': 't', 'summary': 's',
                  'point': first_point_name}, cand)
 check('已有人工知识点不被覆盖', m3.point_id.id == before)
 
-print('\n== 失败路径（不联网） ==')
+print('\n== 系统出错（还没花钱）：不扣额度、这道题能重来 ==')
 m4 = mk_mistake('例8')
+q_before = Job.with_user(teacher).quota_left()
 job4 = Job.with_user(teacher).create({'mistake_id': m4.id})
+check('刚建好时额度少 1', Job.with_user(teacher).quota_left() == q_before - 1,
+      (q_before, Job.with_user(teacher).quota_left()))
 Job._cron_process_pending()
 check('没配密钥时 cron 不崩', True)
-check('没密钥 → 任务 failed', job4.state == 'failed', job4.state)
-check('没密钥 → 错题 failed 且带提示', m4.ai_state == 'failed' and bool(m4.ai_hint),
-      (m4.ai_state, m4.ai_hint))
-check('提示里说了要手工填', '手工' in (m4.ai_hint or ''), m4.ai_hint)
+check('没密钥 → 任务转 error（不是 failed）', job4.state == 'error', job4.state)
+check('没密钥 → 错题退回未生成', m4.ai_state == 'none', m4.ai_state)
+check('没密钥 → 额度没被扣掉', Job.with_user(teacher).quota_left() == q_before,
+      (q_before, Job.with_user(teacher).quota_left()))
+check('没密钥 → 不该写"请手工填"的提示', not m4.ai_hint, m4.ai_hint)
+check('系统出错后这道题还能再发起', bool(Job.with_user(teacher).create({'mistake_id': m4.id})))
+
+print('\n== 资料对不上（真的跑过一轮）：扣额度并永久锁死 ==')
 env['ir.config_parameter'].sudo().set_param('tutoring_center.deepseek_api_key', 'sk-fake')
 m5 = mk_mistake('例9')
 job5 = Job.with_user(teacher).create({'mistake_id': m5.id})
 Job._cron_process_pending()
-check('有"密钥"但页里没位图 → 资料侧失败，不发请求',
-      job5.state == 'failed' and '位图' in (job5.error or ''), (job5.state, job5.error))
+Job._cron_process_pending()
+check('页里没位图 → 任务 failed', job5.state == 'failed', (job5.state, job5.error))
+check('页里没位图 → 错题 failed 且提示手写',
+      m5.ai_state == 'failed' and '手工' in (m5.ai_hint or ''), m5.ai_hint)
 check('失败后这道题不再给按钮', not m5.can_ai_summary)
-check('失败也算一次额度', Job.with_user(teacher).quota_left() == 1,
-      Job.with_user(teacher).quota_left())
-check('今天已记 4 次尝试（含失败的）', Job.sudo().search_count(
-    [('user_id', '=', teacher.id)]) == 4,
-    Job.sudo().search_count([('user_id', '=', teacher.id)]))
+check('同一题失败后不许再来', _raises(lambda: Job.with_user(teacher).create(
+    {'mistake_id': m5.id})))
+charged = Job.sudo().search_count([('user_id', '=', teacher.id), ('state', 'in', Job.CHARGED)])
+check('额度 = 5 减掉"已计费"的任务数（error 那行不计）',
+      Job.with_user(teacher).quota_left() == max(0, DAILY - charged), (charged,
+      Job.with_user(teacher).quota_left()))
+check('error 行确实存在且没算进额度', bool(Job.sudo().search_count(
+    [('user_id', '=', teacher.id), ('state', '=', 'error')])))
 
 print('\n结果: PASS=%d FAIL=%d' % (ok, fail))

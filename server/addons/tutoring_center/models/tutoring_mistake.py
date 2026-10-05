@@ -102,7 +102,9 @@ class TutoringMistake(models.Model):
     @api.depends('page', 'workbook_id', 'ai_state')
     def _compute_can_ai_summary(self):
         for mistake in self:
-            file, _local, _hint = mistake.workbook_id._locate_page(mistake.page)
+            # sudo 只用来问"这本练习册里有没有这一页"：教材正文挂在上传者自己的知识库
+            # 条目上，学生按记录规则读不到那些行，但按钮对他该不该出现是另一回事。
+            file, _local, _hint = mistake.sudo().workbook_id._locate_page(mistake.page)
             mistake.can_ai_summary = bool(file) and mistake.ai_state == 'none'
 
     @api.depends('page', 'workbook_id.page_mode', 'workbook_id.page_offset',
