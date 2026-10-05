@@ -544,7 +544,7 @@
                             <a t-attf-class="nav-link py-1 px-2 {{ 'active' if scope_key == 'all' else 'text-body' }}"
                                href="/my/mistakes?scope=all">全部</a>
                         </li>
-                        <li class="nav-item" t-foreach="scope_students" t-as="s" t-key="s.id">
+                        <li class="nav-item" t-foreach="other_students" t-as="s" t-key="s.id">
                             <a t-attf-class="nav-link py-1 px-2 {{ 'active' if scope_key == str(s.id) else 'text-body' }}"
                                t-attf-href="/my/mistakes?scope=#{s.id}" t-out="s.name"/>
                         </li>

@@ -577,6 +577,8 @@ class TutoringPortal(CustomerPortal):
             'student': form_student,
             'scope_key': scope_key,
             'scope_students': readable,
+            # 「我自己」那颗药丸是单独画的那颗（scope=mine），循环里再出现一次就成了两颗
+            'other_students': readable - self._tutoring_student(),
             'mistakes': records,
             'result_total': total,
             'groups': groups,
