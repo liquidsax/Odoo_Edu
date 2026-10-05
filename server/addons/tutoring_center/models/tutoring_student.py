@@ -50,6 +50,49 @@ class TutoringStudent(models.Model):
                 }).id
         return super().create(vals_list)
 
+    # 老师本人也是学习者：他刷过的题、做错的题也要能进这套系统，而错题必须挂在
+    # 某个学习档案下（student_id 必填）。与其为"老师记的题"再发明一套归属，
+    # 不如给他一条自己的档案——这张表的中文描述本来就是"学习档案"。
+    SELF_PROFILE_NAME = '我自己'
+    SELF_PROFILE_GRADE = '13'   # 高中那层（跨高一~高三），成年人自学最贴近；后台可改
+
+    @api.model
+    def ensure_self_profile(self, user):
+        """取（没有就建）某个用户本人的学习档案，联系人指向他自己的联系人。
+
+        门户那边 `_tutoring_student()` 是按 `partner_id` 查的，所以建好之后
+        他打开 /my/mistakes 就能直接"记到自己名下"，不用先去找后台。
+        """
+        if not user or not user.partner_id:
+            return self.browse()
+        existing = self.sudo().search(
+            [('partner_id', '=', user.partner_id.id)], limit=1)
+        if existing:
+            return existing
+        return self.sudo().create({
+            'name': self.SELF_PROFILE_NAME,
+            'partner_id': user.partner_id.id,
+            'grade': self.SELF_PROFILE_GRADE,
+            'remark': _('老师本人的学习档案：自己刷过的题、做错的题记在这里。'),
+        })
+
+    @api.model
+    def ensure_teacher_profiles(self):
+        """给每一位在册的老师补一条本人档案（数据文件里的 <function> 调它）。
+
+        放在数据阶段而不是迁移脚本里，是因为**全新安装也会跑数据**：
+        装好模块的第一分钟老师就能记自己的错题，不用等一次升级。
+        """
+        teacher = self.env.ref('tutoring_center.group_teacher', raise_if_not_found=False)
+        if not teacher:
+            return 0
+        made = 0
+        for user in teacher.user_ids.filtered(lambda u: u.active and u.partner_id):
+            before = self.sudo().search_count([('partner_id', '=', user.partner_id.id)])
+            self.ensure_self_profile(user)
+            made += 1 if not before else 0
+        return made
+
     def _compute_stats(self):
         for student in self:
             homework = student.homework_ids

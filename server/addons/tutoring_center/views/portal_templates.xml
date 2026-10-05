@@ -530,9 +530,25 @@
                 </div>
                 <div t-if="error" class="alert alert-danger" t-out="error"/>
 
-                <div t-if="not student" class="alert alert-light border py-2 small">
-                    这个账号没有绑定学生档案，看到的是<b>全部学生</b>的错题；
-                    要新增请用后台「错题」页的「快速记录」。
+                <!-- 范围切换：老师看"我自己 / 全部 / 某个学生"；
+                     学生账号只有一份可读档案，这条就不出现 -->
+                <div t-if="len(scope_students) > 1"
+                     class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                    <span class="small text-muted text-nowrap">看谁的</span>
+                    <ul class="nav nav-pills gap-1">
+                        <li class="nav-item">
+                            <a t-attf-class="nav-link py-1 px-2 {{ 'active' if scope_key == 'mine' else 'text-body' }}"
+                               href="/my/mistakes?scope=mine">我自己</a>
+                        </li>
+                        <li class="nav-item">
+                            <a t-attf-class="nav-link py-1 px-2 {{ 'active' if scope_key == 'all' else 'text-body' }}"
+                               href="/my/mistakes?scope=all">全部</a>
+                        </li>
+                        <li class="nav-item" t-foreach="scope_students" t-as="s" t-key="s.id">
+                            <a t-attf-class="nav-link py-1 px-2 {{ 'active' if scope_key == str(s.id) else 'text-body' }}"
+                               t-attf-href="/my/mistakes?scope=#{s.id}" t-out="s.name"/>
+                        </li>
+                    </ul>
                 </div>
 
                 <!-- 速记条：一行记完出处；难度/日期/错因/知识点收进「更多选项」 -->
@@ -541,6 +557,18 @@
                         <form method="post" action="/my/learning/mistakes/new">
                             <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
                             <div class="row g-2 align-items-end">
+                                <div class="col-6 col-md-3" t-if="len(scope_students) > 1">
+                                    <label class="form-label small text-muted mb-1" for="q_student">记到谁</label>
+                                    <!-- 老师也能记自己的题：他有一份"我自己"的档案，
+                                         下拉默认落在当前范围选中的那份上 -->
+                                    <select class="form-select" name="student_id" id="q_student">
+                                        <t t-foreach="scope_students" t-as="s" t-key="s.id">
+                                            <option t-att-value="s.id"
+                                                    t-att-selected="s.id == (form.get('student_id') or (student.id if student else 0))"
+                                                    t-out="s.name"/>
+                                        </t>
+                                    </select>
+                                </div>
                                 <div class="col-12 col-md-4">
                                     <label class="form-label small text-muted mb-1" for="q_workbook">哪本练习册</label>
                                     <select class="form-select" name="workbook_id" id="q_workbook" required="required">

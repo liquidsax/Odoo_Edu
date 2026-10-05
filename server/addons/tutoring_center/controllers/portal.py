@@ -22,8 +22,12 @@ class TutoringPortal(CustomerPortal):
             [('partner_id', '=', request.env.user.partner_id.id)], limit=1)
 
     def home(self, **kw):
-        """已绑定学生档案的门户用户，访问 /my 直接进入学习页。"""
-        if self._tutoring_student():
+        """已绑定学习档案的**门户用户**，访问 /my 直接进入学习页。
+
+        内部用户（老师）现在也有一条"我自己"的档案，但他不该因此被丢到自己的
+        空看板上去——他要的是那张卡片页（错题 / 教材 / 知识库都在里面）。
+        """
+        if self._tutoring_student() and not request.env.user._is_internal():
             return request.redirect('/my/learning')
         return super().home(**kw)
 
@@ -391,6 +395,7 @@ class TutoringPortal(CustomerPortal):
                 return False
         return {
             'workbook_id': _to_int(post.get('workbook_id')),
+            'student_id': _to_int(post.get('student_id')),
             'page': post.get('page') or '',
             'question_no': post.get('question_no') or '',
             'topic_id': _to_int(post.get('topic_id')),
@@ -467,20 +472,44 @@ class TutoringPortal(CustomerPortal):
     def portal_my_mistakes(self, **kwargs):
         """顶栏「错题」独立页：速记条 + 带计数的筛选药丸 + 卡片列表。
 
-        没绑学生档案的账号（老师本人、维护者的 admin）以前会被直接弹回 `/my`，
-        而那一页的卡片在计数为 0 时会被核心隐藏，结果落地页只剩一张「知识库」——
-        看起来就像"错题页把人往知识库赶"。现在无档案账号直接看自己有权读的全部错题，
-        只是不给速记条（新增走后台，那边有按学生的看板）。
+        老师/维护者看的是"哪个学生的错题"可切换的页面（`?scope=`），
+        学生账号只有一份可读档案，切换器对他自然只剩自己，不必特判。
         """
         return request.render(
-            'tutoring_center.portal_my_mistakes',
-            self._mistake_page_values(self._tutoring_student(), kwargs))
+            'tutoring_center.portal_my_mistakes', self._mistake_page_values(kwargs))
 
-    def _mistake_page_values(self, student, kwargs=None, form=None, error=None):
+    def _mistake_scope(self, kwargs):
+        """解析 `?scope=` → (列表用的域, 当前档案, 范围键, 可切换的档案列表)。
+
+        `mine`＝自己那份档案（老师是"我自己"，学生是他的学生档案），
+        `all`＝当前账号能读到的全部，数字＝某个学生。
+        能选到谁由 `tutoring.student` 的记录规则说话：门户只有一份，教师全都有。
+        """
+        Student = request.env['tutoring.student']
+        own = self._tutoring_student()
+        readable = Student.search([])
+        raw = (kwargs.get('scope') or '').strip()
+        if raw.isdigit():
+            picked = readable.filtered(lambda s: s.id == int(raw))[:1]
+            if picked:
+                return ([('student_id', '=', picked.id)], picked,
+                        str(picked.id), readable)
+            raw = ''
+        if not raw:
+            raw = 'mine' if own else 'all'
+        if raw == 'mine' and own:
+            return [('student_id', '=', own.id)], own, 'mine', readable
+        # 没有本人档案（迁移会给每个老师补一条，这里是兜底）：退回"全部可读"，
+        # 别把页面卡在一个空范围上
+        return [], Student.browse(), 'all', readable
+
+    def _mistake_page_values(self, kwargs=None, form=None, error=None):
         """/my/mistakes 取数：域内分页 + 白名单排序；速记条校验失败时带 form/error 复用同一页。"""
         kwargs = kwargs or {}
         Mistake = request.env['tutoring.mistake']
-        base_domain = [('student_id', '=', student.id)] if student else []
+        base_domain, student, scope_key, readable = self._mistake_scope(kwargs)
+        # 速记条默认记到谁：当前范围选中的档案 > 自己的档案 > 第一个能读的档案
+        form_student = student or self._tutoring_student() or readable[:1]
         today = fields.Date.context_today(request.env.user)
         month_start = today.replace(day=1)
 
@@ -510,7 +539,8 @@ class TutoringPortal(CustomerPortal):
                 drilldowns.append({'field': field, 'label': label,
                                    'value': rec.name, 'id': rec.id})
 
-        url_args = {'sortby': sortby, 'filterby': filterby, 'limit': page_size}
+        url_args = {'sortby': sortby, 'filterby': filterby, 'limit': page_size,
+                    'scope': scope_key}
         if groupby:
             url_args['groupby'] = groupby
         if term:
@@ -544,7 +574,9 @@ class TutoringPortal(CustomerPortal):
             created_count = 0
         return {
             'page_name': 'tutoring_mistakes',
-            'student': student,
+            'student': form_student,
+            'scope_key': scope_key,
+            'scope_students': readable,
             'mistakes': records,
             'result_total': total,
             'groups': groups,
@@ -567,10 +599,10 @@ class TutoringPortal(CustomerPortal):
             'difficulties': list(Mistake._fields['difficulty'].selection),
             'filter_counts': self._mistake_filter_counts(base_domain, month_start),
             'drilldowns': drilldowns,
-            # 速记条要先有"给哪个学生记"才知道往谁名下写，所以无档案账号不给建
-            'can_create': bool(student) and Mistake.has_access('create'),
-            # 跨学生浏览时（老师看全部）卡片上要带学生名，否则分不清是谁的错题
-            'show_student': not student,
+            # 速记条要往某个档案下写，所以"有可读档案"才给建（老师现在有自己的那份）
+            'can_create': bool(readable) and Mistake.has_access('create'),
+            # 跨档案浏览（scope=all）时卡片上要带档案名，否则分不清是谁的错题
+            'show_student': scope_key == 'all',
             'default_workbook': last_mistake.workbook_id if last_mistake else False,
             'default_date': today.strftime('%Y-%m-%d'),
             'created_count': created_count,
@@ -579,7 +611,7 @@ class TutoringPortal(CustomerPortal):
             'workbooks': request.env['tutoring.workbook'].search([]),
             'topics': request.env['tutoring.topic'].search([]),
             'causes': request.env['tutoring.mistake.cause'].search([]),
-            'point_groups': self._mistake_point_groups(student) if student else [],
+            'point_groups': self._mistake_point_groups(form_student) if form_student else [],
         }
 
     @http.route('/my/learning/mistakes', type='http', auth='user', website=True)
@@ -650,13 +682,32 @@ class TutoringPortal(CustomerPortal):
         mistake.write({'note': (kw.get('note') or '').strip() or False})
         return request.redirect('/my/learning/mistakes/%d?saved=1' % mistake.id)
 
+    def _mistake_target_student(self, kw):
+        """速记条/编辑条要写到的那份档案：优先用表单选的，其次自己的，再其次第一个可读的。
+
+        选的 id 必须过 `search`（记录规则会把别人家的档案滤掉），不能信前端传来的数字。
+        """
+        Student = request.env['tutoring.student']
+        picked = Student.browse()
+        raw = (kw.get('student_id') or '').strip() if isinstance(kw.get('student_id'), str) \
+            else kw.get('student_id')
+        if str(raw or '').isdigit():
+            picked = Student.search([('id', '=', int(raw))], limit=1)
+        return picked or self._tutoring_student() or Student.search([], limit=1)
+
     @http.route('/my/learning/mistakes/new', type='http', auth='user', website=True,
                 methods=['GET', 'POST'])
     def portal_my_mistake_new(self, **kw):
-        """记错题入口：GET 直接进顶栏错题页的速记条；POST 支持题号 1-5 拆多条。"""
-        student = self._tutoring_student()
+        """记错题入口：GET 直接进顶栏错题页的速记条；POST 支持题号 1-5 拆多条。
+
+        老师也能记自己的题——他有一份"我自己"的档案，速记条上的"记到谁"下拉
+        默认就落在那份上，也可以选别的学生。
+        """
+        student = self._mistake_target_student(kw)
         if not student:
-            return request.redirect('/my')
+            values = self._mistake_page_values(
+                kw, error=_('还没有可记录的学习档案，请先在后台建一条。'))
+            return request.render('tutoring_center.portal_my_mistakes', values)
         if not request.env['tutoring.mistake'].has_access('create'):
             return request.not_found()
         if request.httprequest.method != 'POST':
@@ -665,7 +716,7 @@ class TutoringPortal(CustomerPortal):
         if not vals['workbook_id']:
             # 带着已填的值回到速记条，不让用户重打一遍
             values = self._mistake_page_values(
-                student, kw, form=self._mistake_form_from_post(kw), error=_('请先选择练习册。'))
+                kw, form=self._mistake_form_from_post(kw), error=_('请先选择练习册。'))
             return request.render('tutoring_center.portal_my_mistakes', values)
         Mistake = request.env['tutoring.mistake']
         mistakes = Mistake.create([
@@ -678,12 +729,12 @@ class TutoringPortal(CustomerPortal):
     @http.route('/my/learning/mistakes/<int:mistake_id>/edit', type='http', auth='user',
                 website=True, methods=['GET', 'POST'])
     def portal_my_mistake_edit(self, mistake_id, **kw):
-        student = self._tutoring_student()
-        if not student:
-            return request.redirect('/my')
         mistake = request.env['tutoring.mistake'].browse(mistake_id).exists()
         if not mistake or not mistake.has_access('write'):
             return request.not_found()
+        # 年级知识点域、默认练习册这些都跟着这条记录自己的档案走，
+        # 不是跟着"当前登录的人是谁"——老师替学生改题时尤其明显
+        student = mistake.student_id
         error = {}
         if request.httprequest.method == 'POST':
             vals = self._mistake_vals_from_post(student, kw)

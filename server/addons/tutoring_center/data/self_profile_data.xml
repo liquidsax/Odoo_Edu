@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- 老师本人也是学习者：给每一位在册的老师补一条"我自己"的学习档案。
+             放在数据阶段而不是迁移脚本里，是因为**全新安装也会跑数据**——
+             模块装完的第一分钟老师就能记自己的错题，不必等一次升级。
+             方法本身是 get-or-create，重复执行安全。 -->
+        <function model="tutoring.student" name="ensure_teacher_profiles"/>
+    </data>
+</odoo>
