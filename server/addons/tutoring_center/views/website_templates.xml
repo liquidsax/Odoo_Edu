@@ -37,6 +37,16 @@
             <field name="group_ids" eval="[(4, ref('base.group_user')), (4, ref('base.group_portal'))]"/>
         </record>
 
+        <!-- 网站导航"时间账本"入口（顶栏：首页 → 学习平台 → 错题 → 函数图像 → 知识库 → 时间账本）。
+             和知识库同理：里面是"我这一天怎么花的"，比错题更私人，匿名访客不该看见入口。 -->
+        <record id="menu_website_time" model="website.menu">
+            <field name="name">时间账本</field>
+            <field name="url">/my/time</field>
+            <field name="parent_id" ref="website.main_menu"/>
+            <field name="sequence" type="int">40</field>
+            <field name="group_ids" eval="[(4, ref('base.group_user')), (4, ref('base.group_portal'))]"/>
+        </record>
+
         <!-- 首页：平台门面（不出现 ERP/CRM 入口） -->
         <template id="homepage_tutoring" name="学习平台首页" inherit_id="website.homepage" priority="20">
             <xpath expr="//div[hasclass('oe_structure','oe_empty')]" position="replace">

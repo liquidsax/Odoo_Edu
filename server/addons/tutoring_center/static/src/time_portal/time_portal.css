@@ -1,0 +1,89 @@
+/* 门户时间账本页：只补 Bootstrap 给不了的那几样（大数字观感、卡片、状态药丸配色、
+   进行中的呼吸点）。配色一律取站点主题变量，不硬写品牌色——换主题才不会脱节。 */
+
+.o_time_stat_value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+}
+
+.o_time_card {
+    transition: box-shadow 0.15s ease-in-out, transform 0.15s ease-in-out;
+}
+
+.o_time_card:hover {
+    box-shadow: 0 0.25rem 0.6rem rgba(0, 0, 0, 0.12) !important;
+    transform: translateY(-1px);
+}
+
+/* flex 子项不给 min-width:0 就撑不破容器，长任务名会把卡片顶宽 */
+.o_time_card_title {
+    min-width: 0;
+    font-size: 1.05rem;
+}
+
+.o_time_duration {
+    font-size: 1.25rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--primary, #714b67);
+}
+
+.o_time_status {
+    font-weight: 500;
+}
+
+.o_time_status_active {
+    background-color: var(--primary, #714b67);
+    color: #fff;
+}
+
+.o_time_status_interrupted {
+    background-color: rgba(251, 191, 36, 0.18);
+    color: #8a6d1a;
+}
+
+.o_time_status_done {
+    background-color: rgba(25, 135, 84, 0.14);
+    color: #146c43;
+}
+
+/* 正在计时的呼吸点：静态圆点看不出"还在跑"，动画一眼就分得清 */
+.o_time_pulse {
+    font-size: 0.5rem;
+    vertical-align: middle;
+    animation: o_time_pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes o_time_pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+.o_time_pool {
+    border-top: 1px dashed rgba(0, 0, 0, 0.1);
+    padding-top: 0.5rem;
+}
+
+.o_time_pool_done {
+    text-decoration: line-through;
+    opacity: 0.55;
+}
+
+.o_time_empty_icon {
+    font-size: 2.5rem;
+    opacity: 0.35;
+    display: block;
+    margin-bottom: 0.75rem;
+}
+
+.o_time_steps {
+    max-width: 34rem;
+    text-align: left;
+}
+
+.o_time_log th {
+    font-weight: 500;
+    white-space: nowrap;
+}

@@ -14,6 +14,7 @@ from . import tutoring_mistake_cause
 from . import tutoring_mistake
 from . import tutoring_mistake_ai
 from . import tutoring_mistake_quickadd
+from . import tutoring_time
 from . import ir_ui_menu
 from . import ir_ui_view
 from . import res_partner
