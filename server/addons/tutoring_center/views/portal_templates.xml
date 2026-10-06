@@ -658,18 +658,6 @@
                                                 </t>
                                             </select>
                                         </div>
-                                        <div class="col-12 col-md-6">
-                                            <label class="form-label small text-muted mb-1" for="q_topic">教学内容</label>
-                                            <select class="form-select form-select-sm" name="topic_id" id="q_topic">
-                                                <option value="">（不指定）</option>
-                                                <t t-foreach="topics" t-as="tp" t-key="tp.id">
-                                                    <option t-att-value="tp.id"
-                                                            t-att-selected="form.get('topic_id') == tp.id if form else False">
-                                                        <t t-out="tp.name"/>
-                                                    </option>
-                                                </t>
-                                            </select>
-                                        </div>
                                         <div class="col-12">
                                             <label class="form-label small text-muted mb-1" for="q_note">补充说明（可不填）</label>
                                             <textarea class="form-control form-control-sm" name="note" id="q_note" rows="2"
@@ -823,7 +811,7 @@
                         <h3 class="h6 mb-0">
                             <a class="stretched-link text-decoration-none"
                                t-attf-href="/my/learning/mistakes/#{m.id}"
-                               t-out="m.point_id.name or m.topic_id.name or '没标知识点'"/>
+                               t-out="m.point_id.name or '没标知识点'"/>
                         </h3>
                         <span class="text-nowrap" t-out="difficulty_labels.get(m.difficulty, '')"/>
                     </div>
@@ -924,7 +912,6 @@
                                         <span t-else="" class="text-muted">—</span>
                                     </td>
                                 </tr>
-                                <tr t-if="mistake.topic_id"><td class="text-muted">相关教学内容</td><td t-out="mistake.topic_id.name"/></tr>
                                 <tr><td class="text-muted">难度</td><td t-out="difficulty_labels.get(mistake.difficulty, '—')"/></tr>
                                 <tr><td class="text-muted">发生日期</td><td t-out="mistake.date"/></tr>
                                 <tr><td class="text-muted">记录时刻</td><td t-out="mistake.recorded_at_text or '—'"/></tr>
@@ -1077,17 +1064,6 @@
                                 </div>
                             </div>
                             <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label" for="topic_id">相关教学内容</label>
-                                    <select class="form-select" name="topic_id" id="topic_id">
-                                        <option value="">（不指定）</option>
-                                        <t t-foreach="topics" t-as="tp" t-key="tp.id">
-                                            <option t-att-value="tp.id" t-att-selected="tp.id == form['topic_id']">
-                                                <t t-out="tp.name"/>
-                                            </option>
-                                        </t>
-                                    </select>
-                                </div>
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label" for="date">发生日期</label>
                                     <input type="date" class="form-control" name="date" id="date" t-att-value="form['date']"/>

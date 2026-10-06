@@ -97,7 +97,6 @@
                                         <field name="point_id" optional="show"
                                                domain="[('grade', 'in', parent.knowledge_grades)]"/>
                                         <field name="cause_id" optional="show"/>
-                                        <field name="topic_id" optional="show"/>
                                         <field name="difficulty" widget="chili" optional="show"/>
                                         <field name="note" optional="hide"/>
                                         <field name="create_date" string="记录时刻" readonly="1" optional="hide"/>
@@ -670,7 +669,6 @@
                     <field name="date"/>
                     <field name="page"/>
                     <field name="question_no"/>
-                    <field name="topic_id"/>
                     <field name="cause_id"/>
                     <field name="point_id"/>
                     <field name="note"/>
@@ -714,10 +712,6 @@
                                           t-if="record.cause_id.value">
                                         <t t-out="record.cause_id.value"/>
                                     </span>
-                                    <span class="badge rounded-pill text-bg-secondary-subtle text-secondary-emphasis"
-                                          t-if="record.topic_id.value">
-                                        <t t-out="record.topic_id.value"/>
-                                    </span>
                                 </div>
                             </div>
                         </t>
@@ -752,7 +746,6 @@
                     <field name="note" optional="show"/>
                     <field name="ai_readable_summary" optional="show"/>
                     <field name="ai_state" optional="hide"/>
-                    <field name="topic_id" optional="hide"/>
                     <field name="create_date" string="记录时刻" readonly="1" optional="hide"/>
                 </list>
             </field>
@@ -790,7 +783,6 @@
                                 <field name="difficulty" widget="chili" readonly="1"/>
                                 <field name="cause_id" readonly="1"/>
                                 <field name="point_id" readonly="1"/>
-                                <field name="topic_id" readonly="1"/>
                                 <field name="create_date" string="记录时刻" readonly="1"/>
                             </group>
                         </group>
@@ -855,7 +847,6 @@
                                 <field name="point_id"
                                        domain="[('grade', 'in', knowledge_grades)]"
                                        context="{'default_grade': student_grade}"/>
-                                <field name="topic_id"/>
                                 <field name="create_date" string="记录时刻" readonly="1"/>
                             </group>
                         </group>
@@ -875,7 +866,6 @@
                 <search string="错题记录">
                     <field name="student_id"/>
                     <field name="workbook_id"/>
-                    <field name="topic_id"/>
                     <field name="page" string="页码"/>
                     <field name="question_no" string="题号"/>
                     <field name="note" string="补充说明"/>
@@ -896,7 +886,6 @@
                         <filter string="知识点" name="group_point" context="{'group_by': 'point_id'}"/>
                         <filter string="错因" name="group_cause" context="{'group_by': 'cause_id'}"/>
                         <filter string="错因归类" name="group_cause_category" context="{'group_by': 'cause_category'}"/>
-                        <filter string="相关教学内容" name="group_topic" context="{'group_by': 'topic_id'}"/>
                         <filter string="难度" name="group_difficulty" context="{'group_by': 'difficulty'}"/>
                     </group>
                 </search>
@@ -934,9 +923,6 @@
                                 <field name="point_id" placeholder="（可不选）"
                                        domain="[('grade', 'in', knowledge_grades)]"
                                        context="{'default_grade': student_grade}"/>
-                            </group>
-                            <group>
-                                <field name="topic_id" placeholder="（可不填）"/>
                             </group>
                         </group>
                         <field name="note" nolabel="1" placeholder="这道题错在哪、需要巩固什么……（可不填）"/>
