@@ -12,6 +12,7 @@ from . import tutoring_workbook_page
 from . import tutoring_workbook_goto
 from . import tutoring_mistake_cause
 from . import tutoring_mistake
+from . import tutoring_mistake_ai
 from . import tutoring_mistake_quickadd
 from . import ir_ui_menu
 from . import ir_ui_view

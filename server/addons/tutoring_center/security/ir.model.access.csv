@@ -32,3 +32,5 @@ access_tutoring_library_tag_user,tutoring.library.tag.user,model_tutoring_librar
 access_tutoring_library_tag_portal,tutoring.library.tag.portal,model_tutoring_library_tag,base.group_portal,1,1,1,0
 access_tutoring_library_folder_user,tutoring.library.folder.user,model_tutoring_library_folder,base.group_user,1,1,1,1
 access_tutoring_library_folder_portal,tutoring.library.folder.portal,model_tutoring_library_folder,base.group_portal,1,1,1,1
+access_tutoring_mistake_ai_job_teacher,tutoring.mistake.ai.job.teacher,model_tutoring_mistake_ai_job,group_teacher,1,0,1,0
+access_tutoring_mistake_ai_job_portal,tutoring.mistake.ai.job.portal,model_tutoring_mistake_ai_job,base.group_portal,1,0,1,0

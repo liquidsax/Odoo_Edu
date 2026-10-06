@@ -674,6 +674,7 @@
                     <field name="cause_id"/>
                     <field name="point_id"/>
                     <field name="note"/>
+                    <field name="ai_readable_summary"/>
                     <field name="difficulty"/>
                     <progressbar field="difficulty"
                                  colors='{"2": "success", "3": "info", "4": "warning", "5": "danger"}'/>
@@ -690,6 +691,10 @@
                                         <t t-if="record.question_no.value">第<t t-out="record.question_no.value"/>题</t>
                                         <t t-if="!record.page.value and !record.question_no.value">未填页码/题号</t>
                                     </span>
+                                </div>
+                                <!-- AI 抄回来的一句话摘要：看板上一眼能看出这是道什么题 -->
+                                <div class="o_mistake_card_note small text-body-secondary" t-if="record.ai_readable_summary.value">
+                                    <t t-out="record.ai_readable_summary.value"/>
                                 </div>
                                 <div class="o_mistake_card_note small text-body-secondary" t-if="record.note.value">
                                     <t t-out="record.note.value"/>
@@ -745,6 +750,8 @@
                     <field name="cause_id" optional="show"/>
                     <field name="point_id" optional="show"/>
                     <field name="note" optional="show"/>
+                    <field name="ai_readable_summary" optional="show"/>
+                    <field name="ai_state" optional="hide"/>
                     <field name="topic_id" optional="hide"/>
                     <field name="create_date" string="记录时刻" readonly="1" optional="hide"/>
                 </list>
@@ -759,11 +766,16 @@
             <field name="arch" type="xml">
                 <form string="错题记录">
                     <header>
+                        <button name="action_ai_generate" type="object" string="生成摘要"
+                                class="btn-primary" icon="fa-magic"
+                                invisible="not can_ai_summary"
+                                title="把右边这一页交给 AI：抄回题目、生成一句摘要、比对知识点。一道题只许一次"/>
                         <button name="action_open_edit" type="object" string="修改"
                                 class="btn-secondary" icon="fa-pencil"
                                 title="改页码/题号/难度/错因都要先进修改"/>
                     </header>
                     <sheet>
+                        <field name="can_ai_summary" invisible="1"/>
                         <div class="oe_title">
                             <h1><field name="workbook_id" readonly="1"/></h1>
                         </div>
@@ -784,6 +796,20 @@
                         </group>
                         <group string="补充说明">
                             <field name="note" nolabel="1" colspan="2" readonly="1"/>
+                        </group>
+                        <!-- AI 摘要：状态、一句话摘要、抄回来的题目原文、失败时该怎么办的提示。
+                             生成中/失败都不可再点（按钮靠 can_ai_summary 消失），所以这里只读 -->
+                        <group string="AI 摘要" invisible="ai_state == 'none'">
+                            <field name="ai_state" readonly="1" string="状态"/>
+                            <field name="ai_done_at" readonly="1" string="生成于"
+                                   invisible="not ai_done_at"/>
+                            <field name="ai_readable_summary" readonly="1" nolabel="1" colspan="2"
+                                   placeholder="（还没有摘要）" invisible="not ai_readable_summary"/>
+                            <field name="ai_hint" readonly="1" nolabel="1" colspan="2"
+                                   class="text-muted" invisible="not ai_hint"/>
+                            <field name="ai_readable_text" readonly="1" nolabel="1" colspan="2"
+                                   string="题目原文" placeholder="（还没有题目原文）"
+                                   invisible="not ai_readable_text"/>
                         </group>
                         <group string="出错的那一页">
                             <field name="page_pdf" widget="pdf_viewer" readonly="1"

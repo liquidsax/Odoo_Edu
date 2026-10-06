@@ -4,6 +4,8 @@ from datetime import timedelta
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
+from .math_text import to_plain_math
+
 # 一次最多生成多少条，防止把"1-9999"当成批量录入（后台速记与门户速记条共用）
 MAX_QUESTION_LINES = 100
 
@@ -85,6 +87,38 @@ class TutoringMistake(models.Model):
     library_item_ids = fields.One2many(
         'tutoring.library.item', 'mistake_id', string='题目文件')
     library_count = fields.Integer('题目文件数', compute='_compute_library_count')
+
+    # AI 摘要（见 tutoring.mistake.ai.job）：一题只许发起一次，成败都扣发起人的当日额度。
+    # 之所以长在错题上而不是知识库条目上——"能被 AI 分析"正是错题区别于其它资料的地方。
+    ai_state = fields.Selection([
+        ('none', '未生成'), ('pending', '生成中'), ('done', '已生成'), ('failed', '没成功'),
+    ], string='AI 摘要', default='none', required=True, copy=False, index=True)
+    ai_summary = fields.Char('题目摘要', copy=False)
+    ai_question_text = fields.Text('题目原文（AI 抄录）', copy=False)
+    # 给人看的那一份：AI 抄回来的题目带 LaTeX，直接印出来是 \begin{cases} 这种。
+    # 渲染只在服务端做这一份（models/math_text.py），门户与后台拿的是同一个字符串——
+    # 后台的 Char/Text 字段不渲染 HTML，所以这里产纯文本而不是 <sup> 那类标签。
+    ai_readable_summary = fields.Char('题目摘要', compute='_compute_ai_readable')
+    ai_readable_text = fields.Text('题目原文', compute='_compute_ai_readable')
+    ai_hint = fields.Char('AI 提示', copy=False)
+    ai_done_at = fields.Datetime('AI 生成时间', copy=False)
+    # 只给表单用：定位不到那一页的题没有资料可分析，按钮就不出现。
+    # 刻意不依赖 page_pdf——那个 compute 会真去抽页，列表页每行算一次就是灾难。
+    can_ai_summary = fields.Boolean('可生成摘要', compute='_compute_can_ai_summary')
+
+    @api.depends('ai_summary', 'ai_question_text')
+    def _compute_ai_readable(self):
+        for mistake in self:
+            mistake.ai_readable_summary = to_plain_math(mistake.ai_summary) or False
+            mistake.ai_readable_text = to_plain_math(mistake.ai_question_text) or False
+
+    @api.depends('page', 'workbook_id', 'ai_state')
+    def _compute_can_ai_summary(self):
+        for mistake in self:
+            # sudo 只用来问"这本练习册里有没有这一页"：教材正文挂在上传者自己的知识库
+            # 条目上，学生按记录规则读不到那些行，但按钮对他该不该出现是另一回事。
+            file, _local, _hint = mistake.sudo().workbook_id._locate_page(mistake.page)
+            mistake.can_ai_summary = bool(file) and mistake.ai_state == 'none'
 
     @api.depends('page', 'workbook_id.page_mode', 'workbook_id.page_offset',
                  'workbook_id.file_ids.content')
@@ -199,6 +233,25 @@ class TutoringMistake(models.Model):
         刻意不加 @api.model：列表按钮 RPC 恒以 [ids] 作为第一个位置参数（空选区是 [[]]）。
         """
         return self._form_dialog('view_tutoring_mistake_form', _('新建错题记录'), False)
+
+    def action_ai_generate(self):
+        """只读详情里的「生成摘要」：只建一条任务，真正调用交给 ir.cron。
+
+        刻意不同步等：一个请求占住 worker 几秒到几十秒不值得，而且关掉页面就前功尽弃。
+        刻意不加 @api.model：表单按钮 RPC 也恒以 [ids] 作为第一个位置参数。
+        """
+        self.ensure_one()
+        self.env['tutoring.mistake.ai.job'].create({'mistake_id': self.id})
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'type': 'info',
+                'title': _('正在生成中，大约需要 2 分钟'),
+                'message': _('生成完成后，摘要会出现在这道题上；一道题只能生成一次。'),
+                'sticky': False,
+            },
+        }
 
     @api.model
     def _migration_backfill_workbook(self):
