@@ -559,6 +559,9 @@
                 </div>
 
                 <!-- 速记条：一行记完出处；难度/日期/错因/知识点收进「更多选项」 -->
+                <!-- .collapse 的隐藏是纯 CSS 规则，没开 JS 的浏览器点不动开关，
+                     所以那种情况下让这块常驻——原生 POST 提交本来就不依赖 JS -->
+                <noscript><style>#quickadd.collapse { display: block !important; }</style></noscript>
                 <div t-attf-class="card border-0 shadow-sm mb-4 collapse{{ ' show' if quickadd_open else '' }}"
                      id="quickadd" t-if="can_create">
                     <div class="card-body">
@@ -1357,6 +1360,8 @@
 
                     <!-- ===== 右：上传 + 检索 + 卡片墙 ===== -->
                     <div class="col-12 col-lg-9">
+                        <!-- 同上：没开 JS 时展不开开关，就让上传区常驻，原生 multipart 提交照旧可用 -->
+                        <noscript><style>#o_lib_upload.collapse { display: block !important; }</style></noscript>
                         <div t-attf-class="card border-0 shadow-sm mb-3 o_lib_upload collapse{{ ' show' if upload_open else '' }}"
                              id="o_lib_upload"
                              data-lib-upload="1" t-att-data-lib-max-file="quota['max_file']">
