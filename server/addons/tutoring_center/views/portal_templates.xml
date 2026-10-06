@@ -220,7 +220,7 @@
                         <div class="card h-100">
                             <div class="card-header fw-bold d-flex justify-content-between align-items-center">
                                 <span>最近错题</span>
-                                <a class="btn btn-sm btn-primary" href="/my/mistakes#quickadd">+ 记一笔</a>
+                                <a class="btn btn-sm btn-primary" href="/my/mistakes?quickadd=1#quickadd">+ 记一笔</a>
                             </div>
                             <div class="card-body p-0">
                                 <t t-if="not mistakes">
@@ -516,13 +516,20 @@
         <!-- ===== 错题独立页（顶栏「错题」入口）：速记条 + 药丸筛选 + 卡片列表 ===== -->
         <template id="portal_my_mistakes" name="错题">
             <t t-call="portal.portal_layout">
+                <!-- 速记条默认收起；只有"提交回来带错"或"从首页点进来就是要记"才展开 -->
+                <t t-set="quickadd_open" t-value="bool(error or form or request.params.get('quickadd'))"/>
                 <!-- 标题行：总数 + 记一笔 -->
                 <div class="d-flex justify-content-between align-items-center mt-3 mb-3">
                     <h4 class="mb-0">
                         错题
                         <span class="badge text-bg-light border ms-1" t-out="result_total"/>
                     </h4>
-                    <a href="#quickadd" class="btn btn-primary">+ 记一笔</a>
+                    <!-- 这块按钮就是速记条的开关（Bootstrap 原生 collapse，与页面里
+                         「更多选项」「+ 新建文件夹」同一套机制，不写一行 JS） -->
+                    <a t-if="can_create" href="#quickadd" role="button"
+                       t-attf-class="btn btn-primary{{ '' if quickadd_open else ' collapsed' }}"
+                       data-bs-toggle="collapse" data-bs-target="#quickadd"
+                       aria-controls="quickadd" t-att-aria-expanded="'true' if quickadd_open else 'false'">+ 记一笔</a>
                 </div>
 
                 <div t-if="created_count" class="alert alert-success">
@@ -552,7 +559,11 @@
                 </div>
 
                 <!-- 速记条：一行记完出处；难度/日期/错因/知识点收进「更多选项」 -->
-                <div class="card border-0 shadow-sm mb-4" id="quickadd" t-if="can_create">
+                <!-- .collapse 的隐藏是纯 CSS 规则，没开 JS 的浏览器点不动开关，
+                     所以那种情况下让这块常驻——原生 POST 提交本来就不依赖 JS -->
+                <noscript><style>#quickadd.collapse { display: block !important; }</style></noscript>
+                <div t-attf-class="card border-0 shadow-sm mb-4 collapse{{ ' show' if quickadd_open else '' }}"
+                     id="quickadd" t-if="can_create">
                     <div class="card-body">
                         <form method="post" action="/my/learning/mistakes/new">
                             <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
@@ -644,18 +655,6 @@
                                                                     t-out="pt.name"/>
                                                         </t>
                                                     </optgroup>
-                                                </t>
-                                            </select>
-                                        </div>
-                                        <div class="col-12 col-md-6">
-                                            <label class="form-label small text-muted mb-1" for="q_topic">教学内容</label>
-                                            <select class="form-select form-select-sm" name="topic_id" id="q_topic">
-                                                <option value="">（不指定）</option>
-                                                <t t-foreach="topics" t-as="tp" t-key="tp.id">
-                                                    <option t-att-value="tp.id"
-                                                            t-att-selected="form.get('topic_id') == tp.id if form else False">
-                                                        <t t-out="tp.name"/>
-                                                    </option>
                                                 </t>
                                             </select>
                                         </div>
@@ -768,7 +767,7 @@
                 <t t-if="not mistakes and not groups">
                     <div class="alert alert-warning">
                         <span t-if="search">没有匹配「<t t-out="search"/>」的错题。</span>
-                        <span t-elif="filterby == 'all' and not drilldowns">还没有错题记录，继续保持！做错了题就用上面的速记条记一笔。</span>
+                        <span t-elif="filterby == 'all' and not drilldowns">还没有错题记录，继续保持！做错了题点右上角「+ 记一笔」。</span>
                         <span t-else="">这个筛选下没有错题。</span>
                     </div>
                 </t>
@@ -812,7 +811,7 @@
                         <h3 class="h6 mb-0">
                             <a class="stretched-link text-decoration-none"
                                t-attf-href="/my/learning/mistakes/#{m.id}"
-                               t-out="m.point_id.name or m.topic_id.name or '没标知识点'"/>
+                               t-out="m.point_id.name or '没标知识点'"/>
                         </h3>
                         <span class="text-nowrap" t-out="difficulty_labels.get(m.difficulty, '')"/>
                     </div>
@@ -913,7 +912,6 @@
                                         <span t-else="" class="text-muted">—</span>
                                     </td>
                                 </tr>
-                                <tr t-if="mistake.topic_id"><td class="text-muted">相关教学内容</td><td t-out="mistake.topic_id.name"/></tr>
                                 <tr><td class="text-muted">难度</td><td t-out="difficulty_labels.get(mistake.difficulty, '—')"/></tr>
                                 <tr><td class="text-muted">发生日期</td><td t-out="mistake.date"/></tr>
                                 <tr><td class="text-muted">记录时刻</td><td t-out="mistake.recorded_at_text or '—'"/></tr>
@@ -1066,17 +1064,6 @@
                                 </div>
                             </div>
                             <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label" for="topic_id">相关教学内容</label>
-                                    <select class="form-select" name="topic_id" id="topic_id">
-                                        <option value="">（不指定）</option>
-                                        <t t-foreach="topics" t-as="tp" t-key="tp.id">
-                                            <option t-att-value="tp.id" t-att-selected="tp.id == form['topic_id']">
-                                                <t t-out="tp.name"/>
-                                            </option>
-                                        </t>
-                                    </select>
-                                </div>
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label" for="date">发生日期</label>
                                     <input type="date" class="form-control" name="date" id="date" t-att-value="form['date']"/>
@@ -1240,12 +1227,18 @@
 
         <template id="portal_my_library" name="我的知识库">
             <t t-call="portal.portal_layout">
+                <!-- 上传区默认收起；只有原生表单提交回来带错才展开，好让人接着改 -->
+                <t t-set="upload_open" t-value="bool(request.params.get('error'))"/>
                 <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
                     <h4 class="mb-0">
                         知识库
                         <span class="badge text-bg-light border ms-1" t-out="quota['count']"/>
                     </h4>
-                    <a href="#o_lib_upload" class="btn btn-primary">
+                    <!-- 这块按钮就是上传区的开关（Bootstrap 原生 collapse，与左栏「+ 新建」同一套机制） -->
+                    <a href="#o_lib_upload" role="button"
+                       t-attf-class="btn btn-primary{{ '' if upload_open else ' collapsed' }}"
+                       data-bs-toggle="collapse" data-bs-target="#o_lib_upload"
+                       aria-controls="o_lib_upload" t-att-aria-expanded="'true' if upload_open else 'false'">
                         <i class="fa fa-upload me-1"/>上传文件
                     </a>
                 </div>
@@ -1343,7 +1336,10 @@
 
                     <!-- ===== 右：上传 + 检索 + 卡片墙 ===== -->
                     <div class="col-12 col-lg-9">
-                        <div class="card border-0 shadow-sm mb-3 o_lib_upload" id="o_lib_upload"
+                        <!-- 同上：没开 JS 时展不开开关，就让上传区常驻，原生 multipart 提交照旧可用 -->
+                        <noscript><style>#o_lib_upload.collapse { display: block !important; }</style></noscript>
+                        <div t-attf-class="card border-0 shadow-sm mb-3 o_lib_upload collapse{{ ' show' if upload_open else '' }}"
+                             id="o_lib_upload"
                              data-lib-upload="1" t-att-data-lib-max-file="quota['max_file']">
                             <div class="card-body">
                                 <form method="post" action="/my/library/upload"
@@ -1477,7 +1473,7 @@
                                 </t>
                                 <t t-else="">
                                     <b>这里还是空的。</b>
-                                    用上面那块拖拽区把文件传上来：教辅 PDF、LeetCode 截图、课堂笔记、
+                                    点右上角「上传文件」展开拖拽区，把文件传上来：教辅 PDF、LeetCode 截图、课堂笔记、
                                     扫描的资料都行，传完在任何设备登录后都能点开看。
                                 </t>
                             </div>

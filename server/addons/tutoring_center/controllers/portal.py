@@ -301,16 +301,14 @@ class TutoringPortal(CustomerPortal):
         return rec if rec and rec.has_access('read') else empty
 
     def _mistake_search_domain(self, term):
-        # 卡片标题在没有知识点时退回显示"教学内容"，所以它也得能搜到
         return [
-            '|', '|', '|', '|', '|', '|',
+            '|', '|', '|', '|', '|',
             ('page', 'ilike', term),
             ('question_no', 'ilike', term),
             ('note', 'ilike', term),
             ('workbook_id.name', 'ilike', term),
             ('point_id.name', 'ilike', term),
             ('cause_id.name', 'ilike', term),
-            ('topic_id.name', 'ilike', term),
         ]
 
     def _mistake_filter_counts(self, base_domain, month_start):
@@ -398,7 +396,6 @@ class TutoringPortal(CustomerPortal):
             'student_id': _to_int(post.get('student_id')),
             'page': post.get('page') or '',
             'question_no': post.get('question_no') or '',
-            'topic_id': _to_int(post.get('topic_id')),
             'cause_id': _to_int(post.get('cause_id')),
             'point_id': _to_int(post.get('point_id')),
             'difficulty': post.get('difficulty') or '3',
@@ -416,7 +413,6 @@ class TutoringPortal(CustomerPortal):
                 'workbook_id': mistake.workbook_id.id or False,
                 'page': mistake.page or '',
                 'question_no': mistake.question_no or '',
-                'topic_id': mistake.topic_id.id or False,
                 'cause_id': mistake.cause_id.id or False,
                 'point_id': mistake.point_id.id or False,
                 'difficulty': mistake.difficulty or '3',
@@ -424,7 +420,7 @@ class TutoringPortal(CustomerPortal):
                 'note': mistake.note or '',
             }
         else:
-            form = {'workbook_id': False, 'page': '', 'question_no': '', 'topic_id': False,
+            form = {'workbook_id': False, 'page': '', 'question_no': '',
                     'cause_id': False, 'point_id': False, 'difficulty': '3', 'date': '',
                     'note': ''}
 
@@ -434,7 +430,6 @@ class TutoringPortal(CustomerPortal):
             'mistake': mistake,
             'form': form,
             'workbooks': request.env['tutoring.workbook'].search([]),
-            'topics': request.env['tutoring.topic'].search([]),
             'causes': request.env['tutoring.mistake.cause'].search([]),
             'point_groups': self._mistake_point_groups(student) if student else [],
             'difficulties': Mistake._fields['difficulty'].selection,
@@ -453,7 +448,6 @@ class TutoringPortal(CustomerPortal):
             'workbook_id': _to_int('workbook_id'),
             'page': (kw.get('page') or '').strip() or False,
             'question_no': (kw.get('question_no') or '').strip() or False,
-            'topic_id': _to_int('topic_id'),
             'difficulty': kw.get('difficulty') if kw.get('difficulty') in ('2', '3', '4', '5') else '3',
             'note': (kw.get('note') or '').strip() or False,
         }
@@ -611,7 +605,6 @@ class TutoringPortal(CustomerPortal):
             'form': form or {},
             'error': error,
             'workbooks': request.env['tutoring.workbook'].search([]),
-            'topics': request.env['tutoring.topic'].search([]),
             'causes': request.env['tutoring.mistake.cause'].search([]),
             'point_groups': self._mistake_point_groups(form_student) if form_student else [],
         }
