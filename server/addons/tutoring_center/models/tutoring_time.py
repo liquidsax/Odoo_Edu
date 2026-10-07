@@ -46,6 +46,12 @@ MAX_NOTES = 200
 SYNC_ACTIONS = ('created', 'updated', 'deleted', 'conflict', 'noop', 'rejected')
 
 
+def _row_key(kind, client_id):
+    """响应里标识一行的键。客户端记账（哪行该记住 rev、哪行该丢掉墓碑）全靠它，
+    所以三类行都用同一套前缀，不让客户端去猜。"""
+    return '%s:%s' % (kind, client_id)
+
+
 def parse_client_datetime(value, default_offset=0):
     """客户端时间字符串 → (UTC naive datetime, 偏移分钟)。
 
@@ -179,7 +185,8 @@ class TutoringTimeDevice(models.Model):
     sync_count = fields.Integer('同步次数', default=0)
 
     _user_device_uniq = models.Constraint(
-        'unique(user_id, device_key)', _('这台设备已经登记过了。'))
+        'unique(user_id, device_key)',
+        lambda env, diag: _('这台设备已经登记过了。'))
 
     @api.model
     def resolve(self, info):
@@ -269,7 +276,8 @@ class TutoringTimeTask(models.Model):
 
     精度上有一处先天损耗：Do1ng 落盘的 `start`/`end` 只到秒，而它的 `totalMillis` 是内存里
     按毫秒累加的，所以云端按区间重算与本地累计值最多差「每段区间 1 秒」。展示层到分钟，
-    看不出来；Do1ng 侧已把新数据的时间戳改成带毫秒，历史数据保持原样。
+    看不出来；要改就得动 Do1ng 的持久化格式，而它自己用同一份格式渲染时间标签，
+    为这点损耗不值当。
     """
     _name = 'tutoring.time.task'
     _description = '时间账本任务'
@@ -304,7 +312,8 @@ class TutoringTimeTask(models.Model):
     open_text = fields.Char('进行中时长', compute='_compute_duration_text')
 
     _user_client_uniq = models.Constraint(
-        'unique(user_id, client_id)', _('这条任务已经同步过了。'))
+        'unique(user_id, client_id)',
+        lambda env, diag: _('这条任务已经同步过了。'))
 
     @api.depends('session_ids.start_at', 'session_ids.end_at', 'session_ids.active',
                  'client_created')
@@ -368,25 +377,28 @@ class TutoringTimeTask(models.Model):
                               limit=MAX_ROWS_PER_PUSH, got=total_rows))
 
         stats = {key: 0 for key in SYNC_ACTIONS}
-        revs, rejected = {}, []
+        revs, actions, rejected = {}, {}, []
         # 任务必须先于它的区间与想法落库：子行要靠 task_client_id 找到父任务
-        tasks_by_client_id, task_stats, task_revs, task_rejected = self._sync_tasks(
-            task_rows, device, offset)
+        tasks_by_client_id, task_stats, task_revs, task_actions, task_rejected = \
+            self._sync_tasks(task_rows, device, offset)
         _merge_stats(stats, task_stats)
         revs.update(task_revs)
+        actions.update(task_actions)
         rejected += task_rejected
 
         for model_name, rows in (('tutoring.time.session', session_rows),
                                  ('tutoring.time.pool.item', pool_rows)):
-            child_stats, child_revs, child_rejected = self.env[model_name]._sync_rows(
-                rows, tasks_by_client_id, device, offset)
+            child_stats, child_revs, child_actions, child_rejected = \
+                self.env[model_name]._sync_rows(rows, tasks_by_client_id, device, offset)
             _merge_stats(stats, child_stats)
             revs.update(child_revs)
+            actions.update(child_actions)
             rejected += child_rejected
 
         return {
             'stats': stats,
             'revs': revs,
+            'actions': actions,
             'rejected': rejected,
             'device_id': device.id if device else False,
             'device_key': device.device_key if device else False,
@@ -395,7 +407,7 @@ class TutoringTimeTask(models.Model):
     @api.model
     def _sync_tasks(self, rows, device, offset):
         stats = {key: 0 for key in SYNC_ACTIONS}
-        revs, rejected = {}, []
+        revs, actions, rejected = {}, {}, []
         tasks_by_client_id = {}
         for row in rows:
             if not isinstance(row, dict):
@@ -410,16 +422,23 @@ class TutoringTimeTask(models.Model):
             existing = _lookup(self.browse(), [('client_id', '=', client_id)])
             record, action, rev = _upsert(existing, values, _base_rev(row))
             stats[action] += 1
-            revs['task:%s' % client_id] = rev
+            key = _row_key('task', client_id)
+            revs[key] = rev
+            actions[key] = action
             tasks_by_client_id[client_id] = record or existing
             if action == 'deleted' and record:
                 # 桌面端删掉一个任务时，它名下的区间与想法在本地也一起没了。
                 # 这里跟着归档，否则统计页会读到"任务没了但时长还在"的孤儿区间。
-                record.with_context(active_test=False).mapped('session_ids').write(
-                    {'active': False, 'rev': 1})
-                record.with_context(active_test=False).mapped('pool_item_ids').write(
-                    {'active': False, 'rev': 1})
-        return tasks_by_client_id, stats, revs, rejected
+                # rev 必须各自 +1（不是重置）：还留着旧副本的另一台设备下次推这条时
+                # 会撞上冲突而不是悄悄把它复活——重置成 1 等于把乐观锁拆了。
+                #
+                # 两类子行要分开走：它们是<b>不同模型</b>的记录集，
+                # `sessions | pool_items` 会直接 TypeError: inconsistent models。
+                for relation in ('session_ids', 'pool_item_ids'):
+                    for child in record.with_context(active_test=False).mapped(relation):
+                        if child.active:
+                            child.write({'active': False, 'rev': (child.rev or 0) + 1})
+        return tasks_by_client_id, stats, revs, actions, rejected
 
     @api.model
     def overview(self):
@@ -505,7 +524,8 @@ class TutoringTimeSession(models.Model):
     active = fields.Boolean('有效', default=True, index=True)
 
     _task_client_uniq = models.Constraint(
-        'unique(task_id, client_id)', _('这段计时已经同步过了。'))
+        'unique(task_id, client_id)',
+        lambda env, diag: _('这段计时已经同步过了。'))
 
     @api.depends('start_at', 'utc_offset')
     def _compute_local_date(self):
@@ -529,10 +549,10 @@ class TutoringTimeSession(models.Model):
     @api.model
     def _sync_rows(self, rows, tasks_by_client_id, device, offset):
         stats = {key: 0 for key in SYNC_ACTIONS}
-        revs, rejected = {}, []
+        revs, actions, rejected = {}, {}, []
         for row in rows:
             client_id, values, error = _child_values(
-                row, tasks_by_client_id, offset, device, _session_values)
+                self.env, row, tasks_by_client_id, offset, device, _session_values)
             if error:
                 stats['rejected'] += 1
                 rejected.append({'kind': 'session', 'client_id': client_id, 'reason': error})
@@ -541,8 +561,10 @@ class TutoringTimeSession(models.Model):
                 ('task_id', '=', values['task_id']), ('client_id', '=', client_id)])
             record, action, rev = _upsert(existing, values, _base_rev(row))
             stats[action] += 1
-            revs['session:%s' % client_id] = rev
-        return stats, revs, rejected
+            key = _row_key('session', client_id)
+            revs[key] = rev
+            actions[key] = action
+        return stats, revs, actions, rejected
 
 
 class TutoringTimePoolItem(models.Model):
@@ -573,15 +595,16 @@ class TutoringTimePoolItem(models.Model):
     active = fields.Boolean('有效', default=True, index=True)
 
     _task_client_uniq = models.Constraint(
-        'unique(task_id, client_id)', _('这条想法已经同步过了。'))
+        'unique(task_id, client_id)',
+        lambda env, diag: _('这条想法已经同步过了。'))
 
     @api.model
     def _sync_rows(self, rows, tasks_by_client_id, device, offset):
         stats = {key: 0 for key in SYNC_ACTIONS}
-        revs, rejected = {}, []
+        revs, actions, rejected = {}, {}, []
         for row in rows:
             client_id, values, error = _child_values(
-                row, tasks_by_client_id, offset, device, _pool_values)
+                self.env, row, tasks_by_client_id, offset, device, _pool_values)
             if error:
                 stats['rejected'] += 1
                 rejected.append({'kind': 'pool', 'client_id': client_id, 'reason': error})
@@ -590,8 +613,10 @@ class TutoringTimePoolItem(models.Model):
                 ('task_id', '=', values['task_id']), ('client_id', '=', client_id)])
             record, action, rev = _upsert(existing, values, _base_rev(row))
             stats[action] += 1
-            revs['pool:%s' % client_id] = rev
-        return stats, revs, rejected
+            key = _row_key('pool', client_id)
+            revs[key] = rev
+            actions[key] = action
+        return stats, revs, actions, rejected
 
 
 # ----------------------------------------------------------------
@@ -631,11 +656,28 @@ def _common_values(row, device):
     }
 
 
+def _tombstone_values(device, task_id=None):
+    """墓碑只该改"还在不在"，不碰别的列。
+
+    带上 `client_updated_at` 之类会把原有值覆成空，还会让一条已经归档的行被判定成
+    "有变化"，白涨一个 rev；`device_id` 留着是有意义的——谁删的要能追。
+    """
+    values = {'active': False, 'device_id': device.id if device else False}
+    if task_id:
+        # 子行要靠 (task_id, client_id) 定位，这一列必须有
+        values['task_id'] = task_id
+    return values
+
+
 def _task_values(row, offset, device):
     """返回 `(client_id, values, error)`；error 非空表示这一行该被拒。"""
     client_id = _clip(row.get('client_id'), 64)
     if not client_id:
         return '', {}, _('缺少客户端标识')
+    if row.get('deleted'):
+        # 墓碑只需要认得出"是哪一行"，其余字段一概不动：
+        # 客户端删掉一条之后只剩 id 和 rev，硬要它回填标题就等于拒绝这次删除。
+        return client_id, _tombstone_values(device), False
     title = _clip(row.get('title'), MAX_TITLE)
     if not title:
         return client_id, {}, _('任务标题是空的')
@@ -658,7 +700,7 @@ def _task_values(row, offset, device):
     return client_id, values, False
 
 
-def _child_values(row, tasks_by_client_id, offset, device, builder):
+def _child_values(env, row, tasks_by_client_id, offset, device, builder):
     """区间与想法共用的前置校验：认得出自己、也认得出所属任务，才谈落库。"""
     if not isinstance(row, dict):
         return '', {}, _('格式不对')
@@ -668,7 +710,12 @@ def _child_values(row, tasks_by_client_id, offset, device, builder):
     task_key = _clip(row.get('task_client_id'), 64)
     task = tasks_by_client_id.get(task_key)
     if not task:
-        # 父任务这一轮没上来（被拒或还没同步）：子行不能挂空，
+        # 父任务不一定和子行同批上来：墓碑只剩 id 和 parent，没有正文。
+        # 连墓碑任务也要查得到（active_test=False），否则"任务先删、区间后删"
+        # 这条路会把子行永远拒在门外。
+        task = _lookup(env['tutoring.time.task'],
+                       [('client_id', '=', task_key)]) if task_key else env['tutoring.time.task'].browse()
+    if not task:
         # 记成被拒，让客户端下一轮连同任务一起重推
         return client_id, {}, _('找不到它所属的任务：%s', task_key or '（空）')
     values, error = builder(row, task, offset, device)
@@ -676,6 +723,9 @@ def _child_values(row, tasks_by_client_id, offset, device, builder):
 
 
 def _session_values(row, task, offset, device):
+    if row.get('deleted'):
+        # 墓碑只认行，不校验正文，理由同 _task_values
+        return _tombstone_values(device, task.id), False
     start, start_offset = parse_client_datetime(row.get('start'), offset)
     if not start:
         return {}, _('开始时间缺失或格式不对：%s', row.get('start'))
@@ -701,6 +751,8 @@ def _session_values(row, task, offset, device):
 
 
 def _pool_values(row, task, offset, device):
+    if row.get('deleted'):
+        return _tombstone_values(device, task.id), False
     text = _clip(row.get('text'), MAX_TEXT)
     if not text:
         return {}, _('想法内容是空的')

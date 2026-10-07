@@ -17,6 +17,9 @@ WANTED = [
     ('zz_time_b', os.environ['ZZ_TIME_PW_B'], [portal.id], '时间账本验收B'),
     # 契约预检专用一个独立账号：两套脚本各写各的数据，谁都别被对方的残留行数带偏
     ('zz_time_c', os.environ['ZZ_TIME_PW_C'], [teacher.id], '时间账本预检C'),
+    # Java 客户端端到端再要一个干净的空账号：它第一轮就该是"全新增"，
+    # 蹭别人的数据会把幂等与墓碑两组断言全带歪
+    ('zz_time_d', os.environ['ZZ_TIME_PW_D'], [teacher.id], '时间账本预检D'),
 ]
 
 for login, password, groups, name in WANTED:

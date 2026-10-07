@@ -1685,9 +1685,10 @@
                             <t t-out="len(task.pool_item_ids)"/> 条
                         </div>
                         <ul class="list-unstyled mb-0">
-                            <li t-foreach="task.pool_item_ids[:3]" t-as="note" t-key="note.id"
-                                t-attf-class="text-truncate #{'o_time_pool_done' if note.done_at else ''}"
-                                t-att-title="note.text" t-out="note.text"/>
+                            <t t-foreach="task.pool_item_ids[:3]" t-as="note">
+                                <li t-attf-class="text-truncate #{'o_time_pool_done' if note.done_at else ''}"
+                                    t-att-title="note.text" t-out="note.text"/>
+                            </t>
                         </ul>
                     </div>
 
@@ -1789,7 +1790,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr t-foreach="syncs" t-as="log" t-key="log.id">
+                                        <tr t-foreach="syncs" t-as="log">
                                             <td class="small"><span t-field="log.create_date"/></td>
                                             <td class="small text-truncate" t-out="log.device_id.name or '—'"/>
                                             <td class="small">

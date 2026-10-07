@@ -10,6 +10,9 @@ totalMillis 交给云端按区间重算）在这里先用 Python 走一遍，跑
 用法：
     set ZZ_TIME_PW_C=... & python dev/zz_do1ng_sync_check.py
     DO1NG_TASKS=别的路径 python dev/zz_do1ng_sync_check.py   # 换数据源
+
+注意：它断言"首轮是全新增"，所以**必须对一个干净的账号跑**（默认 zz_time_c）。
+同一个账号跑第二遍，首轮会变成 `noop` 而不是 `created`，那是脚本的前提不是产品的毛病。
 """
 import json
 import os

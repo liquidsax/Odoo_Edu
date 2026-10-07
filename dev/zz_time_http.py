@@ -344,5 +344,58 @@ if isinstance(overview, dict):
           overview)
     check('overview 报最后同步时间文案', bool(overview.get('last_sync_text')), overview)
 
+print('\n=== 十一、逐行动作与极简墓碑（同步协议的另一半） ===')
+r, b = push(a, tasks=[task('tomb-lab', '墓碑试验田', 'ACTIVE', '2026-10-08T09:00:00+08:00')],
+            sessions=[sess('tomb-lab-s1', 'tomb-lab', '2026-10-08T09:00:00+08:00',
+                           '2026-10-08T09:30:00+08:00')])
+stats = b.get('stats') or {}
+actions = b.get('actions') or {}
+check('新增行在 actions 里标成 created', stats.get('created') == 2
+      and actions.get('task:tomb-lab') == 'created'
+      and actions.get('session:tomb-lab-s1') == 'created', actions)
+
+r, b = push(a, tasks=[task('tomb-lab', '墓碑试验田', 'ACTIVE', '2026-10-08T09:00:00+08:00',
+                           rev=1)],
+            sessions=[sess('tomb-lab-s1', 'tomb-lab', '2026-10-08T09:00:00+08:00',
+                           '2026-10-08T09:30:00+08:00', rev=1)])
+actions = b.get('actions') or {}
+check('重推在 actions 里标成 noop',
+      actions.get('task:tomb-lab') == 'noop'
+      and actions.get('session:tomb-lab-s1') == 'noop', actions)
+
+# 只送子行的墓碑，且**父任务不在这一批里**：服务端必须回查数据库才认得它
+r, b = push(a, sessions=[{'client_id': 'tomb-lab-s1', 'task_client_id': 'tomb-lab',
+                          'rev': 1, 'deleted': True}])
+stats = b.get('stats') or {}
+actions = b.get('actions') or {}
+check('只带 id 的子行墓碑不会被拒（父任务靠回查）',
+      stats.get('deleted') == 1 and not stats.get('rejected'),
+      '%s %s' % (stats, b.get('rejected')))
+check('子行墓碑的 action 是 deleted',
+      actions.get('session:tomb-lab-s1') == 'deleted', actions)
+
+# 任务的墓碑：同样只带 id，没有标题也没有状态
+r, b = push(a, tasks=[{'client_id': 'tomb-lab', 'rev': 1, 'deleted': True}])
+stats = b.get('stats') or {}
+actions = b.get('actions') or {}
+check('只带 id 的任务墓碑被接受（不要求标题/状态）',
+      stats.get('deleted') == 1 and not stats.get('rejected'),
+      '%s %s' % (stats, b.get('rejected')))
+check('任务墓碑之后默认搜索里查不到它',
+      call(a, 'tutoring.time.task', 'search_count', None,
+           {'domain': [['client_id', '=', 'tomb-lab']]})[0] == 0)
+count, err = call(a, 'tutoring.time.task', 'search_count', None,
+                  {'domain': [['client_id', '=', 'tomb-lab']],
+                   'context': {'active_test': False}})
+check('带 active_test=False 仍查得到（是墓碑不是真删）', count == 1, '%s %s' % (count, err))
+
+# 约束消息必须写成 callable（models.Constraint 的 message 会在抛错时求值）：
+# 类体里直接 _('…') 会在导入期就翻译，全新库安装刷一片 "no translation language
+# detected" 警告，而且消息永远不会按访问者语言翻译。这条断言保证它仍然出得来。
+result, err = call(a, 'tutoring.time.task', 'create',
+                   [{'client_id': 'tomb-lab', 'title': '撞唯一约束'}])
+check('重复 client_id 直接建会被唯一约束挡住', result is None, result)
+check('挡下时说的是人话而不是 SQL 报错', '已经同步过' in (err or ''), (err or '')[:160])
+
 print('\n%d 项通过，%d 项失败' % (ok, fail))
 sys.exit(1 if fail else 0)

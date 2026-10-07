@@ -192,6 +192,9 @@ class TutoringTimeSyncController(http.Controller):
             'server_time': _now_iso(),
             'stats': stats,
             'revs': result.get('revs') or {},
+            # 逐行动作：客户端要靠它分清"这行成了（记 rev）"、"冲突了（换 rev 但保持脏）"、
+            # "被拒了（原样留着下次再试）"。只有聚合计数是做不到的。
+            'actions': result.get('actions') or {},
             'rejected': rejected[:MAX_REJECTED_REPORTED],
             'rejected_total': len(rejected),
             'device_key': result.get('device_key') or False,
