@@ -17,7 +17,6 @@ class TutoringMistakeQuickadd(models.TransientModel):
         default=lambda s: s._last_mistake().workbook_id.id)
     page = fields.Char('页码')
     question_no = fields.Char('题号')
-    topic_id = fields.Many2one('tutoring.topic', string='相关教学内容')
     cause_id = fields.Many2one('tutoring.mistake.cause', string='错因')
     point_id = fields.Many2one('tutoring.knowledge.point', string='知识点')
     # 挑知识点的域按学生年级放开，字段得在表单里（不可见）加载出来
@@ -56,7 +55,6 @@ class TutoringMistakeQuickadd(models.TransientModel):
             'date': self.date,
             'workbook_id': self.workbook_id.id,
             'page': (self.page or '').strip() or False,
-            'topic_id': self.topic_id.id or False,
             'cause_id': self.cause_id.id or False,
             'point_id': self.point_id.id or False,
             'difficulty': self.difficulty or '3',

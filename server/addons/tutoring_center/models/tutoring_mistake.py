@@ -48,8 +48,6 @@ class TutoringMistake(models.Model):
         ondelete='restrict', index=True)
     page = fields.Char('页码')
     question_no = fields.Char('题号')
-    topic_id = fields.Many2one(
-        'tutoring.topic', string='相关教学内容', ondelete='restrict')
     difficulty = fields.Selection([
         ('2', '🌶🌶'), ('3', '🌶🌶🌶'),
         ('4', '🌶🌶🌶🌶'), ('5', '🌶🌶🌶🌶🌶'),
