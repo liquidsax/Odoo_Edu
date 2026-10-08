@@ -64,17 +64,22 @@ class TutoringWorkbookFile(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        """教材一律算作练习册分类，归属当前上传者。"""
+        """教材一律算作练习册分类，归属当前上传者。
+
+        整趟带 `no_workbook_link`：条目那边现在会在"分类＝练习册/教辅"时反过来
+        建教材文件，委托继承又是先写父记录，不设这道闸门两边就互相触发。
+        """
         for vals in vals_list:
             vals.setdefault('category', 'workbook')
             vals.setdefault('user_id', self.env.user.id)
-        files = super().create(vals_list)
+        files = super(
+            TutoringWorkbookFile, self.with_context(no_workbook_link=True)).create(vals_list)
         files._sync_item_title()
         return files
 
     def write(self, vals):
         """换过正文或改过页码范围，之前抽的单页就都不作数了。"""
-        res = super().write(vals)
+        res = super(TutoringWorkbookFile, self.with_context(no_workbook_link=True)).write(vals)
         if {'content', 'page_from', 'page_to'} & set(vals):
             self.env['tutoring.workbook.page']._invalidate_for_files(self)
         if {'name', 'workbook_id'} & set(vals):
@@ -89,9 +94,16 @@ class TutoringWorkbookFile(models.Model):
         return res
 
     def _sync_item_title(self):
-        """让知识库里的标题带上书名，避免列表里只剩"上册"两个字。"""
+        """让知识库里的标题带上书名，避免列表里只剩"上册"两个字。
+
+        分册名与书名一致时不拼：知识库自动建书走的就是这一路，两边同名，
+        拼出来是「一数 · 一数」，用户在自己列表里看到重复的字眼只会以为是坏了。
+        """
         for file in self.filtered('item_id'):
-            title = file.display_name or file.name
+            book = (file.workbook_id.name or '').strip()
+            part = (file.name or '').strip()
+            title = part if book == part else ' · '.join(p for p in (book, part) if p)
+            title = title or file.item_id.name
             if file.item_id.name != title:
                 file.item_id.write({'name': title, 'category': 'workbook'})
 

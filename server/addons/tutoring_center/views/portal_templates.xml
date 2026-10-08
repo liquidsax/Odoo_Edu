@@ -1213,7 +1213,9 @@
                            t-att-title="item.mistake_label or '回到这道错题'">
                             <i class="fa fa-exclamation-circle me-1"/>错题
                         </a>
-                        <span t-out="item.size_text"/>
+                        <span t-if="item.file_size" t-out="item.size_text"/>
+                        <!-- 先记名字、附件后补的那条：别让人以为文件传丢了 -->
+                        <span t-else="" class="text-warning-emphasis">还没补附件</span>
                         <span t-field="item.upload_date"/>
                     </div>
                     <div t-if="item.tag_ids" class="d-flex flex-wrap gap-1">
@@ -1226,7 +1228,7 @@
                     </div>
                     <div class="mt-auto d-flex gap-2 pt-1">
                         <a class="btn btn-sm btn-primary" t-attf-href="/my/library/#{item.id}">打开</a>
-                        <a class="btn btn-sm btn-outline-secondary"
+                        <a t-if="item.file_size" class="btn btn-sm btn-outline-secondary"
                            t-attf-href="/tutoring/library/#{item.id}/raw?download=1">
                             <i class="fa fa-download me-1"/>下载
                         </a>
@@ -1239,6 +1241,8 @@
             <t t-call="portal.portal_layout">
                 <!-- 上传区默认收起；只有原生表单提交回来带错才展开，好让人接着改 -->
                 <t t-set="upload_open" t-value="bool(request.params.get('error'))"/>
+                <!-- 「新建资料」那块同理：路由建完会带 new=1 回来（建成功就直接跳详情页了） -->
+                <t t-set="new_open" t-value="bool(request.params.get('new'))"/>
                 <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
                     <h4 class="mb-0">
                         知识库
@@ -1425,9 +1429,66 @@
                                     </button>
                                     <a t-if="search" class="btn btn-light border" title="清空搜索"
                                        t-attf-href="/my/library?{{ keep_query('*', search=None, page=None) }}">×</a>
+                                    <!-- 开关与上面「上传文件」同一套 Bootstrap collapse；不写 JS -->
+                                    <a href="#o_lib_new_item" role="button"
+                                       t-attf-class="btn btn-outline-secondary text-nowrap{{ '' if new_open else ' collapsed' }}"
+                                       data-bs-toggle="collapse" data-bs-target="#o_lib_new_item"
+                                       aria-controls="o_lib_new_item"
+                                       t-att-aria-expanded="'true' if new_open else 'false'">
+                                        <i class="fa fa-plus me-1"/>新建资料
+                                    </a>
                                 </div>
                             </div>
                         </form>
+
+                        <!-- 先记名字、附件后补：没有电子版也能把这本资料立起来。
+                             分类选「练习册/教辅」时它会变成一本练习册，错题页当场能选。 -->
+                        <noscript><style>#o_lib_new_item.collapse { display: block !important; }</style></noscript>
+                        <div t-attf-class="card border-0 shadow-sm mb-3 collapse{{ ' show' if new_open else '' }}"
+                             id="o_lib_new_item">
+                            <div class="card-body">
+                                <form method="post" action="/my/library/new" class="row g-2 align-items-end">
+                                    <input type="hidden" name="csrf_token"
+                                           t-att-value="request.csrf_token()"/>
+                                    <div class="col-12 col-md-6">
+                                        <label class="form-label small mb-1" for="lib_new_name">名字</label>
+                                        <input type="text" name="name" id="lib_new_name" required="required"
+                                               maxlength="120" class="form-control"
+                                               placeholder="如 一数 / 53 精讲册 / LeetCode 热题 100"/>
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small mb-1" for="lib_new_category">分类</label>
+                                        <select name="category" id="lib_new_category" class="form-select">
+                                            <t t-foreach="categories" t-as="key" t-key="key">
+                                                <option t-att-value="key" t-att-selected="key == 'other'"
+                                                        t-out="categories[key]"/>
+                                            </t>
+                                        </select>
+                                    </div>
+                                    <div class="col-6 col-md-2">
+                                        <label class="form-label small mb-1" for="lib_new_folder">文件夹</label>
+                                        <select name="folder" id="lib_new_folder" class="form-select">
+                                            <option value="">未分类</option>
+                                            <t t-foreach="folder_entries" t-as="entry" t-key="entry['key']">
+                                                <option t-if="entry['key'] not in ('all', 'none')"
+                                                        t-att-value="entry['key']"
+                                                        t-att-selected="folder_key == entry['key']"
+                                                        t-out="entry['label']"/>
+                                            </t>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-md-2">
+                                        <button type="submit" class="btn btn-primary w-100">建</button>
+                                    </div>
+                                    <div class="col-12">
+                                        <span class="small text-muted">
+                                            标签（逗号分隔，可不填）：<input type="text" name="tags"
+                                              class="form-control form-control-sm d-inline-block w-auto ms-1"/>
+                                        </span>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
 
                         <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
                             <ul class="nav nav-pills gap-1">
@@ -1513,6 +1574,12 @@
                     <div class="card-body">
                         <div class="row g-3">
                             <div class="col-12 col-lg-8">
+                                <div t-if="request.params.get('created')" class="alert alert-success py-2">
+                                    资料建好了。附件什么时候有，什么时候在下面这条里补。
+                                </div>
+                                <div t-if="request.params.get('attached')" class="alert alert-success py-2">
+                                    附件已补上。
+                                </div>
                                 <div t-if="request.params.get('saved')" class="alert alert-success py-2">
                                     正文已保存，渲染就是下面这个样子。
                                 </div>
@@ -1533,7 +1600,27 @@
                                     </ul>
 
                                     <div data-lib-pane="preview" class="o_lib_pane">
-                                        <t t-out="item.preview_html"/>
+                                        <t t-if="item.file_size" t-out="item.preview_html"/>
+                                        <!-- 先记名字、附件后补的那条：补附件就在这儿。
+                                             分类是「练习册/教辅」时它早就是一本练习册了，
+                                             错题页选得到；补完附件这才多"看那一页"这条路 -->
+                                        <div t-else="" class="o_lib_drop">
+                                            <i class="fa fa-cloud-upload fa-2x o_lib_drop_icon"/>
+                                            <div class="small text-muted mb-2">
+                                                这条还没有附件——名字先记下了就行，文件到手再传。
+                                            </div>
+                                            <form method="post" enctype="multipart/form-data"
+                                                  t-attf-action="/my/library/#{item.id}/add_file"
+                                                  class="d-flex gap-2 flex-wrap align-items-center">
+                                                <input type="hidden" name="csrf_token"
+                                                       t-att-value="request.csrf_token()"/>
+                                                <input type="file" name="file" class="form-control"
+                                                       style="max-width: 22rem;" required="required"/>
+                                                <button type="submit" class="btn btn-primary text-nowrap">
+                                                    <i class="fa fa-upload me-1"/>补附件
+                                                </button>
+                                            </form>
+                                        </div>
                                     </div>
 
                                     <!-- 可编辑的一律给一个原生 textarea：不是 IDE，
@@ -1611,7 +1698,7 @@
                                     <button type="submit" class="btn btn-primary w-100">保存修改</button>
                                 </form>
                                 <div class="d-flex gap-2 mt-2">
-                                    <a class="btn btn-outline-secondary flex-fill"
+                                    <a t-if="item.file_size" class="btn btn-outline-secondary flex-fill"
                                        t-attf-href="/tutoring/library/#{item.id}/raw?download=1">
                                         <i class="fa fa-download"/>下载
                                     </a>
