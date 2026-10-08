@@ -54,6 +54,11 @@ class TutoringPortal(CustomerPortal):
                 request.env['tutoring.library.item'].search_count(
                     [('user_id', '=', request.env.user.id)])
                 if request.env['tutoring.library.item'].has_access('read') else 0)
+        if 'tutoring_time_count' in counters:
+            # 同样不按学生档案算：时间账本挂的是登录用户，老师本人也有自己的一份
+            values['tutoring_time_count'] = (
+                request.env['tutoring.time.task'].search_count([])
+                if request.env['tutoring.time.task'].has_access('read') else 0)
         return values
 
     # ------------------------------------------------------------
@@ -1097,6 +1102,95 @@ class TutoringPortal(CustomerPortal):
         if item:
             item.unlink()
         return request.redirect('/my/library')
+
+    # ------------------------------------------------------------
+    # 时间账本：Do1ng 桌面端同步上来的任务与计时
+    # ------------------------------------------------------------
+
+    TIME_PAGE_SIZES = (12, 24, 60)
+
+    def _time_sortings(self):
+        return {
+            'recent': {'label': _('最近活动'),
+                       'order': 'last_activity_at desc nulls last, id desc'},
+            'duration': {'label': _('累计时长'), 'order': 'total_seconds desc, id desc'},
+            'created': {'label': _('最新创建'),
+                        'order': 'client_created desc nulls last, id desc'},
+            'title': {'label': _('任务名'), 'order': 'title asc, id desc'},
+        }
+
+    def _time_filters(self):
+        labels = dict(request.env['tutoring.time.task']._fields['status'].selection)
+        filters = {'all': {'label': _('全部'), 'domain': []}}
+        for key, label in labels.items():
+            filters[key] = {'label': label, 'domain': [('status', '=', key)]}
+        return filters
+
+    @http.route('/my/time', type='http', auth='user', website=True)
+    def portal_my_time(self, sortby=None, filterby=None, search=None, page=1, limit=None,
+                       **kwargs):
+        Task = request.env['tutoring.time.task']
+        # 不写 [('user_id','=',user.id)]：五张表都挂了"仅本人"的记录规则，
+        # 这里再写一遍只是多一处会漂移的重复。
+        searchbar_filters = self._time_filters()
+        if filterby not in searchbar_filters:
+            filterby = 'all'
+        domain = list(searchbar_filters[filterby]['domain'])
+        search_domain = []
+        if search:
+            search_domain = ['|', ('title', 'ilike', search),
+                             ('pool_item_ids.text', 'ilike', search)]
+            domain += search_domain
+
+        sortings = self._time_sortings()
+        if sortby not in sortings:
+            sortby = 'recent'
+        try:
+            page_size = int(limit)
+        except (TypeError, ValueError):
+            page_size = self.TIME_PAGE_SIZES[0]
+        if page_size not in self.TIME_PAGE_SIZES:
+            page_size = self.TIME_PAGE_SIZES[0]
+        try:
+            page = max(int(page), 1)
+        except (TypeError, ValueError):
+            page = 1
+
+        total = Task.search_count(domain)
+        tasks = Task.search(domain, order=sortings[sortby]['order'],
+                            limit=page_size, offset=(page - 1) * page_size)
+
+        # 状态药丸上的计数：不受当前状态筛选影响，受搜索词影响
+        filter_counts = {}
+        for key, count in Task._read_group(search_domain, ['status'], ['__count']):
+            filter_counts[key] = count
+        filter_counts['all'] = sum(filter_counts.values())
+
+        url_args = {'sortby': sortby, 'filterby': filterby, 'limit': page_size}
+        if search:
+            url_args['search'] = search
+        values = {
+            'page_name': 'time',
+            'overview': Task.overview(),
+            'tasks': tasks,
+            'total': total,
+            'status_labels': dict(Task._fields['status'].selection),
+            'search': search or '',
+            'sortby': sortby,
+            'searchbar_sortings': sortings,
+            'filterby': filterby,
+            'searchbar_filters': searchbar_filters,
+            'filter_counts': filter_counts,
+            'page_size': page_size,
+            'page_sizes': self.TIME_PAGE_SIZES,
+            'devices': request.env['tutoring.time.device'].search([]),
+            'syncs': request.env['tutoring.time.sync'].search([], limit=5),
+            'url_args': url_args,
+            'pager': portal_pager(
+                url='/my/time', url_args=url_args,
+                total=total, page=page, step=page_size),
+        }
+        return request.render('tutoring_center.portal_my_time', values)
 
     # ------------------------------------------------------------
     # 列表页公共准备（排序/筛选/分页）

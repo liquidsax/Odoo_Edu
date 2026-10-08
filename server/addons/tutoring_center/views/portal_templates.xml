@@ -32,6 +32,15 @@
                     <t t-set="text">上传并查看自己的资料：练习册、LeetCode、笔记、文档</t>
                     <t t-set="placeholder_count" t-value="'tutoring_library_count'"/>
                 </t>
+                <t t-call="portal.portal_docs_entry">
+                    <t t-set="title">时间账本</t>
+                    <t t-set="url" t-value="'/my/time'"/>
+                    <t t-set="text">桌面端 Do1ng 记下的任务与计时，同步到这里长期存放</t>
+                    <t t-set="placeholder_count" t-value="'tutoring_time_count'"/>
+                    <!-- 还没同步过时计数是 0，核心会把卡片藏掉；这一项是入口说明，
+                         空着也要看得见，否则用户永远不知道要先去桌面端登录 -->
+                    <t t-set="config_card" t-value="True"/>
+                </t>
             </div>
         </template>
 
@@ -114,6 +123,7 @@
                 <li t-if="item and page_name == 'library'" class="breadcrumb-item active">
                     <t t-out="item.name"/>
                 </li>
+                <li t-if="page_name == 'time'" class="breadcrumb-item active">时间账本</li>
             </xpath>
         </template>
 
@@ -1633,6 +1643,265 @@
                         </div>
                     </div>
                 </div>
+            </t>
+        </template>
+        <!-- ===== 时间账本：Do1ng 桌面端同步上来的任务与计时 =====
+             卡片画法单独成模板，平铺视图与将来的分组视图共用。 -->
+        <template id="time_card" name="时间账本任务卡">
+            <div class="card h-100 border-0 shadow-sm o_time_card">
+                <div class="card-body d-flex flex-column gap-2">
+                    <div class="d-flex align-items-start justify-content-between gap-2">
+                        <div class="fw-bold o_time_card_title text-truncate"
+                             t-att-title="task.title" t-out="task.title"/>
+                        <span t-attf-class="badge o_time_status o_time_status_#{task.status} flex-shrink-0"
+                              t-out="status_labels[task.status]"/>
+                    </div>
+
+                    <div class="d-flex flex-wrap align-items-baseline gap-2">
+                        <span class="o_time_duration" t-out="task.duration_text"/>
+                        <span t-if="task.open_seconds" class="badge rounded-pill text-bg-primary">
+                            <i class="fa fa-circle o_time_pulse me-1" role="img" aria-label="进行中"/>
+                            正在进行 <t t-out="task.open_text"/>
+                        </span>
+                    </div>
+
+                    <div class="small text-muted d-flex flex-wrap gap-2">
+                        <span><i class="fa fa-clock-o me-1" role="img"/><t t-out="task.session_count"/> 段计时</span>
+                        <span t-if="task.interrupted_count">
+                            <i class="fa fa-random me-1" role="img"/>被打断 <t t-out="task.interrupted_count"/> 次
+                        </span>
+                        <span t-if="task.last_activity_at">
+                            <i class="fa fa-calendar-o me-1" role="img"/><span t-field="task.last_activity_at"/>
+                        </span>
+                    </div>
+
+                    <div t-if="task.pool_item_ids" class="o_time_pool small">
+                        <div class="text-muted mb-1">
+                            <i class="fa fa-lightbulb-o me-1" role="img"/>想法
+                            <t t-out="len(task.pool_item_ids)"/> 条
+                        </div>
+                        <ul class="list-unstyled mb-0">
+                            <t t-foreach="task.pool_item_ids[:3]" t-as="note">
+                                <li t-attf-class="text-truncate #{'o_time_pool_done' if note.done_at else ''}"
+                                    t-att-title="note.text" t-out="note.text"/>
+                            </t>
+                        </ul>
+                    </div>
+
+                    <div class="mt-auto pt-1 small text-muted d-flex justify-content-between gap-2">
+                        <span class="text-truncate">
+                            <i class="fa fa-desktop me-1" role="img"/>
+                            <t t-out="'网页改动' if task.origin == 'web' else (task.device_id.name or '桌面端')"/>
+                        </span>
+                        <span t-if="task.client_created" class="flex-shrink-0">
+                            <span t-field="task.client_created"/>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <template id="portal_my_time" name="时间账本">
+            <t t-call="portal.portal_layout">
+                <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
+                    <h4 class="mb-0">
+                        时间账本
+                        <span class="badge text-bg-light border ms-1" t-out="overview['task_count']"/>
+                    </h4>
+                    <span class="text-muted small d-none d-md-inline">由桌面端 Do1ng 同步</span>
+                </div>
+
+                <!-- 概览：今日 / 本周 / 进行中 / 任务数 -->
+                <div class="row g-3 mb-3">
+                    <div class="col-6 col-lg-3">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-body py-3">
+                                <div class="text-muted small">今日</div>
+                                <div class="o_time_stat_value" t-out="overview['today_text']"/>
+                                <div t-if="overview['open_seconds']" class="text-muted small">
+                                    含正在进行 <t t-out="overview['open_text']"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-body py-3">
+                                <div class="text-muted small">本周（<t t-out="overview['week_start']"/> 起）</div>
+                                <div class="o_time_stat_value" t-out="overview['week_text']"/>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-body py-3">
+                                <div class="text-muted small">进行中</div>
+                                <div class="o_time_stat_value" t-out="overview['active_count']"/>
+                                <div t-if="overview['open_task']" class="text-muted small text-truncate"
+                                     t-att-title="overview['open_task'].title"
+                                     t-out="overview['open_task'].title"/>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-body py-3">
+                                <div class="text-muted small">任务</div>
+                                <div class="o_time_stat_value" t-out="overview['task_count']"/>
+                                <div class="text-muted small">
+                                    <t t-out="len(devices)"/> 台设备同步过
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 同步状态：最近一次 + 可展开的流水 -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-body py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div class="small">
+                            <i class="fa fa-refresh me-1" role="img"/>
+                            最近同步：<b t-out="overview['last_sync_text']"/>
+                        </div>
+                        <a class="small text-decoration-none" data-bs-toggle="collapse"
+                           href="#o_time_synclog" role="button" aria-expanded="false"
+                           aria-controls="o_time_synclog">同步记录</a>
+                    </div>
+                    <div class="collapse" id="o_time_synclog">
+                        <div class="card-body pt-0">
+                            <div t-if="not syncs" class="text-muted small">还没有同步记录。</div>
+                            <div t-else="" class="table-responsive">
+                                <table class="table table-sm align-middle mb-0 o_time_log">
+                                    <thead>
+                                        <tr class="text-muted small">
+                                            <th>时间</th>
+                                            <th>设备</th>
+                                            <th>结果</th>
+                                            <th class="text-end">新增</th>
+                                            <th class="text-end">更新</th>
+                                            <th class="text-end">删除</th>
+                                            <th class="text-end">冲突</th>
+                                            <th class="text-end">被拒</th>
+                                            <th class="text-end">耗时</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr t-foreach="syncs" t-as="log">
+                                            <td class="small"><span t-field="log.create_date"/></td>
+                                            <td class="small text-truncate" t-out="log.device_id.name or '—'"/>
+                                            <td class="small">
+                                                <span t-attf-class="badge #{'text-bg-success' if log.status == 'ok' else ('text-bg-warning' if log.status == 'rejected' else 'text-bg-danger')}"
+                                                      t-out="dict([('ok','成功'),('rejected','有行被拒'),('error','失败')])[log.status]"/>
+                                            </td>
+                                            <td class="text-end small" t-out="log.created_count"/>
+                                            <td class="text-end small" t-out="log.updated_count"/>
+                                            <td class="text-end small" t-out="log.deleted_count"/>
+                                            <td class="text-end small" t-out="log.conflict_count"/>
+                                            <td class="text-end small" t-out="log.rejected_count"/>
+                                            <td class="text-end small text-muted"><t t-out="log.duration_ms"/> ms</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 空状态：一条数据都没有时，告诉人怎么接上 -->
+                <div t-if="not overview['task_count']" class="card border-0 shadow-sm">
+                    <div class="card-body o_time_empty text-center py-5">
+                        <i class="fa fa-hourglass-half o_time_empty_icon" role="img"/>
+                        <h5 class="mb-2">还没有时间数据</h5>
+                        <p class="text-muted mb-3">
+                            在桌面端 Do1ng 里打开「同步」，用<b>这个账号</b>登录
+                            <code t-out="request.httprequest.url_root.rstrip('/')"/>，
+                            之后每次计时都会自动传上来。
+                        </p>
+                        <ol class="text-muted small mb-0 mx-auto o_time_steps">
+                            <li>Do1ng 里点同步状态那一项 → 填站点地址、账号、密码 → 登录</li>
+                            <li>勾上「自动同步」，之后每 10 分钟或退出时自动上传</li>
+                            <li>回到这一页刷新，任务与计时就都在这里了</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <t t-else="">
+                    <form class="row g-2 mb-3" method="get" action="/my/time" role="search">
+                        <t t-foreach="[k for k in url_args if k != 'search']" t-as="k" t-key="k">
+                            <input type="hidden" t-att-name="k" t-att-value="url_args[k]"/>
+                        </t>
+                        <div class="col-12 col-md-6">
+                            <div class="input-group">
+                                <input type="search" class="form-control" name="search"
+                                       t-att-value="search" placeholder="搜任务名或想法…"/>
+                                <button class="btn btn-light border" type="submit" title="搜索">
+                                    <i class="fa fa-search" role="img"/>
+                                </button>
+                                <a t-if="search" class="btn btn-light border" title="清空搜索"
+                                   t-attf-href="/my/time?{{ keep_query('*', search=None, page=None) }}">×</a>
+                            </div>
+                        </div>
+                    </form>
+
+                    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                        <ul class="nav nav-pills gap-1">
+                            <t t-foreach="searchbar_filters.items()" t-as="pair" t-key="pair[0]">
+                                <li class="nav-item">
+                                    <a t-attf-class="nav-link py-1 px-2 #{'active' if filterby == pair[0] else 'text-body'}"
+                                       t-attf-href="/my/time?{{ keep_query('*', filterby=pair[0], page=None) }}">
+                                        <t t-out="pair[1]['label']"/>
+                                        <span t-attf-class="badge ms-1 #{'text-bg-light' if filterby == pair[0] else 'text-bg-secondary-subtle'}"
+                                              t-out="filter_counts.get(pair[0], 0)"/>
+                                    </a>
+                                </li>
+                            </t>
+                        </ul>
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <div class="dropdown">
+                                <button class="btn btn-light btn-sm border dropdown-toggle" type="button"
+                                        data-bs-toggle="dropdown" aria-expanded="false">
+                                    排序：<t t-out="searchbar_sortings.get(sortby, {}).get('label', '')"/>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <t t-foreach="searchbar_sortings.items()" t-as="pair" t-key="pair[0]">
+                                        <li>
+                                            <a class="dropdown-item" t-att-class="(pair[0] == sortby) and 'active'"
+                                               t-attf-href="/my/time?{{ keep_query('*', sortby=pair[0], page=None) }}"
+                                               t-out="pair[1]['label']"/>
+                                        </li>
+                                    </t>
+                                </ul>
+                            </div>
+                            <div class="dropdown">
+                                <button class="btn btn-light btn-sm border dropdown-toggle" type="button"
+                                        data-bs-toggle="dropdown" aria-expanded="false">
+                                    每页 <t t-out="page_size"/>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <t t-foreach="page_sizes" t-as="n" t-key="n">
+                                        <li>
+                                            <a class="dropdown-item" t-att-class="(n == page_size) and 'active'"
+                                               t-attf-href="/my/time?{{ keep_query('*', limit=n, page=None) }}"
+                                               t-out="n"/>
+                                        </li>
+                                    </t>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div t-if="not tasks" class="alert alert-info">
+                        这个筛选下没有任务，换个条件或清空搜索词看看。
+                    </div>
+                    <div t-else="" class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
+                        <div class="col" t-foreach="tasks" t-as="task" t-key="task.id">
+                            <t t-call="tutoring_center.time_card"/>
+                        </div>
+                    </div>
+                    <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3">
+                        <t t-call="portal.pager"/>
+                    </div>
+                </t>
             </t>
         </template>
     </data>

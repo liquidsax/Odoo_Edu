@@ -119,6 +119,29 @@
     「我自己」（陷阱 36 的现场），现在从根上没了。
   细节与两轮迁移见 [updates/2026-10-05.md](updates/2026-10-05.md)。
 
+- **时间账本：接住了桌面端 Do1ng**（`19.0.1.19.0`，批次①，细节与新陷阱 51~58 见
+  [updates/2026-10-07.md](updates/2026-10-07.md)）：
+  维护者自研的 JavaFX 计时工具 **Do1ng**（`D:\WorkSpaceD\CodeMountains\Do1ng`，数据只在本机 `data/tasks.json`）
+  现在能把任务与计时传到本站。云端五张表 `tutoring.time.task/.session/.pool.item/.device/.sync`，
+  每行带**客户端生成的** `client_id`（云端不自造主键，多机重复上报只会落一行）；
+  删除是墓碑、落在原生 `active=False`（读路径自动跳过，同步查行必须显式 `active_test=False`）；
+  冲突用服务器发的 `rev` 做乐观锁——**不比较客户端时间戳**，多机本地时钟不可信；
+  内容一致判 `noop`，专门为了让"服务端写成功但响应被网络吃掉"能收敛（这条链路 TLS 握手实测四分之三被重置）。
+  `total_seconds` 云端按区间重算、只累已结束区间，和 Do1ng 的 `totalMillis` 口径一致
+  （Do1ng 落盘只到秒，故两边最多差每段区间 1 秒，展示层看不出来）。时区按行存偏移 + 一列"当地日期"，
+  否则东八区早上 7 点那段会被算进前一天。三条机器接口 `/tutoring/time/login`（自己实现只为让客户端不必填库名）、
+  `/sync`（`auth='public'` 自判空会话，避免核心的会话过期把 302 登录页 HTML 当同步结果返回给程序；
+  `csrf=False` 换成要求自定义头 `X-Do1ng-Sync`）、`/ping`。门户 `/my/time` 目前是最小页（概览四卡 +
+  任务卡片墙 + 同步流水 + 接入说明），顶栏第 5 项与 `/my` 入口卡都靠 `group_ids`/`config_card` 收口。
+  隐私与知识库同强度：五张表都挂"仅本人"记录规则，老师之间互不见。
+  Do1ng 侧：**用内容哈希判脏而不是给 16 处 `store.save()` 埋脏标记**，删除靠"登记过而本地找不到"推墓碑，
+  所以 `TaskStore.delete()` 一行没改；`Session`/`PoolItem` 补了 id 并在启动时写回；
+  DPAPI 记住密码（PowerShell 调用，零新依赖，回传走 base64 绕开 cp936）；
+  触发＝手动 + 改动后 30 秒 debounce + 心跳到点 + 退出前收尾；**本地文件就是队列**，
+  传不上去只是还没传，不会丢。**批次②＝完整展示页（热力图/排行/时间轴/详情/设备面板）；
+  批次③＝双向拉取 + 网页端可编辑 + 字段级合并与冲突副本 + 多机验收。**
+  本轮只在一次性新库上验到 100/100 + 15/15 + 36/36，**没升级共享库、没上云机**。
+
 - **错题能被 AI 分析**（`19.0.1.16.0`）：这是错题区别于其它知识库内容的地方。
   在题目详情页（门户与后台都有按钮）发起一次：服务端定位这条错题对应的那一页教辅、
   **把那一页的扫描图**交给 `deepseek-flash`（显式关思考、`max_tokens=700`、一次约 1300 输入 + 80 输出 token、2~4 秒），
@@ -140,8 +163,9 @@
   提示词不在 .py 里：`prompts/summary_system.txt` 与 `prompts/summary_user.txt`，改文案不必碰代码。
   细节与新陷阱 44~49 见 [updates/2026-10-05.md](updates/2026-10-05.md) 第二十八、二十九节。
 
-核心自定义模块：`server/addons/tutoring_center`（19 个模型，含练习册 `tutoring.workbook`、教材文件
-`tutoring.workbook.file`、单页缓存 `tutoring.workbook.page` 与速记向导 `tutoring.mistake.quickadd`，详见根 README）。
+核心自定义模块：`server/addons/tutoring_center`（24 个模型，含练习册 `tutoring.workbook`、教材文件
+`tutoring.workbook.file`、单页缓存 `tutoring.workbook.page`、速记向导 `tutoring.mistake.quickadd`
+与时间账本 `tutoring.time.*`，详见根 README）。
 
 ## 二、环境与使用方式
 
@@ -200,7 +224,7 @@
 5. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
 6. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
 
-## 五、最重要陷阱（正文 19 条；20~22 见 updates/2026-10-03.md，23~49 见 updates/2026-10-05.md，50 见 updates/2026-10-06.md）
+## 五、最重要陷阱（正文 19 条；20~22 见 updates/2026-10-03.md，23~49 见 updates/2026-10-05.md，50 见 updates/2026-10-06.md，51~58 见 updates/2026-10-07.md）
 
 > 编号在几份文档里有过错位，以"见哪份 updates"为准：知识库那两次新增的八条写在
 > [updates/2026-10-05.md](updates/2026-10-05.md) 第六节与第十二节（委托继承的字段搬运、
