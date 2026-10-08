@@ -12,6 +12,7 @@ from odoo.addons.portal.controllers.portal import pager as portal_pager
 
 from ..models.tutoring_knowledge import GRADE_LABEL
 from ..models.tutoring_mistake import split_question_numbers
+from .library import SAFE_FILENAME
 
 
 class TutoringPortal(CustomerPortal):
@@ -995,6 +996,59 @@ class TutoringPortal(CustomerPortal):
         if errors:
             params.append('error=%s' % quote(' '.join(errors)[:200]))
         return request.redirect('/my/library?' + '&'.join(params))
+
+    @http.route('/my/library/new', type='http', auth='user', methods=['POST'],
+                website=True, csrf=True)
+    def portal_my_library_new(self, **kw):
+        """「新建资料」：先只记一个名字，附件后面再补。
+
+        没有电子版的人也得能把这本资料立起来——分类选「练习册/教辅」时条目会
+        自动挂成一本练习册（见 `tutoring.library.item._ensure_workbook_link`），
+        错题页那本下拉立刻就有得选，不至于因为"手上没 PDF"记不了错题。
+        不填 content 就是不占配额的空条目，配额只在补附件那次算。
+        """
+        name = (kw.get('name') or '').strip()[:120]
+        if not name:
+            return request.redirect('/my/library?new=1&error=%s' % quote(_('先写个名字。')))
+        category = kw.get('category') or 'other'
+        if category not in self._library_categories():
+            category = 'other'
+        _domain, folder, _key = self._library_folder(kw.get('folder'))
+        model = request.env['tutoring.library.item']
+        try:
+            item = model.create({
+                'name': name,
+                'category': category,
+                'folder_id': folder.id if folder else False,
+                'tag_ids': model.tags_from_names(kw.get('tags')),
+            })
+        except UserError as err:
+            return request.redirect('/my/library?new=1&error=%s' % quote(str(err)[:200]))
+        return request.redirect('/my/library/%s?created=1' % item.id)
+
+    @http.route('/my/library/<int:item_id>/add_file', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_library_item_add_file(self, item_id, **kw):
+        """给一条已有的资料补上附件（原生 multipart，不依赖 JS）。
+
+        走条目的 write()：单文件上限与剩余配额那两道检查、以及"练习册/教辅"
+        补完附件才挂进书，都在模型里，这里不重做一遍。
+        """
+        item = request.env['tutoring.library.item'].search([('id', '=', item_id)], limit=1)
+        if not item:
+            return request.not_found()
+        upload = request.httprequest.files.get('file')
+        if not upload or not upload.filename:
+            return request.redirect('/my/library/%s?error=%s' % (item.id, quote(_('没选文件。'))))
+        filename = SAFE_FILENAME.sub('_', upload.filename.strip()) or '附件'
+        try:
+            item.write({
+                'content': base64.b64encode(upload.read()).decode(),
+                'filename': filename,
+            })
+        except UserError as err:
+            return request.redirect('/my/library/%s?error=%s' % (item.id, quote(str(err)[:200])))
+        return request.redirect('/my/library/%s?attached=1' % item.id)
 
     # ---- 文件夹：新建 / 改名 / 删除（都只动本人可见的那一个） ----
 

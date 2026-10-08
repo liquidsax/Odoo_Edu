@@ -531,7 +531,8 @@ class TutoringLibraryItem(models.Model):
         超了新配额就迁不进来）。
         """
         if self.env.context.get('library_skip_quota'):
-            return super().create(vals_list)
+            items = super().create(vals_list)
+            return items._sync_workbook_link()
         incoming_total = {}
         for vals in vals_list:
             if 'content' not in vals:
@@ -544,7 +545,8 @@ class TutoringLibraryItem(models.Model):
                 user_id, incoming_total[user_id] + size,
                 filename=vals.get('filename') or vals.get('name'))
             incoming_total[user_id] += size
-        return super().create(vals_list)
+        items = super().create(vals_list)
+        return items._sync_workbook_link()
 
     def write(self, vals):
         """换文件时只算增量：旧的那份先让出来，再判新的放不放得下。"""
@@ -557,11 +559,69 @@ class TutoringLibraryItem(models.Model):
                     self._assert_can_store(
                         item.user_id.id, delta, filename=vals.get('filename') or item.filename,
                         exclude_ids=item.ids)
-        return super().write(vals)
+        res = super().write(vals)
+        if {'category', 'content'} & set(vals):
+            self._sync_workbook_link()
+        return res
 
     def unlink(self):
         """删掉即释放（正文在本表 bytea 列里，没有 filestore 残留）。"""
         return super().unlink()
+
+    # ------------------------------------------------------------
+    # 与练习册那套打通
+    # ------------------------------------------------------------
+
+    def _sync_workbook_link(self):
+        """分类是「练习册/教辅」的条目，建完/改完都核对一次它挂上了没有。
+
+        `no_workbook_link` 由 `tutoring.workbook.file` 那边带进来：委托继承建条目
+        时核心会先写父记录，不拦就是 item.create → file.create → item.write 一路回头。
+        """
+        if self.env.context.get('no_workbook_link'):
+            return self
+        books = self.filtered(lambda item: item.category == 'workbook')
+        if books:
+            books._ensure_workbook_link()
+        return self
+
+    def _ensure_workbook_link(self):
+        """把这条条目接进练习册那套，书名取条目标题（同名即同一本）。
+
+        错题速记条、教材阅读页、错题「展示那一页」认的全是 `tutoring.workbook`，
+        而条目上那个分类只是条目自己的一个标签——不补这一层，从知识库传上来的
+        教辅在错题页等于不存在，也就记不了错题。一本多份文件因为同名，自然归到
+        同一本书下。
+
+        还没补附件的条目只把书立起来（记错题只要书名，附件是"看那一页"才要）；
+        有正文的才建教材文件那一行，并用 `item_id` 复用同一条条目，不产生第二个文件。
+        已经在某本书里的（后台建的教材，标题长这样："五年高考三年模拟 · 第3份"）
+        一律不动：拿这种标题去找书，会凭空多出一本重复的练习册。
+        """
+        Workbook = self.env['tutoring.workbook']
+        File = self.env['tutoring.workbook.file']
+        # 学生账号对这两张表只有读权限（练习册是老师维护的字典），那就只给能建的账号挂。
+        # 这里不 sudo 硬闯：越不过去就维持原状——条目照旧在知识库里，只是不冒充成一本练习册。
+        # 超用户环境恒为真，所以迁移补存量时是先拿条目归属人自己的环境判过一遍的
+        if not Workbook.has_access('create') or not File.has_access('create'):
+            return
+        for item in self:
+            title = (item.name or '').strip()
+            if not title or File.search([('item_id', '=', item.id)], limit=1):
+                continue
+            book = Workbook.search([('name', '=ilike', title)], limit=1)
+            if not book:
+                book = Workbook.create({'name': title})
+            if not item.file_size:
+                continue
+            File.create({
+                'item_id': item.id,
+                'workbook_id': book.id,
+                'name': title,
+                # 委托继承会因为父记录已存在而回写条目的 user_id，
+                # 不显式带上本人就会在超用户跑迁移时把条目判给 superuser
+                'user_id': item.user_id.id,
+            })
 
     # ------------------------------------------------------------
     # 动作
