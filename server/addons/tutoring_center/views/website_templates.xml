@@ -240,11 +240,26 @@
                                     <div class="row g-2 align-items-center mt-2">
                                         <div class="col-12 col-lg">
                                             <input type="text" class="form-control" data-plot-input="1"
-                                                   autocomplete="off" placeholder="例：x^2/4+y^2/9=1 或 y=x^2"/>
+                                                   autocomplete="off" placeholder="例：x^2/4+y^2/9=1、y=x^2、y=|x-1|"/>
+                                        </div>
+                                        <div class="col-auto">
+                                            <button type="button" class="btn btn-outline-secondary"
+                                                    data-plot-keyboard="1" aria-expanded="false"
+                                                    title="数学小键盘：点按键往方程里插，与系统键盘并存">
+                                                <i class="fa fa-keyboard-o" role="img"/> 键盘
+                                            </button>
                                         </div>
                                         <div class="col-auto">
                                             <button type="button" class="btn btn-primary" data-plot-add="1">绘制</button>
                                         </div>
+                                    </div>
+                                    <!-- 键位表在 function_plot.js 里，与解析器认得的那套写法同源；
+                                         键面印课本记号（π、×、√、|x|），插进输入框的是画布收得下的写法 -->
+                                    <div class="tutoring_plot_keypad d-none" data-plot-keypad="1">
+                                        <div class="tutoring_plot_keypad_tabs" data-plot-keypad-tabs="1"/>
+                                        <div class="tutoring_plot_keypad_grid" data-plot-keypad-grid="1"/>
+                                        <div class="tutoring_plot_keypad_grid tutoring_plot_keypad_edit"
+                                             data-plot-keypad-edit="1"/>
                                     </div>
                                 </details>
 
@@ -269,12 +284,17 @@
 
                                 <p class="text-muted small mb-0 mt-3">
                                     自己写方程时：乘号可以省略（<code>2x</code>、<code>3(x+1)</code>），乘方用 <code>^</code>
-                                    （<code>x^2</code>，也认 <code>x²</code>），函数支持
-                                    <code>sin cos tan asin acos atan sqrt abs exp ln log</code>，常量
+                                    （<code>x^2</code>，也认 <code>x²</code>），绝对值写成 <code>|x-1|</code> 或
+                                    <code>abs(x-1)</code> 都行，函数支持
+                                    <code>sin cos tan asin acos atan arcsin arccos arctan sqrt abs exp ln lg log</code>
+                                    （<code>lg</code> 与 <code>log</code> 都是常用对数），常量
                                     <code>pi</code>、<code>e</code>。除此之外出现的单个字母（<code>a</code>、<code>k</code>、
                                     <code>D</code>…）都算这条曲线自己的参数，点图例里那一行选中它，
                                     画布上方就只摆它的滑块（点齿轮改区间与步长）；
                                     两条曲线各写各的 <code>a</code> 也是两个互不相干的旋钮。
+                                    不想按物理键盘就点「键盘」，数字、运算、函数、模板四页签按光标处插入，
+                                    「模板」里一次放下一条课本式方程（<code>y=kx+b</code>、<code>y=a^x</code>、
+                                    <code>x²/a²+y²/b²=1</code>…），里面的字母照样自动变滑块。
                                     「智能画图」把描述或图片交给 DeepSeek，页面上只画返回的方程，不展示解题过程。已经写明的曲线直接画；题目要先求出函数或曲线时，会先解出再画。
                                     参数方程与极坐标暂未支持。
                                 </p>

@@ -30,7 +30,7 @@ async function loadModule() {
         .replace('import { registry } from "@web/core/registry";', '')
         .concat(
             '\nexport { buildModel, normalizeExpression, tokenize, toRPN, evalConstant,' +
-            ' CURVE_TYPES, sliderTexts, fieldSliderText, sliderValueOf, fieldValueOf, prettyEquation };\n'
+            ' CURVE_TYPES, sliderTexts, fieldSliderText, sliderValueOf, fieldValueOf, prettyEquation, KEYPAD_PAGES };\n'
         );
     const dir = await mkdtemp(join(tmpdir(), 'zz_plot_'));
     const target = join(dir, 'function_plot.mjs');
@@ -41,7 +41,7 @@ async function loadModule() {
 const mod = await loadModule();
 const {
     buildModel, evalConstant, CURVE_TYPES, sliderTexts, fieldSliderText,
-    sliderValueOf, fieldValueOf, prettyEquation,
+    sliderValueOf, fieldValueOf, prettyEquation, normalizeExpression, KEYPAD_PAGES,
 } = mod;
 
 let ok = 0;
@@ -61,6 +61,11 @@ function equal(name, got, want) {
 
 function close(name, got, want) {
     check(name, Number.isFinite(got) && Math.abs(got - want) < 1e-9, `得到 ${got}，期望 ${want}`);
+}
+
+// 显式采样那条路只交 explicit、不兜 F，按"点离曲线多远"断言就不取道于走哪条路
+function residual(model, x, y) {
+    return model.kind === 'explicit' ? model.explicit(x) - y : model.F(x, y);
 }
 
 function throws(name, fn, fragment) {
@@ -124,6 +129,43 @@ equal('B 拖到 0（对 y 不再线性）退回等值线', buildModel('Ax+By=0',
 throws('滑块数值框不接受字母', () => evalConstant('a+1'), '滑块的字母');
 close('数值框仍接受 3/2', evalConstant('3/2'), 1.5);
 close('数值框仍接受 2pi', evalConstant('2pi'), Math.PI * 2);
+
+/* ------------------------ 一之二、课本写法（|x| 与 lg/arcsin） ------------------------ */
+
+const absLine = buildModel('y=|x|');
+equal('y=|x| 走显式采样', absLine.kind, 'explicit');
+close('|x| 在 x=-3 处 y=3', absLine.explicit(-3), 3);
+close('|x| 在 x=3 处 y=3', absLine.explicit(3), 3);
+check('|x| 不认作参数', absLine.used.length === 0, JSON.stringify(absLine.used));
+
+close('绝对值里带平移 |x-1| 在 x=-2 处 y=3', buildModel('y=|x-1|').explicit(-2), 3);
+close('系数在竖线外 2|x| 在 x=-1 处 y=2', buildModel('y=2|x|').explicit(-1), 2);
+close('竖线里做减法 |x|-1 在 x=-4 处 y=3', buildModel('y=|x|-1').explicit(-4), 3);
+close('两条竖线相乘 |x||y| 认作 abs(x)*abs(y)', buildModel('|x|*|y|=4').F(2, -2), 0);
+close('嵌套竖线 ||x|-1| 在 x=-2.5 处 y=1.5', buildModel('y=||x|-1|').explicit(-2.5), 1.5);
+close('竖线里再套函数 |sin(x)|', buildModel('y=|sin(x)|').explicit(-Math.PI / 2), 1);
+close('竖线与括号相乘 |x|(x+1)', buildModel('y=|x|(x+1)').explicit(-2), -2);
+close('竖线里取负 |-x|', buildModel('y=|-x|').explicit(-5), 5);
+const absY = buildModel('x=|y|');
+equal('等号右边用竖线 x=|y| 退回等值线（不能只解上半支）', absY.kind, 'implicit');
+close('x=|y| 过 (3,-3)', absY.F(3, -3), 0);
+close('x=|y| 过 (3,3)', absY.F(3, 3), 0);
+close('x=|y| 在 (3,1) 不为零', absY.F(3, 1), 2);
+close('数值框里的竖线', evalConstant('|0-3/2|'), 1.5);
+throws('少一条竖线要报错', () => buildModel('y=|x'), '绝对值');
+throws('多一条竖线要报错', () => buildModel('y=x|'), '绝对值');
+
+close('lg 就是常用对数', buildModel('y=lg(x)').explicit(1000), 3);
+close('log 仍按常用对数', buildModel('y=log(x)').explicit(100), 2);
+check('lg 不被拆成参数 l 与 g', buildModel('y=lg(x)').used.length === 0, JSON.stringify(buildModel('y=lg(x)').used));
+// 反三角的定义域不含线性探测点 x=1.13，arcsin/arccos 会退回等值线；按 residual 断言不取道于走哪条路
+close('arcsin 过 (0.5, π/6)', residual(buildModel('y=arcsin(x)'), 0.5, Math.PI / 6), 0);
+close('arcsin 过 (-1, -π/2)', residual(buildModel('y=arcsin(x)'), -1, -Math.PI / 2), 0);
+close('arccos 过 (0.5, π/3)', residual(buildModel('y=arccos(x)'), 0.5, Math.PI / 3), 0);
+close('arctan 过 (1, π/4)', residual(buildModel('y=arctan(x)'), 1, Math.PI / 4), 0);
+close('asin 与 arcsin 画同一条', residual(buildModel('y=asin(x)'), 0.5, Math.PI / 6), 0);
+close('2lg(x) 隐式乘法', buildModel('y=2lg(x)').explicit(100), 4);
+throws('函数名后不跟括号要报错', () => buildModel('y=lgx+1'), '函数「lg」后面要跟括号');
 
 /* ---------------------------- 二、拼式与滑块 ---------------------------- */
 
@@ -247,6 +289,62 @@ equal('小写 e 仍是自然常数', buildModel('y=ex').used.length, 0);
 check('大写 E 是参数（圆一般式要用它）', JSON.stringify(buildModel('y=Ex', {E: 3}).used) === '["E"]',
     JSON.stringify(buildModel('y=Ex', {E: 3}).used));
 close('大写 E 取得到滑块值', buildModel('y=Ex', {E: 3}).explicit(2), 6);
+
+/* ------------------- 五、键盘上每个键插进去的东西都得画得动 ------------------- */
+
+function drawable(expression) {
+    try {
+        buildModel(expression, {});
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// 键面上插的是半成品（`.`、`(`、`^` 单看都不成式子），所以这里只查"用到的字符画布认不认"，
+// 防的是以后有人加了个 `,` 或 `≤` 键，插进去当场就是「无法识别的字符」
+const KEYPAD_ALPHABET = /^[0-9a-zA-Z.()+\-*/^=|\s]*$/;
+
+function usesKnownChars(text) {
+    return KEYPAD_ALPHABET.test(normalizeExpression(text));
+}
+
+let keypadKeys = 0;
+for (const page of KEYPAD_PAGES) {
+    for (const key of page.keys) {
+        if (key.action) {
+            continue;
+        }
+        keypadKeys++;
+        const label = `键盘 ${page.label}「${key.label}」`;
+        check(`${label} 用的字符画布认得`, usesKnownChars(key.insert), key.insert);
+        if (page.text) {
+            // 模板键插进去的就该是一条完整、能直接画的方程
+            check(`${label} 整条能画`, drawable(key.insert), key.insert);
+        } else if (key.insert.endsWith('(')) {
+            check(`${label} 补上自变量能画`, drawable(`y=${key.insert}x)`), key.insert);
+        }
+    }
+}
+check('键盘四个页签都有键', KEYPAD_PAGES.every((page) => page.keys.length > 0),
+    KEYPAD_PAGES.map((page) => `${page.label}:${page.keys.length}`).join(' '));
+
+// 带 caretBack 的键：光标要落在"接着打字就成"的那个位置（这两处算错过一次，钉住）
+const KEYPAD_CARET_SPOTS = {
+    "√": ["sqrt()", 5], // 括号里
+    "|x|": ["||", 1], // 两竖线中间
+    "a/b": ["()/()", 1], // 分子里
+    "ⁿ√": ["^(1/)", 4], // 根指数位
+};
+for (const [label, [insert, caret]] of Object.entries(KEYPAD_CARET_SPOTS)) {
+    const key = KEYPAD_PAGES.flatMap((page) => page.keys).find((item) => item.label === label);
+    check(`键盘「${label}」存在`, !!key);
+    if (!key) {
+        continue;
+    }
+    equal(`键盘「${label}」插进去的写法`, key.insert, insert);
+    equal(`键盘「${label}」光标位置`, key.insert.length - (key.caretBack || 0), caret);
+}
 
 /* ------------------------------ 汇总 ------------------------------ */
 

@@ -16,7 +16,9 @@ MAX_INPUT_CHARS = 400
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 FUNCTIONS = (
-    'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'sqrt', 'abs', 'exp', 'ln', 'log',
+    'sin', 'cos', 'tan', 'asin', 'acos', 'atan',
+    'arcsin', 'arccos', 'arctan',
+    'sqrt', 'abs', 'exp', 'ln', 'log', 'lg',
 )
 CONSTANTS = {'pi': math.pi, 'e': math.e}
 KNOWN_NAMES = tuple(sorted([*FUNCTIONS, *CONSTANTS, 'x', 'y'], key=len, reverse=True))
@@ -123,6 +125,10 @@ def tokenize(text):
         elif char in '()':
             tokens.append({'type': 'lparen' if char == '(' else 'rparen'})
             index += 1
+        elif char == '|':
+            # 绝对值竖线：开还是合要到 to_rpn 里看前一个 token 才能定
+            tokens.append({'type': 'bar'})
+            index += 1
         elif char in '+-*/^':
             tokens.append({'type': 'op', 'value': char})
             index += 1
@@ -147,7 +153,7 @@ def to_rpn(tokens):
         right_assoc = value == '^'
         while top():
             head = top()
-            if head['type'] == 'lparen':
+            if head['type'] in ('lparen', 'absopen'):
                 break
             if head['type'] == 'func':
                 head_prec = math.inf
@@ -195,6 +201,21 @@ def to_rpn(tokens):
             if top() and top()['type'] == 'func':
                 output.append(operators.pop())
             previous = token
+        elif token['type'] == 'bar':
+            # 竖线是开还是合，看前一个 token 收不收尾、栈里有没有等合的：
+            # |x|+|y| 第二条合、第三条开；||x|-1| 前两条都开、第三条合最里层
+            closing = _ends_value(previous) and any(op['type'] == 'absopen' for op in operators)
+            if closing:
+                while top() and top()['type'] != 'absopen':
+                    output.append(operators.pop())
+                operators.pop()
+                output.append({'type': 'func', 'name': 'abs'})
+                previous = {'type': 'rparen'}
+            else:
+                if _ends_value(previous):
+                    push_binary('*')  # 2|x|、|x||y| 里的隐式乘法
+                operators.append({'type': 'absopen'})
+                previous = {'type': 'baropen'}
         else:
             if token['value'] == '-' and not _ends_value(previous):
                 operators.append({'type': 'unary'})
@@ -205,6 +226,8 @@ def to_rpn(tokens):
         head = operators.pop()
         if head['type'] == 'lparen':
             raise PlotExprError('括号不匹配')
+        if head['type'] == 'absopen':
+            raise PlotExprError('绝对值少了一条竖线「|」')
         output.append(head)
     return output
 
@@ -589,6 +612,8 @@ def normalize_textbook_math(raw):
         return ''
     text = raw.replace('$', '')
     text = text.replace('\\{', '(').replace('\\}', ')')
+    # \lvert x \rvert 先收成竖线，否则末尾那条「丢掉未知命令」会把绝对值抹成没有
+    text = re.sub(r'\\[lr]?vert\b', '|', text)
     text = _LATEX_DROP.sub('', text)
     text = _replace_fracs(text)
     text = _replace_sqrts(text)
