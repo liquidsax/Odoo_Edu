@@ -25,7 +25,10 @@
 odoo.conf
 *.log
 # 服务器上的部署覆盖文件与口令表（只存在于机器上，永不入库）
+# .env 不带斜杠，仓库根和模块目录里的都算。智能画图默认把 DeepSeek 密钥写到
+# server/addons/tutoring_center/.env（0600）。tmp-deepseek- 是写入时的临时文件。
 .env
+tmp-deepseek-*
 docker-compose.override.yml
 
 # --- 数据库备份与附件（含学生真实数据） ---

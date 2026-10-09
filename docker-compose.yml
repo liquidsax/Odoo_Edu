@@ -35,7 +35,9 @@ services:
       - "8069:8069"
     volumes:
       - edu_data:/var/lib/odoo
-      # 自定义模块直接挂载源码目录：改动即时进入容器
+      # 自定义模块直接挂载源码目录：改动即时进入容器。
+      # 智能画图的 DeepSeek 密钥默认写在这份目录里的 .env（git 忽略，0600）。
+      # 仓库根的 .env 只给 compose 做变量替换，没有挂进容器，进程读不到。
       - ./server/addons/tutoring_center:/mnt/extra-addons/tutoring_center
     command: >
       odoo -d edu_dev -i tutoring_center --without-demo=all

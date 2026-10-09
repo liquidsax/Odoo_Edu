@@ -136,6 +136,7 @@
                             双曲线可以勾选画出它的渐近线（虚线旁会标出渐近线方程，图例里也能看到），
                             椭圆会直接给出离心率 e。三角函数可以勾选「用弧度制表示」，
                             勾选后坐标轴刻度、读数与交点都写成 π/2、3π/2 这种课本形式。
+                            也可以点「智能画图」，用一句自然语言描述图像（需要登录，每人每天 10 次）。
                         </p>
 
                         <div class="tutoring_plot card border-0 shadow-sm">
@@ -153,6 +154,78 @@
                                     <button type="button" class="btn btn-outline-primary" data-plot-type="sine">三角函数</button>
                                     <button type="button" class="btn btn-link text-muted ms-auto"
                                             data-plot-clear="1">清空图像</button>
+                                </div>
+
+                                <!-- 智能画图：登录后把自然语言交给 DeepSeek，方程仍走下面的画布 -->
+                                <div class="border rounded p-2 mb-3 bg-white" data-plot-ai="1">
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <button type="button" class="btn btn-outline-primary"
+                                                data-plot-ai-open="1">智能画图</button>
+                                        <span class="text-muted small" data-plot-ai-quota="1">
+                                            <t t-if="plot_ai_user">今日还可智能画图 <t t-out="plot_ai_left"/>/<t t-out="plot_ai_max"/> 次</t>
+                                            <t t-else="">登录后可用，匿名访客不提供</t>
+                                        </span>
+                                    </div>
+                                    <div class="d-none mt-2" data-plot-ai-panel="1">
+                                        <t t-if="plot_ai_user">
+                                            <input type="hidden" data-plot-ai-csrf="1"
+                                                   t-att-value="request.csrf_token()"/>
+                                            <label class="form-label small text-muted mb-1"
+                                                   for="tutoring_plot_ai_input">用一句话描述要画的图像</label>
+                                            <textarea id="tutoring_plot_ai_input" class="form-control" rows="3"
+                                                      maxlength="400" data-plot-ai-input="1"
+                                                      placeholder="例如：焦点在x轴、离心率√5/3、长轴长6的椭圆"/>
+                                            <div class="form-text">最多 400 字。只出方程并画到图上，不讲解题过程。Ctrl+Enter 提交。</div>
+                                            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                                <button type="button" class="btn btn-primary"
+                                                        data-plot-ai-submit="1">生成并绘制</button>
+                                                <span class="small text-muted" data-plot-ai-status="1"/>
+                                            </div>
+                                        </t>
+                                        <t t-else="">
+                                            <p class="small mb-2">智能画图需要登录。匿名访客仍可以自己选曲线类型或写方程。</p>
+                                            <a class="btn btn-sm btn-primary"
+                                               href="/web/login?redirect=/tools/function-plot">登录后使用</a>
+                                        </t>
+                                    </div>
+                                    <details class="mt-2" t-if="plot_ai_admin">
+                                        <summary class="text-muted small">DeepSeek 密钥（仅管理员）</summary>
+                                        <p class="small mt-2 mb-1">
+                                            当前：<span data-plot-ai-key-current="1"><t t-out="plot_ai_key_masked"/></span>
+                                            <span class="text-muted">
+                                                <t t-if="plot_ai_key_source == 'env'">（来自进程环境变量，优先于文件）</t>
+                                                <t t-elif="plot_ai_key_source == 'file'">（来自模块目录里的 .env）</t>
+                                                <t t-elif="plot_ai_key_source == 'param'">（来自系统参数 tutoring_center.deepseek_api_key）</t>
+                                                <t t-else="">（尚未配置）</t>
+                                            </span>
+                                        </p>
+                                        <div class="row g-2 align-items-center">
+                                            <div class="col-12 col-lg">
+                                                <input type="password" class="form-control" autocomplete="off"
+                                                       spellcheck="false" data-plot-ai-key="1"
+                                                       placeholder="粘贴新的 API Key，保存后只显示末四位"/>
+                                            </div>
+                                            <div class="col-auto">
+                                                <button type="button" class="btn btn-outline-secondary"
+                                                        data-plot-ai-key-save="1">保存密钥</button>
+                                            </div>
+                                        </div>
+                                        <p class="small mb-1 mt-2" data-plot-ai-key-note="1"/>
+                                        <p class="small text-muted mb-0">
+                                            保存后当前进程立刻生效，不必重启。密钥写入模块目录下的
+                                            <code>.env</code>（权限 0600，已在 git 忽略里），页面不会回显完整密钥。
+                                            Docker 开发环境只把这个模块目录挂进容器，所以文件在
+                                            <code>server/addons/tutoring_center/.env</code>；
+                                            仓库根目录那个给 compose 用的 <code>.env</code> 容器进程读不到。
+                                            路径可用环境变量 <code>TUTORING_DEEPSEEK_ENV_FILE</code>
+                                            或系统参数 <code>tutoring_center.deepseek_env_file</code> 改掉，文件名必须仍是 <code>.env</code>。
+                                            若进程启动时已经带了 <code>DEEPSEEK_API_KEY</code>，那个值优先于文件；
+                                            本页保存会同时改掉当前进程里的这个变量。
+                                            画图用的模型号是 <code>tutoring_center.deepseek_plot_model</code>，
+                                            留空就用共用的 <code>tutoring_center.deepseek_model</code>
+                                            （官方文档里 DeepSeek-V4.1-Flash 的接口名是 <code>deepseek-flash</code>）。
+                                        </p>
+                                    </details>
                                 </div>
 
                                 <!-- 高级：自己写方程 -->
@@ -196,6 +269,7 @@
                                     <code>D</code>…）都算这条曲线自己的参数，点图例里那一行选中它，
                                     画布上方就只摆它的滑块（点齿轮改区间与步长）；
                                     两条曲线各写各的 <code>a</code> 也是两个互不相干的旋钮。
+                                    「智能画图」把描述交给 DeepSeek，只把返回的方程交给上面这条画布，不在页面上解题。
                                     参数方程与极坐标暂未支持。
                                 </p>
                             </div>

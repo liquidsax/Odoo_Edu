@@ -10,7 +10,6 @@ import base64
 import io
 import json
 import logging
-import os
 
 import requests
 
@@ -18,6 +17,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools import file_open
 
+from .deepseek_config import deepseek_settings
 from .math_text import to_plain_math
 from .tutoring_knowledge import GRADE_LABEL
 
@@ -133,16 +133,9 @@ class TutoringMistakeAiJob(models.Model):
 
     @api.model
     def _config(self):
-        """密钥优先读环境变量，读不到再退到系统参数（值只在业务库里，不进 git）。"""
-        icp = self.env['ir.config_parameter'].sudo()
-        return {
-            'key': os.environ.get('DEEPSEEK_API_KEY')
-                   or icp.get_param('tutoring_center.deepseek_api_key', ''),
-            'model': icp.get_param('tutoring_center.deepseek_model', 'deepseek-flash'),
-            'url': icp.get_param(
-                'tutoring_center.deepseek_base_url',
-                'https://api.deepseek.com/v1/chat/completions'),
-        }
+        """与智能画图共用一条密钥路径：环境变量，其次 .env，最后系统参数。"""
+        conf = deepseek_settings(self.env)
+        return {'key': conf['key'], 'model': conf['model'], 'url': conf['url']}
 
     # ---- 取料 ----
 

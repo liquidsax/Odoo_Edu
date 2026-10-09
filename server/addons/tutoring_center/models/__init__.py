@@ -13,6 +13,7 @@ from . import tutoring_workbook_goto
 from . import tutoring_mistake_cause
 from . import tutoring_mistake
 from . import tutoring_mistake_ai
+from . import tutoring_plot_ai
 from . import tutoring_mistake_quickadd
 from . import tutoring_time
 from . import ir_ui_menu
