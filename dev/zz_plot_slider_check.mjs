@@ -30,7 +30,7 @@ async function loadModule() {
         .replace('import { registry } from "@web/core/registry";', '')
         .concat(
             '\nexport { buildModel, normalizeExpression, tokenize, toRPN, evalConstant,' +
-            ' CURVE_TYPES, sliderTexts, fieldSliderText, sliderValueOf, fieldValueOf, prettyEquation, KEYPAD_PAGES };\n'
+            ' CURVE_TYPES, sliderTexts, fieldSliderText, sliderValueOf, fieldValueOf, prettyEquation, KEYPAD_PAGES, keypadTokenWidth };\n'
         );
     const dir = await mkdtemp(join(tmpdir(), 'zz_plot_'));
     const target = join(dir, 'function_plot.mjs');
@@ -41,7 +41,7 @@ async function loadModule() {
 const mod = await loadModule();
 const {
     buildModel, evalConstant, CURVE_TYPES, sliderTexts, fieldSliderText,
-    sliderValueOf, fieldValueOf, prettyEquation, normalizeExpression, KEYPAD_PAGES,
+    sliderValueOf, fieldValueOf, prettyEquation, normalizeExpression, KEYPAD_PAGES, keypadTokenWidth,
 } = mod;
 
 let ok = 0;
@@ -321,8 +321,11 @@ for (const page of KEYPAD_PAGES) {
         if (page.text) {
             // 模板键插进去的就该是一条完整、能直接画的方程
             check(`${label} 整条能画`, drawable(key.insert), key.insert);
-        } else if (key.insert.endsWith('(')) {
-            check(`${label} 补上自变量能画`, drawable(`y=${key.insert}x)`), key.insert);
+        } else if (page.key === "func") {
+            // 函数键补的是配对的空括号，光标必须落在括号里（少半个括号那次就是这里没钉住）
+            equal(`${label} 带配对括号`, key.insert.slice(-2), "()");
+            equal(`${label} 光标在括号里`, key.insert.length - (key.caretBack || 0), key.insert.length - 1);
+            check(`${label} 补上自变量能画`, drawable(`y=${key.insert.slice(0, -1)}x)`), key.insert);
         }
     }
 }
@@ -345,6 +348,65 @@ for (const [label, [insert, caret]] of Object.entries(KEYPAD_CARET_SPOTS)) {
     equal(`键盘「${label}」插进去的写法`, key.insert, insert);
     equal(`键盘「${label}」光标位置`, key.insert.length - (key.caretBack || 0), caret);
 }
+
+// 退格要按整块删：函数键现在插的是配对括号，删的也得是整块
+equal('退格整块删掉 lg()', keypadTokenWidth('y=lg()'), 4);
+equal('退格整块删掉 sqrt()', keypadTokenWidth('sqrt()'), 6);
+equal('退格整块删掉 arcsin()', keypadTokenWidth('arcsin()'), 8);
+equal('退格整块删掉 ^(1/)', keypadTokenWidth('x^(1/)'), 5);
+equal('退格整块删掉 ()/()', keypadTokenWidth('()/()'), 5);
+equal('退格整块删掉 ^2', keypadTokenWidth('x^2'), 2);
+equal('普通字符仍只退一格', keypadTokenWidth('y=1'), 1);
+
+/* ---------------------- 六、双指捏合的几何（手机上的缩放） ---------------------- */
+
+// 不连库也不开浏览器：拿一个够用的假画布，直接调类上的方法验数学
+function makeFakeSurface() {
+    return {
+        width: 800,
+        height: 400,
+        stage: { getBoundingClientRect: () => ({left: 0, top: 0}), style: {} },
+        view: {cx: 0, cy: 0, hw: 10},
+        scale: 0,
+        hover: null,
+        drag: null,
+        halfHeight() { return (this.view.hw * this.height) / Math.max(1, this.width); },
+        updateScale() { this.scale = this.width / (2 * this.view.hw); },
+        toDataX(pixelX) { return this.view.cx - this.view.hw + pixelX / this.scale; },
+        toDataY(pixelY) { return this.view.cy + this.halfHeight() - pixelY / this.scale; },
+        scheduleDraw() {},
+        drawOverlay() {},
+    };
+}
+
+const {FunctionPlot} = mod;
+const plot = Object.create(FunctionPlot.prototype);
+plot.surface = makeFakeSurface();
+plot.surface.updateScale();
+plot.lastPointerDownAt = 0;
+plot.pointers = new Map([[1, {clientX: 300, clientY: 200}], [2, {clientX: 500, clientY: 200}]]);
+plot.pinch = plot.pinchGeometry();
+const anchorBefore = [plot.surface.toDataX(400), plot.surface.toDataY(200)];
+
+// 两指从相距 200 张到 400（中点不动）→ 放大 2 倍，半宽减半，且中点下那个数据点不跑
+plot.pointers = new Map([[1, {clientX: 200, clientY: 200}], [2, {clientX: 600, clientY: 200}]]);
+plot.onPinchMove();
+close('捏开两倍：视口半宽 10 → 5', plot.surface.view.hw, 5);
+close('捏开两倍：中点锚定不动（x）', plot.surface.toDataX(400), anchorBefore[0]);
+close('捏开两倍：中点锚定不动（y）', plot.surface.toDataY(200), anchorBefore[1]);
+
+// 间距不变、两指整体右移 50 像素 → 只是平移，不该缩放
+plot.pointers = new Map([[1, {clientX: 250, clientY: 200}], [2, {clientX: 650, clientY: 200}]]);
+plot.onPinchMove();
+close('两指整体平移不改半宽', plot.surface.view.hw, 5);
+close('两指右移 50 像素：视口跟着走', plot.surface.view.cx, -0.625);
+
+// 捏合里抬起一根：剩下那根要接成拖动，而不是把图弹回原点
+plot.pointers = new Map([[2, {clientX: 650, clientY: 200}]]);
+plot.onPointerUp({pointerId: 1, clientX: 250, clientY: 200});
+check('抬指后转入单指拖动', !!plot.surface.drag && plot.pinch === null,
+    `drag=${JSON.stringify(plot.surface.drag)} pinch=${JSON.stringify(plot.pinch)}`);
+close('抬指后拖动起点取剩下那根手指', plot.surface.drag.clientX, 650);
 
 /* ------------------------------ 汇总 ------------------------------ */
 
