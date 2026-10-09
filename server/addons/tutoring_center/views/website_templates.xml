@@ -174,14 +174,14 @@
                                                    for="tutoring_plot_ai_input">用一句话描述要画的图像</label>
                                             <textarea id="tutoring_plot_ai_input" class="form-control" rows="3"
                                                       maxlength="400" data-plot-ai-input="1"
-                                                      placeholder="例如：焦点在x轴、离心率√5/3、长轴长6的椭圆。整道题里已经写了方程也会直接画那条方程。"/>
-                                            <div class="form-text">最多 400 字。只出方程并画到图上，不讲解题过程。题目里已经给出的椭圆、双曲线等方程会直接画出来。Ctrl+Enter 提交。</div>
+                                                      placeholder="例如：焦点在x轴、离心率√5/3、长轴长6的椭圆。已给出的方程直接画；答案是函数的题会先求出再画。"/>
+                                            <div class="form-text">最多 400 字。页面上只画出方程，不展示解题过程。题目里已经写了曲线就直接画；没写方程、但答案是函数或必须先求出曲线的，会先把题做完再画。Ctrl+Enter 提交。</div>
                                             <label class="form-label small text-muted mb-1 mt-2"
                                                    for="tutoring_plot_ai_file">或上传题目 / 示意图</label>
                                             <input id="tutoring_plot_ai_file" type="file" class="form-control"
                                                    accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
                                                    data-plot-ai-file="1"/>
-                                            <div class="form-text">jpg、png、webp、gif，最大 8MB。卡通或试卷照片都可以，只画图里的主要曲线。</div>
+                                            <div class="form-text">jpg、png、webp、gif，最大 8MB。卡通或试卷照片都可以。图里已有的曲线直接画；要先求出函数的题会先解出再画。</div>
                                             <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
                                                 <button type="button" class="btn btn-primary"
                                                         data-plot-ai-submit="1">生成并绘制</button>
@@ -275,7 +275,7 @@
                                     <code>D</code>…）都算这条曲线自己的参数，点图例里那一行选中它，
                                     画布上方就只摆它的滑块（点齿轮改区间与步长）；
                                     两条曲线各写各的 <code>a</code> 也是两个互不相干的旋钮。
-                                    「智能画图」把描述或图片交给 DeepSeek，只把返回的方程交给上面这条画布，不在页面上解题。整道题里已经写明的曲线方程会直接画出来。
+                                    「智能画图」把描述或图片交给 DeepSeek，页面上只画返回的方程，不展示解题过程。已经写明的曲线直接画；题目要先求出函数或曲线时，会先解出再画。
                                     参数方程与极坐标暂未支持。
                                 </p>
                             </div>

@@ -210,6 +210,21 @@ with tempfile.TemporaryDirectory() as tmp:
     except ValueError:
         check('拒绝非 .env 文件名', True)
 
+print('\n== 提示词：给出的方程直接画，该解题时先解出再画 ==')
+PROMPTS = {
+    'system': (ADDON / 'prompts/plot_system.txt').read_text(encoding='utf-8'),
+    'user': (ADDON / 'prompts/plot_user.txt').read_text(encoding='utf-8'),
+    'image': (ADDON / 'prompts/plot_user_image.txt').read_text(encoding='utf-8'),
+}
+for name, text in PROMPTS.items():
+    check('%s 要求先把题解完' % name, '先把题解完' in text)
+    check('%s 不禁止一切所求' % name, '任何所求' not in text)
+    check('%s 不丢后面的求解' % name, '不要回答后面的求解问题' not in text)
+check('系统提示保留周长例题', 'frac{x^{2}}{16}' in PROMPTS['system'] and '周长' in PROMPTS['system'])
+check('系统提示有求出二次函数的例子', 'y=x^2-2*x+1' in PROMPTS['system'])
+check('用户提示仍收描述占位', '%%DESCRIPTION%%' in PROMPTS['user'])
+check('识图提示仍收描述占位', '%%DESCRIPTION%%' in PROMPTS['image'])
+
 print('\n== 与前端 buildModel 对照 ==')
 probe = r'''
 import {mkdtemp, readFile, writeFile} from "node:fs/promises";

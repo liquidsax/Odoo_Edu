@@ -35,7 +35,7 @@ _logger = logging.getLogger(__name__)
 DAILY_QUOTA = 10
 API_TIMEOUT = 30          # 纯文本小 JSON，留在 limit_time_real=120 之内
 API_TIMEOUT_IMAGE = 60    # 识图比纯文本慢，仍留在 limit_time_real=120 之内
-MAX_OUTPUT_TOKENS = 256   # 只要几条方程的 JSON，不给讲解留地方
+MAX_OUTPUT_TOKENS = 256   # 回复只要几条方程的 JSON。该解题时在模型内部做完，不把过程写进回复
 IMAGE_LONG_SIDE = 1600    # 与错题摘要同一档：长边缩到 1600 仍能看清公式
 IMAGE_JPEG_QUALITY = 82
 
