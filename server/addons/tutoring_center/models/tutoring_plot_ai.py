@@ -1,6 +1,6 @@
 """函数图像页的智能画图：一句话或一张题目图 → DeepSeek 出方程 → 前端 addCurve。
 
-额度按发起人的自然日算，一天 10 次，记在本模型上，不靠页面上的数字。
+额度按发起人的自然日算，一天 25 次，记在本模型上，不靠页面上的数字。
 分界线与错题摘要一致，只是更严一点：请求送出去之前的失败（空输入、超长、
 图片不合格、没密钥、我们自己的代码）不扣；超时、连不上、非 200 也没看到用量，不扣；
 接口 200（模型已经回话，含「画不了」和 JSON 不合约定）才扣一次。
@@ -32,7 +32,7 @@ from .plot_expr import (
 
 _logger = logging.getLogger(__name__)
 
-DAILY_QUOTA = 10
+DAILY_QUOTA = 25
 API_TIMEOUT = 30          # 纯文本小 JSON，留在 limit_time_real=120 之内
 API_TIMEOUT_IMAGE = 60    # 识图比纯文本慢，仍留在 limit_time_real=120 之内
 MAX_OUTPUT_TOKENS = 2048  # 16 条方程的 JSON 用 256 个 token 会被截断。过程仍不写进回复
