@@ -129,7 +129,11 @@
                         <h1 class="h3 fw-bold mb-2">函数图像绘制</h1>
                         <p class="text-muted mb-4">
                             选好曲线类型、把题目里的数填进去就能出图——圆、椭圆、双曲线、抛物线、直线都可以；
-                            也能像之前那样自己写方程。双曲线可以勾选画出它的渐近线（虚线旁会标出渐近线方程，图例里也能看到），
+                            也能像之前那样自己写方程。填参数时勾一下「滑块」，那个参数就变成方程里的字母，
+                            拖动滑块图像当场跟着变（离心率、渐近线一起重算）；
+                            自己写的方程里出现 x、y 以外的字母，也会自动成为那条曲线的参数。
+                            参数是每条曲线自己的：点图例里的哪一行，画布上方就摆哪一条的滑块。
+                            双曲线可以勾选画出它的渐近线（虚线旁会标出渐近线方程，图例里也能看到），
                             椭圆会直接给出离心率 e。三角函数可以勾选「用弧度制表示」，
                             勾选后坐标轴刻度、读数与交点都写成 π/2、3π/2 这种课本形式。
                         </p>
@@ -167,6 +171,7 @@
 
                                 <div class="alert alert-danger py-2 small d-none" data-plot-error="1" role="alert"></div>
                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2" data-plot-legend="1"></div>
+                                <div class="d-flex flex-wrap align-items-start gap-3 mb-2 d-none" data-plot-sliders="1"></div>
 
                                 <div class="tutoring_plot_stage position-relative border rounded bg-white"
                                      style="height: 62vh; min-height: 360px;">
@@ -187,7 +192,11 @@
                                     自己写方程时：乘号可以省略（<code>2x</code>、<code>3(x+1)</code>），乘方用 <code>^</code>
                                     （<code>x^2</code>，也认 <code>x²</code>），函数支持
                                     <code>sin cos tan asin acos atan sqrt abs exp ln log</code>，常量
-                                    <code>pi</code>、<code>e</code>。参数方程与极坐标暂未支持。
+                                    <code>pi</code>、<code>e</code>。除此之外出现的单个字母（<code>a</code>、<code>k</code>、
+                                    <code>D</code>…）都算这条曲线自己的参数，点图例里那一行选中它，
+                                    画布上方就只摆它的滑块（点齿轮改区间与步长）；
+                                    两条曲线各写各的 <code>a</code> 也是两个互不相干的旋钮。
+                                    参数方程与极坐标暂未支持。
                                 </p>
                             </div>
 

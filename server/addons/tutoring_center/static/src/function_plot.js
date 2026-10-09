@@ -74,7 +74,7 @@ function tokenize(text) {
             while (end < text.length && /[a-z]/i.test(text[end])) {
                 end++;
             }
-            pushName(text.slice(index, end).toLowerCase(), tokens);
+            pushName(text.slice(index, end), tokens, text[end] === "(");
             index = end;
         } else if (char === "(" || char === ")") {
             tokens.push({ type: char === "(" ? "lparen" : "rparen" });
@@ -89,21 +89,36 @@ function tokenize(text) {
     return tokens;
 }
 
-// 连写的字母按已知符号拆开（"xy" → x*y、"2pi" → 2*pi 走隐式乘法）
-function pushName(name, tokens) {
-    if (KNOWN_NAMES.includes(name)) {
-        tokens.push({ type: "name", name });
+// 连写的字母按已知符号拆开（"xy" → x*y、"2pi" → 2*pi 走隐式乘法）；
+// 拆不出已知符号的单个字母就是参数——图上那条曲线用它时，页面上对应一个滑块。
+function pushName(raw, tokens, followedByCall) {
+    const lower = raw.toLowerCase();
+    if (KNOWN_NAMES.includes(lower) && !(lower === "e" && raw === "E")) {
+        tokens.push({ type: "name", name: lower });
         return;
     }
-    let index = 0;
-    while (index < name.length) {
-        const piece = KNOWN_NAMES.find((known) => name.startsWith(known, index));
-        if (!piece) {
-            throw new Error(`未知符号「${name}」：只支持 x、y、pi、e 与常见函数名`);
-        }
-        tokens.push({ type: "name", name: piece });
-        index += piece.length;
+    // 一整串未知字母紧跟着括号，多半是函数名打错了（sn(x)）；单个字母仍按隐式乘法放行（a(x+1)）
+    if (followedByCall && raw.length > 1) {
+        throw new Error(`未知函数「${raw}」：函数只支持 ${Object.keys(FUNCTIONS).join(" ")}，其余字母是参数`);
     }
+    let index = 0;
+    while (index < raw.length) {
+        const piece = knownPiece(raw, lower, index);
+        if (piece) {
+            tokens.push({ type: "name", name: piece });
+            index += piece.length;
+        } else {
+            // 参数名保留大小写：唯一的大小写例外是小写 e 当自然常数、大写 E 当参数
+            // （圆的一般式 x²+y²+Dx+Ey+F=0 要用 E，与 Desmos 一样把 E 和 e 看成两个符号）
+            tokens.push({ type: "param", name: raw[index] });
+            index++;
+        }
+    }
+}
+
+function knownPiece(raw, lower, index) {
+    const piece = KNOWN_NAMES.find((known) => lower.startsWith(known, index));
+    return piece === "e" && raw[index] === "E" ? null : piece;
 }
 
 function toRPN(tokens) {
@@ -112,7 +127,7 @@ function toRPN(tokens) {
     const top = () => operators[operators.length - 1];
     // 上一个 token 能否作为值的结尾（用于区分一元负号与隐式乘法）
     const endsValue = (token) =>
-        !!token && ["num", "name", "rparen", "var"].includes(token.type);
+        !!token && ["num", "name", "rparen", "var", "param"].includes(token.type);
 
     const pushBinary = (value) => {
         const precedence = BINARY_PRECEDENCE[value];
@@ -143,13 +158,13 @@ function toRPN(tokens) {
     let previous = null;
     for (let index = 0; index < tokens.length; index++) {
         const token = tokens[index];
-        const startsValue = ["num", "name", "lparen"].includes(token.type);
+        const startsValue = ["num", "name", "lparen", "param"].includes(token.type);
         // 隐式乘法（2x、3(x+1)、(x+1)(x-1)）：优先级同 "*"，因此 2x^2 解析为 2*(x^2)
         if (startsValue && endsValue(previous)) {
             pushBinary("*");
         }
 
-        if (token.type === "num") {
+        if (token.type === "num" || token.type === "param") {
             output.push(token);
             previous = token;
         } else if (token.type === "name") {
@@ -215,7 +230,7 @@ const BINARY_EVALUATORS = {
 
 const INCOMPLETE = "表达式不完整，请检查运算符与括号";
 
-function compileRPN(rpn) {
+function compileRPN(rpn, scope = {}) {
     const stack = [];
     const pop = () => {
         const operand = stack.pop();
@@ -230,6 +245,10 @@ function compileRPN(rpn) {
             stack.push(() => value);
         } else if (token.type === "var") {
             stack.push(token.name === "x" ? (x) => x : (x, y) => y);
+        } else if (token.type === "param") {
+            // 参数在编译时就绑成常量：滑块一动整条曲线重建一次模型，闭包就不必带第三个参数
+            const value = scope[token.name];
+            stack.push(() => (Number.isFinite(value) ? value : NaN));
         } else if (token.type === "func") {
             const operand = pop();
             const fn = FUNCTIONS[token.name];
@@ -279,7 +298,10 @@ function solveForY(F) {
     return (x) => -F(x, 0) / first;
 }
 
-function buildModel(expression) {
+// 新出现的参数没有历史值时先按 1 立起来，滑块条上再改
+const DEFAULT_PARAM_VALUE = 1;
+
+function buildModel(expression, params = {}) {
     const text = normalizeExpression(expression);
     if (!text) {
         throw new Error("请输入方程或函数式");
@@ -309,19 +331,25 @@ function buildModel(expression) {
     if (!usesX && !usesY) {
         throw new Error("方程里需要包含 x 或 y");
     }
-    const F = compileRPN(rpn);
+    const used = [...new Set(rpn.filter((token) => token.type === "param").map((token) => token.name))];
+    const scope = {};
+    for (const name of used) {
+        const value = params[name];
+        scope[name] = Number.isFinite(value) ? value : DEFAULT_PARAM_VALUE;
+    }
+    const F = compileRPN(rpn, scope);
 
     if (!usesY) {
-        return { kind: "vertical", F }; // 如 x=2：竖直线
+        return { kind: "vertical", F, used }; // 如 x=2、x=a：竖直线
     }
     const explicit = solveForY(F);
     if (explicit) {
         const samples = [0.11, 0.73];
         if (samples.every((x) => Number.isFinite(explicit(x)))) {
-            return { kind: "explicit", explicit };
+            return { kind: "explicit", explicit, used };
         }
     }
-    return { kind: "implicit", F }; // 圆、椭圆、双曲线等
+    return { kind: "implicit", F, used }; // 圆、椭圆、双曲线等
 }
 
 /* =========================================================================
@@ -345,6 +373,9 @@ function evalConstant(text) {
     if (rpn.some((token) => token.type === "var")) {
         throw new Error("不能含 x 或 y");
     }
+    if (rpn.some((token) => token.type === "param")) {
+        throw new Error("这里只能填数值，不能引用滑块的字母");
+    }
     const value = compileRPN(rpn)(0, 0);
     if (!Number.isFinite(value)) {
         throw new Error("不是有效数值");
@@ -352,14 +383,21 @@ function evalConstant(text) {
     return value;
 }
 
-// 带平移的标准式片段：offset 为 0 时就是 "x"，否则 "(x-(h))"
-function centered(axis, offset) {
+// 带平移的标准式片段：offset 为 0 时就是 "x"，否则 "(x-(h))"。
+// 平移量设成滑块时字母必须留在式子里（哪怕当前值是 0），不然那个滑块没有可绑的对象。
+function centered(axis, offset, offsetSym) {
+    if (offsetSym) {
+        return `(${axis}-${offsetSym})`;
+    }
     return offset === 0 ? axis : `(${axis}-(${num(offset)}))`;
 }
 
-// 分母为 1 时省略 "/1"，让方程贴近手写习惯
-function squaredTerm(axis, offset, denominator) {
-    const body = `${centered(axis, offset)}^2`;
+// 分母为 1 时省略 "/1"，让方程贴近手写习惯；分母设成滑块时写的是字母（分母类是 "a^2" 这种带指数的写法）
+function squaredTerm(axis, offset, denominator, denominatorSym, offsetSym) {
+    const body = `${centered(axis, offset, offsetSym)}^2`;
+    if (denominatorSym) {
+        return `${body}/${denominatorSym}`;
+    }
     return denominator === 1 ? body : `${body}/${num(denominator)}`;
 }
 
@@ -395,10 +433,15 @@ function piText(value) {
     return num(value);
 }
 
-// [[系数, "x"], [系数, "y"], [系数, ""]] → "x-2y-4"（省略系数 1、合并正负号）
+// [[系数, "x"], [系数, "y"], [系数, ""]] → "x-2y-4"（省略系数 1、合并正负号）。
+// 第三项是该字段的滑块在方程里的写法：字母自带正负号，所以一律用加号衔接、不做符号美化。
 function linearCombination(terms) {
     let text = "";
-    for (const [coefficient, name] of terms) {
+    for (const [coefficient, name, sym] of terms) {
+        if (sym) {
+            text += text ? `+${sym}${name}` : `${sym}${name}`;
+            continue;
+        }
         if (coefficient === 0) {
             continue;
         }
@@ -413,7 +456,11 @@ function linearCombination(terms) {
 // 圆锥曲线系数式：A·x² ± B·y² 拼成课本样子（4x²、x²/4、-4y²、y²）
 function conicCombination(terms) {
     const parts = [];
-    for (const [coefficient, axisTerm] of terms) {
+    for (const [coefficient, axisTerm, sym] of terms) {
+        if (sym) {
+            parts.push({ negative: false, body: `${sym}*${axisTerm}^2` });
+            continue;
+        }
         if (coefficient === 0) {
             continue;
         }
@@ -609,6 +656,70 @@ function asymptoteSlopeIntercept({ h, k, slope }) {
     return `y = ${m}x ${intercept > 0 ? "+ " : "− "}${constantText(Math.abs(intercept))}`;
 }
 
+/* ---------------------------- 字段与滑块的对应 ---------------------------- */
+// 字段声明 sym ＝ "这个参数可以变成滑块"，sym 是它在方程里的字母；
+// pow 是字母在方程里带的指数（半径 r 写成 r^2、椭圆分母也写成 a^2）；
+// storesPower 表示字段存的数本身就是那个幂（分母 a2=4），所以滑块带的是 a=2——
+// 半径字段没有这个标记，它存的就是 r，滑块拖的也是 r。
+function fieldSliderText(field) {
+    if (!field.sym) {
+        return null;
+    }
+    return field.pow > 1 ? `${field.sym}^${field.pow}` : field.sym;
+}
+
+function sliderValueOf(field, value) {
+    if (field.pow > 1 && field.storesPower) {
+        return Math.sign(value || 1) * Math.pow(Math.abs(value), 1 / field.pow);
+    }
+    return value;
+}
+
+function fieldValueOf(field, sliderValue) {
+    if (field.pow > 1 && field.storesPower) {
+        return Math.pow(sliderValue, field.pow);
+    }
+    return sliderValue;
+}
+
+// 某条曲线当前勾了滑块的字段 → compose 用的 {字段键: 方程里的写法}
+function sliderTexts(spec, mode, sliderKeys) {
+    const texts = {};
+    for (const field of spec.fields(mode)) {
+        if (field.sym && sliderKeys.includes(field.key)) {
+            texts[field.key] = fieldSliderText(field);
+        }
+    }
+    return texts;
+}
+
+// 每条曲线自己带一张 字母 → 滑块 的表：同一个 a 在两条曲线里是两个互不相干的旋钮
+function paramValues(params) {
+    const values = {};
+    for (const [name, param] of params) {
+        values[name] = param.value;
+    }
+    return values;
+}
+
+function ensureParam(params, name, options = {}) {
+    const existing = params.get(name);
+    if (existing) {
+        return existing;
+    }
+    const value = Number.isFinite(options.value) ? options.value : DEFAULT_PARAM_VALUE;
+    const range = options.range || [-DEFAULT_SLIDER_HALF, DEFAULT_SLIDER_HALF];
+    const param = {
+        value,
+        min: Math.min(range[0], value),
+        max: Math.max(range[1], value),
+        step: DEFAULT_SLIDER_STEP,
+        label: options.label || "自己写的方程",
+    };
+    params.set(name, param);
+    return param;
+}
+
 // 每个类型：字段默认值可直接用；fields 随"写法"切换；compose 抛错即校验失败
 const CURVE_TYPES = {
     circle: {
@@ -621,23 +732,23 @@ const CURVE_TYPES = {
         fields: (mode) =>
             mode === "standard"
                 ? [
-                      { key: "a", label: "圆心 x₀", value: 0 },
-                      { key: "b", label: "圆心 y₀", value: 0 },
-                      { key: "r", label: "半径 r", value: 2 },
+                      { key: "a", label: "圆心 x₀", value: 0, sym: "a" },
+                      { key: "b", label: "圆心 y₀", value: 0, sym: "b" },
+                      { key: "r", label: "半径 r", value: 2, sym: "r", pow: 2, range: [0.1, 10] },
                   ]
                 : [
-                      { key: "D", label: "D", value: -2 },
-                      { key: "E", label: "E", value: -4 },
-                      { key: "F", label: "F", value: 1 },
+                      { key: "D", label: "D", value: -2, sym: "D" },
+                      { key: "E", label: "E", value: -4, sym: "E" },
+                      { key: "F", label: "F", value: 1, sym: "F" },
                   ],
-        compose: (mode, v) => {
+        compose: (mode, v, sym) => {
             if (mode === "standard") {
                 if (v.r <= 0) {
                     throw new Error("半径 r 要大于 0");
                 }
-                return `${centered("x", v.a)}^2+${centered("y", v.b)}^2=${num(v.r * v.r)}`;
+                return `${centered("x", v.a, sym.a)}^2+${centered("y", v.b, sym.b)}^2=${sym.r || num(v.r * v.r)}`;
             }
-            return `${linearCombination([[1, "x^2"], [1, "y^2"], [v.D, "x"], [v.E, "y"], [v.F, ""]])}=0`;
+            return `${linearCombination([[1, "x^2"], [1, "y^2"], [v.D, "x", sym.D], [v.E, "y", sym.E], [v.F, "", sym.F]])}=0`;
         },
     },
     ellipse: {
@@ -653,19 +764,19 @@ const CURVE_TYPES = {
         fields: (mode) =>
             mode === "coefficient"
                 ? [
-                      { key: "A", label: "x² 的系数", value: 1 },
-                      { key: "B", label: "y² 的系数", value: 1 },
-                      { key: "N", label: "等号右边", value: 1 },
-                      { key: "h", label: "中心 x₀（默认 0）", value: 0 },
-                      { key: "k", label: "中心 y₀（默认 0）", value: 0 },
+                      { key: "A", label: "x² 的系数", value: 1, sym: "A" },
+                      { key: "B", label: "y² 的系数", value: 1, sym: "B" },
+                      { key: "N", label: "等号右边", value: 1, sym: "N" },
+                      { key: "h", label: "中心 x₀（默认 0）", value: 0, sym: "h" },
+                      { key: "k", label: "中心 y₀（默认 0）", value: 0, sym: "k" },
                   ]
                 : [
-                      { key: "a2", label: "x² 分母 a²", value: 4 },
-                      { key: "b2", label: "y² 分母 b²", value: 1 },
-                      { key: "h", label: "中心 x₀（默认 0）", value: 0 },
-                      { key: "k", label: "中心 y₀（默认 0）", value: 0 },
+                      { key: "a2", label: "x² 分母 a²", value: 4, sym: "a", pow: 2, storesPower: true, range: [0.1, 10] },
+                      { key: "b2", label: "y² 分母 b²", value: 1, sym: "b", pow: 2, storesPower: true, range: [0.1, 10] },
+                      { key: "h", label: "中心 x₀（默认 0）", value: 0, sym: "h" },
+                      { key: "k", label: "中心 y₀（默认 0）", value: 0, sym: "k" },
                   ],
-        compose: (mode, v) => {
+        compose: (mode, v, sym) => {
             if (mode === "coefficient") {
                 if (v.A === 0 || v.B === 0) {
                     throw new Error("x²、y² 的系数都不能为 0");
@@ -679,12 +790,12 @@ const CURVE_TYPES = {
                 if ((v.A > 0) !== (v.N > 0)) {
                     throw new Error("等号右边的符号与系数相反，图像是空集");
                 }
-                return `${conicCombination([[v.A, centered("x", v.h)], [v.B, centered("y", v.k)]])}=${num(v.N)}`;
+                return `${conicCombination([[v.A, centered("x", v.h, sym.h), sym.A], [v.B, centered("y", v.k, sym.k), sym.B]])}=${sym.N || num(v.N)}`;
             }
             if (v.a2 <= 0 || v.b2 <= 0) {
                 throw new Error("两个分母都要大于 0");
             }
-            return `${squaredTerm("x", v.h, v.a2)}+${squaredTerm("y", v.k, v.b2)}=1`;
+            return `${squaredTerm("x", v.h, v.a2, sym.a2, sym.h)}+${squaredTerm("y", v.k, v.b2, sym.b2, sym.k)}=1`;
         },
         // 离心率 e = c/a：分母式直接是两分母，系数式先换算成 x²/(N/A)+y²/(N/B)=1
         describe: (mode, v) => {
@@ -709,19 +820,19 @@ const CURVE_TYPES = {
         fields: (mode) =>
             mode === "coefficient"
                 ? [
-                      { key: "A", label: "x² 的系数", value: 1 },
-                      { key: "B", label: "y² 的系数", value: -4 },
-                      { key: "N", label: "等号右边", value: 4 },
-                      { key: "h", label: "中心 x₀（默认 0）", value: 0 },
-                      { key: "k", label: "中心 y₀（默认 0）", value: 0 },
+                      { key: "A", label: "x² 的系数", value: 1, sym: "A" },
+                      { key: "B", label: "y² 的系数", value: -4, sym: "B" },
+                      { key: "N", label: "等号右边", value: 4, sym: "N" },
+                      { key: "h", label: "中心 x₀（默认 0）", value: 0, sym: "h" },
+                      { key: "k", label: "中心 y₀（默认 0）", value: 0, sym: "k" },
                   ]
                 : [
-                      { key: "a2", label: "实半轴分母 A", value: 4 },
-                      { key: "b2", label: "虚半轴分母 B", value: 9 },
-                      { key: "h", label: "中心 x₀（默认 0）", value: 0 },
-                      { key: "k", label: "中心 y₀（默认 0）", value: 0 },
+                      { key: "a2", label: "实半轴分母 a²", value: 4, sym: "a", pow: 2, storesPower: true, range: [0.1, 10] },
+                      { key: "b2", label: "虚半轴分母 b²", value: 9, sym: "b", pow: 2, storesPower: true, range: [0.1, 10] },
+                      { key: "h", label: "中心 x₀（默认 0）", value: 0, sym: "h" },
+                      { key: "k", label: "中心 y₀（默认 0）", value: 0, sym: "k" },
                   ],
-        compose: (mode, v) => {
+        compose: (mode, v, sym) => {
             if (mode === "coefficient") {
                 if (v.A === 0 || v.B === 0) {
                     throw new Error("x²、y² 的系数都不能为 0");
@@ -732,15 +843,19 @@ const CURVE_TYPES = {
                 if ((v.A > 0) === (v.B > 0)) {
                     throw new Error("两项系数一正一负才是双曲线；同号请改选「椭圆」");
                 }
-                return `${conicCombination([[v.A, centered("x", v.h)], [v.B, centered("y", v.k)]])}=${num(v.N)}`;
+                return `${conicCombination([[v.A, centered("x", v.h, sym.h), sym.A], [v.B, centered("y", v.k, sym.k), sym.B]])}=${sym.N || num(v.N)}`;
             }
             if (v.a2 <= 0 || v.b2 <= 0) {
                 throw new Error("两个分母都要大于 0");
             }
             // 实半轴分母 A 始终跟着正项：焦点在 x 轴是 x²/A，在 y 轴是 y²/A
             const focusY = mode === "y";
-            const positive = focusY ? squaredTerm("y", v.k, v.a2) : squaredTerm("x", v.h, v.a2);
-            const negative = focusY ? squaredTerm("x", v.h, v.b2) : squaredTerm("y", v.k, v.b2);
+            const positive = focusY
+                ? squaredTerm("y", v.k, v.a2, sym.a2, sym.k)
+                : squaredTerm("x", v.h, v.a2, sym.a2, sym.h);
+            const negative = focusY
+                ? squaredTerm("x", v.h, v.b2, sym.b2, sym.h)
+                : squaredTerm("y", v.k, v.b2, sym.b2, sym.k);
             return `${positive}-${negative}=1`;
         },
         // 勾选后才带渐近线；三种写法都从 a、b 反推斜率
@@ -758,27 +873,29 @@ const CURVE_TYPES = {
             { key: "down", label: "开口向下 x²=-2py" },
         ],
         fields: () => [
-            { key: "twoP", label: "2p 的值", value: 4 },
-            { key: "h", label: "顶点 x₀（默认 0）", value: 0 },
-            { key: "k", label: "顶点 y₀（默认 0）", value: 0 },
+            { key: "twoP", label: "2p 的值", value: 4, sym: "m" },
+            { key: "h", label: "顶点 x₀（默认 0）", value: 0, sym: "h" },
+            { key: "k", label: "顶点 y₀（默认 0）", value: 0, sym: "k" },
         ],
-        compose: (mode, v) => {
+        compose: (mode, v, sym) => {
             const twoP = Math.abs(v.twoP);
             if (twoP === 0) {
                 throw new Error("2p 不能为 0");
             }
-            const x = centered("x", v.h);
-            const y = centered("y", v.k);
+            const x = centered("x", v.h, sym.h);
+            const y = centered("y", v.k, sym.k);
+            // 滑块字母 m 代表"2p 这个整体"（课本里 2p 常整体系数），所以方程是 y²=mx，不再拆出 p
+            const scale = sym.twoP ? `${sym.twoP}*` : num(twoP);
             if (mode === "left") {
-                return `${y}^2=-${num(twoP)}${x}`;
+                return `${y}^2=-${scale}${x}`;
             }
             if (mode === "up") {
-                return `${x}^2=${num(twoP)}${y}`;
+                return `${x}^2=${scale}${y}`;
             }
             if (mode === "down") {
-                return `${x}^2=-${num(twoP)}${y}`;
+                return `${x}^2=-${scale}${y}`;
             }
-            return `${y}^2=${num(twoP)}${x}`;
+            return `${y}^2=${scale}${x}`;
         },
     },
     line: {
@@ -791,48 +908,48 @@ const CURVE_TYPES = {
         fields: (mode) =>
             mode === "general"
                 ? [
-                      { key: "A", label: "A", value: 1 },
-                      { key: "B", label: "B", value: -2 },
-                      { key: "C", label: "C", value: -4 },
+                      { key: "A", label: "A", value: 1, sym: "A" },
+                      { key: "B", label: "B", value: -2, sym: "B" },
+                      { key: "C", label: "C", value: -4, sym: "C" },
                   ]
                 : [
-                      { key: "k", label: "斜率 k", value: 1 },
-                      { key: "b", label: "截距 b", value: 0 },
+                      { key: "k", label: "斜率 k", value: 1, sym: "k" },
+                      { key: "b", label: "截距 b", value: 0, sym: "b" },
                   ],
-        compose: (mode, v) => {
+        compose: (mode, v, sym) => {
             if (mode === "slope") {
-                return `y=${linearCombination([[v.k, "x"], [v.b, ""]])}`;
+                return `y=${linearCombination([[v.k, "x", sym.k], [v.b, "", sym.b]])}`;
             }
             if (v.A === 0 && v.B === 0) {
                 throw new Error("A、B 不能同时为 0");
             }
-            return `${linearCombination([[v.A, "x"], [v.B, "y"], [v.C, ""]])}=0`;
+            return `${linearCombination([[v.A, "x", sym.A], [v.B, "y", sym.B], [v.C, "", sym.C]])}=0`;
         },
     },
     quadratic: {
         label: "二次函数",
         hint: "y = ax² + bx + c，填三个系数。",
         fields: () => [
-            { key: "a", label: "a", value: 1 },
-            { key: "b", label: "b", value: -2 },
-            { key: "c", label: "c", value: -3 },
+            { key: "a", label: "a", value: 1, sym: "a" },
+            { key: "b", label: "b", value: -2, sym: "b" },
+            { key: "c", label: "c", value: -3, sym: "c" },
         ],
-        compose: (mode, v) => {
+        compose: (mode, v, sym) => {
             if (v.a === 0) {
                 throw new Error("a 不能为 0（否则是直线）");
             }
-            return `y=${linearCombination([[v.a, "x^2"], [v.b, "x"], [v.c, ""]])}`;
+            return `y=${linearCombination([[v.a, "x^2", sym.a], [v.b, "x", sym.b], [v.c, "", sym.c]])}`;
         },
     },
     inverse: {
         label: "反比例",
         hint: "y = k/x，填 k（k 不能为 0）。",
-        fields: () => [{ key: "k", label: "k", value: 1 }],
-        compose: (mode, v) => {
+        fields: () => [{ key: "k", label: "k", value: 1, sym: "k" }],
+        compose: (mode, v, sym) => {
             if (v.k === 0) {
                 throw new Error("k 不能为 0");
             }
-            return `y=${num(v.k)}/x`;
+            return `y=${sym.k || num(v.k)}/x`;
         },
     },
     sine: {
@@ -845,16 +962,16 @@ const CURVE_TYPES = {
         fields: (mode) =>
             mode === "period"
                 ? [
-                      { key: "A", label: "振幅 A", value: 1 },
-                      { key: "T", label: "周期 T", value: 2 },
-                      { key: "phi", label: "初相 φ", value: 0 },
+                      { key: "A", label: "振幅 A", value: 1, sym: "A" },
+                      { key: "T", label: "周期 T", value: 2, sym: "T", range: [0.1, 20] },
+                      { key: "phi", label: "初相 φ", value: 0, sym: "p" },
                   ]
                 : [
-                      { key: "A", label: "振幅 A", value: 1 },
-                      { key: "w", label: "ω", value: 1 },
-                      { key: "phi", label: "初相 φ", value: 0 },
+                      { key: "A", label: "振幅 A", value: 1, sym: "A" },
+                      { key: "w", label: "ω", value: 1, sym: "w" },
+                      { key: "phi", label: "初相 φ", value: 0, sym: "p" },
                   ],
-        compose: (mode, v) => {
+        compose: (mode, v, sym) => {
             if (v.A === 0) {
                 throw new Error("振幅 A 不能为 0");
             }
@@ -863,21 +980,25 @@ const CURVE_TYPES = {
                 if (v.T === 0) {
                     throw new Error("周期 T 不能为 0");
                 }
-                omega = piText((2 * Math.PI) / v.T);
+                omega = sym.T ? `2pi/${sym.T}` : piText((2 * Math.PI) / v.T);
             } else {
                 if (v.w === 0) {
                     throw new Error("ω 不能为 0");
                 }
-                omega = coefficientText(v.w);
+                omega = sym.w || coefficientText(v.w);
             }
-            // 只有纯数字才紧贴 x（2x）；含 pi 或用分数写的必须补 *，否则 pi/2x 会被读成 pi/(2x)
+            // 只有纯数字才紧贴 x（2x）；含 pi 或字母的必须补 *，否则 pi/2x 会被读成 pi/(2x)
             const plainNumber = /^-?\d+(\.\d+)?$/.test(omega);
             const omegaPart = omega === "" ? "x" : plainNumber ? `${omega}x` : `${omega}*x`;
             let phase = "";
-            if (v.phi !== 0) {
+            if (sym.phi) {
+                phase = `+${sym.phi}`; // 字母自带正负号，不再按当前值的正负挑加号还是减号
+            } else if (v.phi !== 0) {
                 phase = v.phi < 0 ? `-${piText(-v.phi)}` : `+${piText(v.phi)}`;
             }
-            return `y=${coefficientText(v.A)}sin(${omegaPart}${phase})`;
+            // 振幅与 sin 之间那个 * 不能省：连写的 "Asin" 会被读成反三角函数 asin
+            const amplitude = sym.A ? `${sym.A}*` : coefficientText(v.A);
+            return `y=${amplitude}sin(${omegaPart}${phase})`;
         },
         // 勾选后坐标轴刻度、悬停读数、与两轴的交点都改用 π 表示（数学书上的弧度制写法）
         extras: () => [{ key: "radianTicks", label: "坐标轴与交点用弧度制（π）表示", value: false }],
@@ -897,6 +1018,9 @@ const CURVE_TYPES = {
 
 const PALETTE = ["#714B67", "#2C8397", "#E0A100", "#F06050", "#28B08A", "#5B8FF9", "#875A7B", "#D6145F"];
 const DEFAULT_HALF_WIDTH = 10;
+// 新滑块的默认区间与步长：区间跟 Desmos 一样取 -10~10，步长取 0.1（拖出来是 2、2.1 这种能给全班念的数）
+const DEFAULT_SLIDER_HALF = 10;
+const DEFAULT_SLIDER_STEP = 0.1;
 
 function niceStep(range, targetCount) {
     const raw = range / Math.max(1, targetCount);
@@ -975,8 +1099,13 @@ function prettyEquation(text) {
     out = out.replace(/log\(/g, "lg(");
     out = out.replace(/sqrt\(/g, "√(");
     out = out.replace(/\*/g, "·");
-    // 字母相邻时省掉点号：π·x → πx（π/2·x 保留点号，避免被读成分母里带 x）
-    out = out.replace(/([a-zA-Zπ])·([a-zA-Z])/g, "$1$2");
+    // 字母相邻时省掉点号：π·x → πx。两种情况必须保留点号：
+    // ① 2π/T·x 这种分母位（点号左边是斜杠），省掉就被读成"分母里带着 x"；
+    // ② A·sin 后面紧跟函数名，省掉就成了反三角函数 asin。
+    out = out.replace(
+        /(^|[^/])([a-zA-Zπ])·(?!(?:asin|acos|atan|sqrt|sin|cos|tan|abs|exp|log|ln)\b)([a-zA-Z])/g,
+        "$1$2$3"
+    );
     return out;
 }
 
@@ -999,9 +1128,13 @@ class PlotSurface {
         this.mainCtx = this.mainCanvas.getContext("2d");
         this.overlayCtx = this.overlayCanvas.getContext("2d");
         this.legend = root.querySelector("[data-plot-legend]");
+        this.sliderBar = root.querySelector("[data-plot-sliders]");
         this.errorBox = root.querySelector("[data-plot-error]");
         this.input = root.querySelector("[data-plot-input]");
         this.curves = [];
+        // 选中哪条曲线，滑块条就只摆哪条的参数：参数是每条曲线自己的，不跨曲线共用
+        this.selected = null;
+        this.sliderEls = new Map();
         this.view = { cx: 0, cy: 0, hw: DEFAULT_HALF_WIDTH };
         this.hover = null;
         this.drag = null;
@@ -1082,25 +1215,138 @@ class PlotSurface {
 
     // meta 是"这条曲线的附带信息"：椭圆的离心率、双曲线勾选的渐近线
     addCurve(expression, meta = null) {
-        const model = buildModel(expression);
+        buildModel(expression, {}); // 语法不过就别把这条加进列表
+        this.pushCurve({ expression, typed: null, meta, params: new Map() });
+    }
+
+    // 按类型添加：把"当初填的那份数"一起存下，滑块一动就用同一套 compose 重出附带信息。
+    // 方程本身带的是字母（y²=mx、x²/a²+y²/b²=1），所以拖滑块时图例那行不会跳数字。
+    addTypedCurve(typed) {
+        const spec = CURVE_TYPES[typed.typeKey];
+        const sym = sliderTexts(spec, typed.mode, typed.sliderKeys);
         const curve = {
-            expression,
-            model,
-            color: PALETTE[this.curves.length % PALETTE.length],
-            visible: true,
-            meta,
+            expression: spec.compose(typed.mode, typed.fixed, sym),
+            typed,
+            meta: null,
+            params: new Map(),
         };
+        for (const field of spec.fields(typed.mode)) {
+            if (field.sym && typed.sliderKeys.includes(field.key)) {
+                ensureParam(curve.params, field.sym, {
+                    value: sliderValueOf(field, typed.fixed[field.key]),
+                    range: field.range,
+                    label: field.label,
+                });
+            }
+        }
+        this.pushCurve(curve);
+    }
+
+    pushCurve(curve) {
+        curve.color = PALETTE[this.curves.length % PALETTE.length];
+        curve.visible = true;
         this.curves.push(curve);
+        this.selected = curve; // 新加的这条就是当前选中的，滑块条跟着它摆
+        this.rebuildCurve(curve);
         this.renderLegend();
+        this.renderSliders();
+        this.syncError();
         this.drawMain();
         this.drawOverlay();
     }
 
-    clearCurves() {
-        this.curves = [];
+    // 按这条曲线自己的滑块值重建模型与附带信息；拖进非法区间只坏这一条，其它曲线照画
+    rebuildCurve(curve) {
+        curve.error = null;
+        try {
+            if (curve.typed) {
+                const { typeKey, mode, fixed, extras, sliderKeys } = curve.typed;
+                const spec = CURVE_TYPES[typeKey];
+                const values = { ...fixed };
+                for (const field of spec.fields(mode)) {
+                    if (!field.sym || !sliderKeys.includes(field.key)) {
+                        continue;
+                    }
+                    const param = curve.params.get(field.sym);
+                    if (param) {
+                        values[field.key] = fieldValueOf(field, param.value);
+                    }
+                }
+                spec.compose(mode, values, sliderTexts(spec, mode, sliderKeys)); // 只为校验，方程文字用 curve.expression
+                curve.meta = spec.describe ? spec.describe(mode, values, extras) : null;
+            }
+            curve.model = buildModel(curve.expression, paramValues(curve.params));
+            // 自己写的方程里冒出来的字母，在这条曲线名下长一个滑块；别的曲线用同一个字母互不相干
+            for (const name of curve.model.used) {
+                ensureParam(curve.params, name, { label: "自己写的方程" });
+            }
+        } catch (error) {
+            curve.error = error.message;
+            curve.model = null;
+        }
+    }
+
+    // 参数只属于那一条曲线，所以拖动时只重建它自己
+    refreshCurve(curve, coarse = false) {
+        this.rebuildCurve(curve);
         this.renderLegend();
+        this.syncSliders();
+        this.syncError();
+        this.scheduleDraw(coarse);
+        this.drawOverlay();
+    }
+
+    removeCurve(index) {
+        const removed = this.curves.splice(index, 1)[0];
+        if (this.selected === removed) {
+            this.selected = this.curves[this.curves.length - 1] || null;
+        }
+        this.renderLegend();
+        this.renderSliders();
+        this.syncError();
         this.drawMain();
         this.drawOverlay();
+    }
+
+    // 选中哪条，滑块条就摆哪条的参数
+    selectCurve(curve) {
+        if (!curve || this.selected === curve) {
+            return;
+        }
+        this.selected = curve;
+        this.renderLegend();
+        this.renderSliders();
+        this.drawMain();
+    }
+
+    clearCurves() {
+        this.curves = [];
+        this.selected = null;
+        this.sliderEls.clear();
+        this.renderLegend();
+        this.renderSliders();
+        this.clearError();
+        this.drawMain();
+        this.drawOverlay();
+    }
+
+    /* -------------------------------- 滑块参数 ------------------------------- */
+
+    setParam(name, value, coarse = false) {
+        const curve = this.selected;
+        const param = curve ? curve.params.get(name) : null;
+        if (!param || !Number.isFinite(value) || param.value === value) {
+            return;
+        }
+        param.value = value;
+        // 越界就撑开区间，别把值夹回去——数值框里填 40 不该只到 10
+        if (value < param.min) {
+            param.min = value;
+        }
+        if (value > param.max) {
+            param.max = value;
+        }
+        this.refreshCurve(curve, coarse);
     }
 
     showError(message) {
@@ -1115,8 +1361,19 @@ class PlotSurface {
     renderLegend() {
         this.legend.textContent = "";
         this.curves.forEach((curve, index) => {
+            const selected = curve === this.selected;
             const wrap = document.createElement("span");
-            wrap.className = "d-inline-flex align-items-center gap-1 border rounded px-2 py-1 small";
+            wrap.className = "tutoring_plot_legend_item d-inline-flex align-items-center gap-1 border rounded px-2 py-1 small";
+            wrap.title = "点这一行：下面的滑块条换成这条曲线的参数";
+            if (selected) {
+                wrap.classList.add("tutoring_plot_legend_item_selected", "border-primary");
+            }
+            // 图例行本身要能点，但"隐藏/删除"两个按钮得自己收 click
+            wrap.addEventListener("click", (event) => {
+                if (!event.target.closest("button")) {
+                    this.selectCurve(curve);
+                }
+            });
 
             const swatch = document.createElement("span");
             swatch.style.cssText = `display:inline-block;width:12px;height:12px;border-radius:3px;background:${curve.color}`;
@@ -1125,16 +1382,23 @@ class PlotSurface {
             }
             wrap.appendChild(swatch);
 
-            const label = document.createElement("span");
+            // 方程那一行做成真按钮：鼠标点、Tab 聚焦回车都能选中，纯文本节点键盘够不着
+            const label = document.createElement("button");
+            label.type = "button";
+            label.className = "btn btn-link p-0 text-decoration-none tutoring_plot_legend_pick";
             label.innerHTML = prettyEquation(curve.expression);
-            label.title = curve.expression;
+            label.title = "点这一行：下面的滑块条换成这条曲线的参数";
             label.style.opacity = curve.visible ? "1" : "0.45";
             if (curve.visible) {
-                label.className = "fw-semibold";
+                label.classList.add("fw-semibold");
             }
+            label.addEventListener("click", () => this.selectCurve(curve));
             wrap.appendChild(label);
 
             const info = curve.meta || {};
+            if (curve.error) {
+                wrap.appendChild(infoBadge("这个值画不出来", curve.error));
+            }
             if (info.radian) {
                 wrap.appendChild(infoBadge("弧度制 π", "坐标轴刻度、读数与交点都用 π 表示"));
             }
@@ -1153,6 +1417,12 @@ class PlotSurface {
                 );
             }
 
+            // 没选中也要看得出这条线身上有几个旋钮，否则参数藏在点一下之后
+            if (curve.params.size && !selected) {
+                const letters = [...curve.params.keys()].join("、");
+                wrap.appendChild(infoBadge(`${curve.params.size} 个参数`, `点这一行调 ${letters}`));
+            }
+
             const toggle = document.createElement("button");
             toggle.type = "button";
             toggle.className = "btn btn-link btn-sm p-0 ms-1 text-decoration-none";
@@ -1169,16 +1439,182 @@ class PlotSurface {
             remove.type = "button";
             remove.className = "btn btn-link btn-sm p-0 ms-1 text-decoration-none text-danger";
             remove.textContent = "删除";
-            remove.addEventListener("click", () => {
-                this.curves.splice(index, 1);
-                this.renderLegend();
-                this.drawMain();
-                this.drawOverlay();
-            });
+            remove.addEventListener("click", () => this.removeCurve(index));
             wrap.appendChild(remove);
 
             this.legend.appendChild(wrap);
         });
+    }
+
+    /* --------------------------------- 滑块条 --------------------------------- */
+
+    syncError() {
+        const broken = this.curves.filter((curve) => curve.error);
+        if (!broken.length) {
+            this.clearError();
+            return;
+        }
+        const first = broken[0];
+        const prefix = broken.length > 1 ? `${broken.length} 条曲线画不出来，第一条：` : "";
+        this.showError(`${prefix}${first.expression}：${first.error}`);
+    }
+
+    // 只摆当前选中那条曲线的参数；一条曲线都没有、或选中的那条没参数，整条收起
+    renderSliders() {
+        this.sliderBar.textContent = "";
+        this.sliderEls.clear();
+        const params = this.selected ? this.selected.params : null;
+        if (!params || !params.size) {
+            this.sliderBar.classList.add("d-none");
+            return;
+        }
+        this.sliderBar.classList.remove("d-none");
+        const caption = document.createElement("span");
+        caption.className = "text-muted small align-self-center";
+        caption.textContent = `「${this.selected.expression}」的参数`;
+        caption.title = "点图例里的其它曲线，这一条就换成那一条的参数";
+        this.sliderBar.appendChild(caption);
+        for (const [name, param] of params) {
+            this.sliderBar.appendChild(this.buildSlider(name, param));
+        }
+    }
+
+    // 一个字母一格：字母名 + 拖动条 + 数值框 + 区间设置
+    buildSlider(name, param) {
+        const wrap = document.createElement("div");
+        wrap.className = "tutoring_plot_slider d-inline-flex flex-column";
+
+        const row = document.createElement("div");
+        row.className = "d-flex align-items-center gap-2";
+
+        const sym = document.createElement("span");
+        sym.className = "tutoring_plot_slider_sym";
+        sym.textContent = name;
+        sym.title = param.label;
+        row.appendChild(sym);
+
+        const range = document.createElement("input");
+        range.type = "range";
+        range.className = "form-range";
+        range.setAttribute("aria-label", `滑块 ${name}`);
+        // 拖动过程中按粗采样重画（松手再补一次细的），与滚轮缩放同一套节流
+        range.addEventListener("input", () => this.setParam(name, Number(range.value), true));
+        range.addEventListener("change", () => {
+            this.setParam(name, Number(range.value));
+            // 停在原位时 setParam 会提前返回，这里无条件补一次细描，否则隐式曲线会一直停在粗采样
+            this.scheduleDraw(false);
+        });
+        row.appendChild(range);
+
+        const value = document.createElement("input");
+        value.type = "text";
+        value.inputMode = "decimal";
+        value.autocomplete = "off";
+        value.className = "form-control form-control-sm tutoring_plot_slider_value";
+        value.title = "可以直接填 3/2、2pi、sqrt(5) 这种算式";
+        value.addEventListener("change", () => this.commitSliderValue(name, value));
+        row.appendChild(value);
+
+        const gear = document.createElement("button");
+        gear.type = "button";
+        gear.className = "btn btn-sm btn-link text-muted p-0 tutoring_plot_slider_gear";
+        gear.title = "设置区间与步长";
+        gear.innerHTML = '<i class="fa fa-sliders" role="img"></i>';
+        row.appendChild(gear);
+        wrap.appendChild(row);
+
+        const cfg = document.createElement("div");
+        cfg.className = "tutoring_plot_slider_cfg d-none align-items-center gap-1 small text-muted";
+        const inputs = {};
+        for (const [key, label] of [["min", "从"], ["step", "步进"], ["max", "到"]]) {
+            const caption = document.createElement("span");
+            caption.textContent = label;
+            const box = document.createElement("input");
+            box.type = "text";
+            box.className = "form-control form-control-sm";
+            box.addEventListener("change", () => this.commitSliderConfig(name, key, box));
+            cfg.appendChild(caption);
+            cfg.appendChild(box);
+            inputs[key] = box;
+        }
+        gear.addEventListener("click", () => {
+            const open = cfg.classList.contains("d-none");
+            cfg.classList.toggle("d-none", !open);
+            cfg.classList.toggle("d-flex", open);
+        });
+        wrap.appendChild(cfg);
+
+        this.sliderEls.set(name, { range, value, inputs });
+        this.syncSlider(name, param);
+        return wrap;
+    }
+
+    syncSliders() {
+        if (!this.selected) {
+            return;
+        }
+        for (const [name, param] of this.selected.params) {
+            this.syncSlider(name, param);
+        }
+    }
+
+    // 就地改属性，不重建 DOM：拖动时重建会把正在拖的那根 range 一起换掉
+    syncSlider(name, param) {
+        const els = this.sliderEls.get(name);
+        if (!els) {
+            return;
+        }
+        els.range.min = param.min;
+        els.range.max = param.max;
+        els.range.step = param.step;
+        els.range.value = param.value;
+        const texts = {
+            value: formatNumber(param.value),
+            min: formatNumber(param.min),
+            max: formatNumber(param.max),
+            step: formatNumber(param.step),
+        };
+        if (document.activeElement !== els.value) {
+            els.value.value = texts.value;
+        }
+        for (const [key, box] of Object.entries(els.inputs)) {
+            if (document.activeElement !== box) {
+                box.value = texts[key];
+            }
+        }
+    }
+
+    commitSliderValue(name, box) {
+        const param = this.selected.params.get(name);
+        try {
+            this.setParam(name, evalConstant(box.value));
+            box.classList.remove("is-invalid");
+            box.title = "可以直接填 3/2、2pi、sqrt(5) 这种算式";
+            // 刚填的是算式就把得数写回去：不然屏幕上留着的还是 "pi/2"，看不出到底生效了哪个数
+            box.value = formatNumber(param.value);
+        } catch (error) {
+            box.classList.add("is-invalid");
+            box.title = error.message;
+            box.value = formatNumber(param.value); // 填不进就回弹到当前值，别留一个看着像生效了的数
+        }
+    }
+
+    // 区间与步长：步进接受 pi/4 这类写法，讲三角函数时按 π 的分数一格一格走
+    commitSliderConfig(name, key, box) {
+        const param = this.selected.params.get(name);
+        let parsed;
+        try {
+            parsed = evalConstant(box.value);
+        } catch {
+            box.value = formatNumber(param[key]);
+            return;
+        }
+        if (key === "step" ? parsed > 0 : key === "min" ? parsed < param.max : parsed > param.min) {
+            param[key] = parsed;
+        }
+        // 区间挪了要把当前值夹回来，否则数值框与拖动条的指示位置会不一致
+        param.value = Math.min(param.max, Math.max(param.min, param.value));
+        this.refreshCurve(this.selected);
     }
 
     /* --------------------------------- 绘制 --------------------------------- */
@@ -1201,11 +1637,12 @@ class PlotSurface {
         context.clearRect(0, 0, this.width, this.height);
         this.drawGrid(context);
         for (const curve of this.curves) {
-            if (!curve.visible) {
+            if (!curve.visible || !curve.model) {
                 continue;
             }
             context.strokeStyle = curve.color;
-            context.lineWidth = 2;
+            // 选中的那条粗一点：滑块条只摆它的参数，画布上得能一眼认出是哪条
+            context.lineWidth = curve === this.selected ? 3 : 2;
             context.lineJoin = "round";
             context.lineCap = "round";
             // 渐近线先画（在曲线下面），再画曲线本身
@@ -1571,7 +2008,7 @@ class PlotSurface {
         context.restore();
 
         for (const curve of this.curves) {
-            if (!curve.visible || curve.model.kind !== "explicit") {
+            if (!curve.visible || !curve.model || curve.model.kind !== "explicit") {
                 continue;
             }
             const y = curve.model.explicit(dataX);
@@ -1762,7 +2199,8 @@ export class FunctionPlot extends Interaction {
         if (!spec) {
             return;
         }
-        this.modal = { spec, mode: spec.modes ? spec.modes[0].key : null };
+        this.modal = {typeKey, spec, mode: spec.modes ? spec.modes[0].key : null};
+        this.modalSliders = new Set();
         this.modalExtras = {};
         for (const extra of spec.extras ? spec.extras(this.modal.mode) : []) {
             this.modalExtras[extra.key] = !!extra.value;
@@ -1833,9 +2271,55 @@ export class FunctionPlot extends Interaction {
 
             column.appendChild(label);
             column.appendChild(input);
+            if (field.sym) {
+                column.appendChild(this.buildSliderToggle(field));
+            }
             this.modalFields.appendChild(column);
             this.modalFieldInputs.push({ key: field.key, label: field.label, el: input });
         }
+    }
+
+    // 「滑块 a」勾选框：勾上就把这个参数从烤死的数字变成方程里活着的字母
+    buildSliderToggle(field) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "form-check mt-1 mb-0";
+
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.className = "form-check-input";
+        input.id = `tutoring_plot_sym_${field.key}`;
+        input.checked = this.modalSliders.has(field.key);
+        input.addEventListener("change", () => {
+            if (input.checked) {
+                this.modalSliders.add(field.key);
+            } else {
+                this.modalSliders.delete(field.key);
+            }
+            this.updateModalPreview();
+        });
+
+        const label = document.createElement("label");
+        label.className = "form-check-label small";
+        label.setAttribute("for", input.id);
+        label.textContent = `滑块 ${field.sym}`;
+        label.title = `这条曲线自己的参数，方程里写 ${field.sym}`;
+
+        wrapper.appendChild(input);
+        wrapper.appendChild(label);
+        return wrapper;
+    }
+
+    // 当前勾了的字段 → compose 用的 {字段键: 方程里的写法}
+    modalSliderKeys() {
+        const { spec, mode } = this.modal;
+        return [...this.modalSliders].filter((key) =>
+            spec.fields(mode).some((field) => field.sym && field.key === key)
+        );
+    }
+
+    modalSliderTexts() {
+        const { spec, mode } = this.modal;
+        return sliderTexts(spec, mode, this.modalSliderKeys());
     }
 
     // 复选项（目前只有双曲线的"画出渐近线"）：切换写法时保留已勾的状态
@@ -1895,8 +2379,8 @@ export class FunctionPlot extends Interaction {
         const { spec, mode } = this.modal;
         try {
             const values = this.readModalValues();
-            const equation = spec.compose(mode, values);
-            buildModel(equation); // 顺便验证能不能画出来
+            const equation = spec.compose(mode, values, this.modalSliderTexts());
+            buildModel(equation, {}); // 顺便验证能不能画出来（滑块字母按默认值 1 代入，只查语法与可解性）
             this.modalPreview.innerHTML = prettyEquation(equation);
             this.modalPreview.classList.remove("text-danger");
             this.modalPreview.classList.add("text-muted");
@@ -1935,12 +2419,17 @@ export class FunctionPlot extends Interaction {
         if (!this.modal) {
             return;
         }
-        const { spec, mode } = this.modal;
+        const { mode } = this.modal;
         try {
             const values = this.readModalValues();
-            const equation = spec.compose(mode, values);
-            const meta = spec.describe ? spec.describe(mode, values, this.modalExtras) : null;
-            this.surface.addCurve(equation, meta);
+            // 附带信息（离心率、渐近线）由 rebuildCurve 按滑块当前值算，这里只交"当初填的那份数"
+            this.surface.addTypedCurve({
+                typeKey: this.modal.typeKey,
+                mode,
+                fixed: values,
+                extras: { ...this.modalExtras },
+                sliderKeys: this.modalSliderKeys(),
+            });
             this.surface.clearError();
             this.closeTypeModal();
         } catch (error) {

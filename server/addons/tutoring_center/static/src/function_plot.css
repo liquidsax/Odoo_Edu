@@ -31,6 +31,62 @@ body.tutoring_plot_noscroll {
     justify-content: center;
 }
 
+/* 图例行＝曲线的选中态：滑块条只摆选中的那条 */
+.tutoring_plot_legend_item {
+    cursor: pointer;
+}
+
+.tutoring_plot_legend_item_selected {
+    background: #eef4ff;
+}
+
+/* 方程做成按钮，但读起来仍要像一行式子而不是一个链接 */
+.tutoring_plot_legend_pick {
+    color: inherit;
+}
+
+/* 滑块条：字母 + 拖动条 + 数值框（+ 展开的区间设置） */
+.tutoring_plot_slider_sym {
+    font-family: "Times New Roman", Georgia, serif;
+    font-style: italic;
+    font-weight: 600;
+    font-size: 1.05rem;
+    min-width: 1.25rem;
+    text-align: center;
+}
+
+.tutoring_plot_slider .form-range {
+    width: 9rem;
+}
+
+.tutoring_plot_slider_value {
+    width: 5.5rem;
+    text-align: center;
+}
+
+.tutoring_plot_slider_cfg {
+    gap: 0.25rem !important;
+}
+
+.tutoring_plot_slider_cfg input {
+    width: 5rem;
+}
+
+.tutoring_plot_slider_cfg span {
+    margin-left: 0.25rem;
+}
+
+@media (max-width: 575.98px) {
+    /* 手机上格子窄，拖动条让位给数值框也要留够能按到的宽度 */
+    .tutoring_plot_slider .form-range {
+        width: 6rem;
+    }
+
+    .tutoring_plot_slider_value {
+        width: 4.5rem;
+    }
+}
+
 .tutoring_plot_modal_backdrop {
     position: absolute;
     inset: 0;
