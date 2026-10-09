@@ -79,6 +79,7 @@ SAMPLES = [
     'y=2pi*x',
     'y=（x）',
     'import os',
+    '(x^2)/(16)+(y^2)/(7)=1',
 ]
 for sample in SAMPLES:
     try:
@@ -128,15 +129,61 @@ eq('画不了', off['code'], 'not_plottable')
 eq('原因洗过', off['detail'], '不是函数图像')
 eq('带尖括号的原因丢掉', expr.sanitize_reason('<script>'), '')
 eq('废话不是 JSON', expr.interpret_model_output('我不会')['code'], 'unparseable')
+PROBLEM = (
+    '3.椭圆 C: frac{x^{2}}{16}+frac{y^{2}}{7}=1 的两个焦点分别为 F_{1}, F_{2}, '
+    '椭圆 C 上有一点 P, 则 triangle P F_{1} F_{2} 的周长为'
+)
+picked = expr.extract_plot_equations(PROBLEM)
+eq('大题里捞出一条', len(picked['curves']), 1)
+eq('大题标成椭圆', picked['curves'][0].get('label'), '椭圆')
+picked_expr = picked['curves'][0]['expr']
+check('捞出的是这条椭圆', '16' in picked_expr and '7' in picked_expr and 'x' in picked_expr and 'y' in picked_expr, picked_expr)
+eq('天气里没有方程', expr.extract_plot_equations('今天天气怎么样')['curves'], [])
+latex = expr.interpret_model_output(json.dumps({
+    'found': True,
+    'curves': [{'expr': r'\frac{x^{2}}{16}+\frac{y^{2}}{7}=1', 'label': '椭圆'}],
+}))
+eq('LaTeX 分式也能收', latex['ok'], True)
+check('LaTeX 收成画布写法', latex['ok'] and '16' in latex['curves'][0]['expr'] and '^' in latex['curves'][0]['expr'], latex)
+bare = expr.interpret_model_output(json.dumps({
+    'found': True,
+    'curves': [{'expr': 'frac{x^{2}}{16}+frac{y^{2}}{7}=1'}],
+}))
+eq('没有反斜杠的 frac 也能收', bare['ok'], True)
+eq('图片空', expr.classify_image(b'') , 'empty')
+eq('图片没有', expr.classify_image(None), 'absent')
+eq('svg 不收', expr.classify_image(b'<svg xmlns="http://www.w3.org/2000/svg"></svg>'), 'type')
+eq('jpeg 文件头', expr.sniff_image(b'\xff\xd8\xff' + b'\x00' * 16), 'jpeg')
+eq('png 文件头', expr.sniff_image(b'\x89PNG\r\n\x1a\n' + b'\x00' * 16), 'png')
+eq('太大', expr.classify_image(b'\xff\xd8\xff' + b'0' * expr.MAX_IMAGE_BYTES), 'too_big')
 many = expr.interpret_model_output(json.dumps({
     'found': True,
-    'curves': [{'expr': 'y=%d*x' % i} for i in range(1, 7)] + [{'expr': 'not an expr'}],
+    'curves': [{'expr': 'y=%d*x' % i} for i in range(1, 18)],
 }))
-eq('最多 4 条', len(many['curves']), 4)
+eq('最多 16 条', len(many['curves']), 16)
 eq('多出来的记一笔', many['truncated'], True)
+eq('第 16 条还在', many['curves'][-1]['expr'], 'y=16*x')
 partial = expr.interpret_model_output(
     '{"found": true, "curves": [{"expr": "y=x"}, {"expr": "???"}]}')
 eq('坏的那条略过', partial['ok'] and partial['skipped'] == 1, True)
+split = expr.interpret_model_output(
+    '{"found": true, "curves": [{"expr": "y=x", "label": "甲"}]}\n'
+    '{"found": true, "curves": [{"expr": "x^2+y^2=1", "label": "乙"}]}'
+)
+check('两个 JSON 都收下', split['ok'] and len(split['curves']) == 2, split)
+eq('第二个 JSON 的圆还在', split['curves'][1]['expr'], 'x^2+y^2=1')
+mixed = expr.interpret_model_output(
+    '{"found": false, "error": "不是函数图像"}\n'
+    '{"found": true, "curves": [{"expr": "y=2*x"}]}'
+)
+check('拒绝旁边仍有方程就画', mixed['ok'] and mixed['curves'][0]['expr'] == 'y=2*x', mixed)
+array = expr.interpret_model_output('[{"expr": "y=x"}, {"expr": "y=x^2"}]')
+check('曲线数组也收', array['ok'] and len(array['curves']) == 2, array)
+overflow = '\n'.join(
+    '{"found": true, "curves": [{"expr": "y=%d*x"}]}' % i for i in range(1, 18))
+capped = expr.interpret_model_output(overflow)
+eq('多个 JSON 合计最多 16 条', len(capped['curves']), 16)
+eq('多个 JSON 多出来记一笔', capped['truncated'], True)
 
 print('\n== 密钥文件 ==')
 FAKE = 'sk-TESTKEYONLY0001'
@@ -181,6 +228,21 @@ with tempfile.TemporaryDirectory() as tmp:
         check('拒绝非 .env 文件名', False)
     except ValueError:
         check('拒绝非 .env 文件名', True)
+
+print('\n== 提示词：给出的方程直接画，该解题时先解出再画 ==')
+PROMPTS = {
+    'system': (ADDON / 'prompts/plot_system.txt').read_text(encoding='utf-8'),
+    'user': (ADDON / 'prompts/plot_user.txt').read_text(encoding='utf-8'),
+    'image': (ADDON / 'prompts/plot_user_image.txt').read_text(encoding='utf-8'),
+}
+for name, text in PROMPTS.items():
+    check('%s 要求先把题解完' % name, '先把题解完' in text)
+    check('%s 不禁止一切所求' % name, '任何所求' not in text)
+    check('%s 不丢后面的求解' % name, '不要回答后面的求解问题' not in text)
+check('系统提示保留周长例题', 'frac{x^{2}}{16}' in PROMPTS['system'] and '周长' in PROMPTS['system'])
+check('系统提示有求出二次函数的例子', 'y=x^2-2*x+1' in PROMPTS['system'])
+check('用户提示仍收描述占位', '%%DESCRIPTION%%' in PROMPTS['user'])
+check('识图提示仍收描述占位', '%%DESCRIPTION%%' in PROMPTS['image'])
 
 print('\n== 与前端 buildModel 对照 ==')
 probe = r'''

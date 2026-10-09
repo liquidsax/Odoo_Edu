@@ -2095,14 +2095,27 @@ function displayMasked(value) {
     return "已保存";
 }
 
-async function postPlotForm(url, fields) {
-    const body = new URLSearchParams();
-    for (const [name, value] of Object.entries(fields)) {
-        body.set(name, value ?? "");
+const PLOT_AI_IMAGE_LIMIT = 8 * 1024 * 1024;
+
+async function postPlotForm(url, fields, file) {
+    let body;
+    const headers = {};
+    if (file) {
+        body = new FormData();
+        for (const [name, value] of Object.entries(fields)) {
+            body.set(name, value ?? "");
+        }
+        body.set("image", file);
+    } else {
+        body = new URLSearchParams();
+        for (const [name, value] of Object.entries(fields)) {
+            body.set(name, value ?? "");
+        }
+        headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
     }
     const resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+        headers,
         body,
     });
     try {
@@ -2309,8 +2322,14 @@ export class FunctionPlot extends Interaction {
         const status = this.el.querySelector("[data-plot-ai-status]");
         const button = this.el.querySelector("[data-plot-ai-submit]");
         const text = (input?.value || "").trim();
-        if (!text) {
-            this.surface.showError("请先写一句要画的图像");
+        const fileInput = this.el.querySelector("[data-plot-ai-file]");
+        const file = fileInput?.files?.[0] || null;
+        if (!text && !file) {
+            this.surface.showError("请先写一句要画的图像，或上传一张图片");
+            return;
+        }
+        if (file && file.size > PLOT_AI_IMAGE_LIMIT) {
+            this.surface.showError("图片太大了（最大 8MB），请换一张小一点的。这次没有扣次数。");
             return;
         }
         this.aiBusy = true;
@@ -2324,7 +2343,7 @@ export class FunctionPlot extends Interaction {
             const data = await postPlotForm("/tools/function-plot/ai", {
                 csrf_token: this.el.querySelector("[data-plot-ai-csrf]")?.value || "",
                 description: text,
-            });
+            }, file);
             if (!data) {
                 this.surface.showError("没有得到有效结果。若刚退出登录，请重新登录后再试。");
                 if (status) {
@@ -2364,6 +2383,9 @@ export class FunctionPlot extends Interaction {
                 return;
             }
             this.surface.clearError();
+            if (fileInput) {
+                fileInput.value = "";
+            }
             if (status) {
                 status.textContent = data.note ? `已绘制 ${drawn} 条。${data.note}` : `已绘制 ${drawn} 条`;
             }

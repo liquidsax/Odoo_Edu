@@ -5,6 +5,7 @@ from odoo.exceptions import AccessError, UserError
 from odoo.http import request
 
 # 类常量不能从空记录集上读：env['model'].DAILY_QUOTA 会走字段查找，页面直接 500。
+from ..models.plot_expr import MAX_IMAGE_BYTES
 from ..models.tutoring_plot_ai import DAILY_QUOTA
 
 
@@ -46,8 +47,13 @@ class TutoringTools(http.Controller):
     )
     def function_plot_ai(self, description='', **kwargs):
         Call = request.env['tutoring.plot.ai.call']
+        upload = request.httprequest.files.get('image')
+        raw = None
+        if upload is not None and upload.filename:
+            # 多读 1 字节用来判断超限，避免先把超大文件整段留在内存里再比长度。
+            raw = upload.read(MAX_IMAGE_BYTES + 1)
         try:
-            result = Call.draw(description)
+            result = Call.draw(description, image=raw)
         except AccessError:
             return _json({'ok': False, 'error': '请先登录后再使用智能画图。'}, status=403)
         except UserError as exc:

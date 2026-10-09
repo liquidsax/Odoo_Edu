@@ -6,6 +6,7 @@
 
 脚本结束前回滚，不往库里留账号。密钥只写临时目录里的 .env。
 """
+import io
 import os
 import shutil
 import stat
@@ -118,7 +119,7 @@ check('额度剩 9', result['quota_left'] == DAILY_QUOTA - 1, result['quota_left
 payload = captured['json']
 check('显式 max_tokens', payload['max_tokens'] == MAX_OUTPUT_TOKENS, payload['max_tokens'])
 check('关掉思考', payload['thinking'] == {'type': 'disabled'})
-check('要 JSON', payload['response_format'] == {'type': 'json_object'})
+check('不锁死单个 JSON', 'response_format' not in payload)
 check('超时写明了', captured['timeout'] == plot_mod.API_TIMEOUT)
 check('不跟随重定向', captured['redirects'] is False)
 check('描述进了用户提示词', '焦点在x轴' in payload['messages'][1]['content'])
@@ -128,6 +129,40 @@ icp.set_param('tutoring_center.deepseek_plot_model', 'deepseek-v4-pro')
 Call.with_user(pupil).draw('再画一条直线 y=x')
 check('画图模型参数盖过共用默认', captured['json']['model'] == 'deepseek-v4-pro')
 icp.set_param('tutoring_center.deepseek_plot_model', '')
+
+print('\n== 整道题里的椭圆：模型拒绝也要画出来 ==')
+ELLIPSE_PROBLEM = (
+    '3.椭圆 C: frac{x^{2}}{16}+frac{y^{2}}{7}=1 的两个焦点分别为 F_{1}, F_{2}, '
+    '椭圆 C 上有一点 P, 则 triangle P F_{1} F_{2} 的周长为'
+)
+before_used = DAILY_QUOTA - Call.with_user(pupil).quota_left()
+install(lambda: FakeResp(200, '{"found": false, "error": "不是函数图像"}'))
+recovered = Call.with_user(pupil).draw(ELLIPSE_PROBLEM)
+expr = recovered['curves'][0]['expr']
+check('拒绝之后仍画出椭圆', '16' in expr and '7' in expr and recovered['curves'][0].get('label') == '椭圆', expr)
+check('这次仍扣额度', DAILY_QUOTA - Call.with_user(pupil).quota_left() == before_used + 1)
+check('说明是从题目方程来的', '已经有方程' in (recovered.get('note') or ''), recovered.get('note'))
+
+print('\n== 图片：识图桩 ==')
+from PIL import Image
+buf = io.BytesIO()
+Image.new('RGB', (80, 40), (20, 40, 180)).save(buf, 'PNG')
+png = buf.getvalue()
+before = Call.sudo().search_count([])
+check('不是图片不记账', raises(lambda: Call.with_user(pupil).draw('椭圆', image=b'<svg></svg>'), UserError))
+check('太大不记账', raises(
+    lambda: Call.with_user(pupil).draw('', image=b'\xff\xd8\xff' + b'0' * (8 * 1024 * 1024)), UserError))
+check('这两下都没记账', Call.sudo().search_count([]) == before)
+install(lambda: FakeResp(200, ELLIPSE))
+seen = Call.with_user(pupil).draw('', image=png)
+check('只上传图片也能画出', seen['curves'][0]['expr'] == 'x^2/9+y^2/4=1')
+content = captured['json']['messages'][1]['content']
+check('识图走 image_url', isinstance(content, list) and content[1]['type'] == 'image_url')
+url = content[1]['image_url']['url']
+check('发出去的是 jpeg', url.startswith('data:image/jpeg;base64,') and 'png' not in url[:40])
+check('识图超时更长', captured['timeout'] == plot_mod.API_TIMEOUT_IMAGE, captured['timeout'])
+check('识图也关思考', captured['json']['thinking'] == {'type': 'disabled'})
+check('图片原文不在流水说明里', '（图片）' in Call.sudo().search([], limit=1, order='id desc').description)
 
 print('\n== 花了 token 才扣；没花不扣 ==')
 used = lambda: DAILY_QUOTA - Call.with_user(pupil).quota_left()
