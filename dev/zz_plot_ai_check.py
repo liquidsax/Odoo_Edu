@@ -119,7 +119,7 @@ check('额度剩 9', result['quota_left'] == DAILY_QUOTA - 1, result['quota_left
 payload = captured['json']
 check('显式 max_tokens', payload['max_tokens'] == MAX_OUTPUT_TOKENS, payload['max_tokens'])
 check('关掉思考', payload['thinking'] == {'type': 'disabled'})
-check('要 JSON', payload['response_format'] == {'type': 'json_object'})
+check('不锁死单个 JSON', 'response_format' not in payload)
 check('超时写明了', captured['timeout'] == plot_mod.API_TIMEOUT)
 check('不跟随重定向', captured['redirects'] is False)
 check('描述进了用户提示词', '焦点在x轴' in payload['messages'][1]['content'])

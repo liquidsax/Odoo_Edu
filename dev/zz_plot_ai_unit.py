@@ -166,6 +166,24 @@ eq('第 16 条还在', many['curves'][-1]['expr'], 'y=16*x')
 partial = expr.interpret_model_output(
     '{"found": true, "curves": [{"expr": "y=x"}, {"expr": "???"}]}')
 eq('坏的那条略过', partial['ok'] and partial['skipped'] == 1, True)
+split = expr.interpret_model_output(
+    '{"found": true, "curves": [{"expr": "y=x", "label": "甲"}]}\n'
+    '{"found": true, "curves": [{"expr": "x^2+y^2=1", "label": "乙"}]}'
+)
+check('两个 JSON 都收下', split['ok'] and len(split['curves']) == 2, split)
+eq('第二个 JSON 的圆还在', split['curves'][1]['expr'], 'x^2+y^2=1')
+mixed = expr.interpret_model_output(
+    '{"found": false, "error": "不是函数图像"}\n'
+    '{"found": true, "curves": [{"expr": "y=2*x"}]}'
+)
+check('拒绝旁边仍有方程就画', mixed['ok'] and mixed['curves'][0]['expr'] == 'y=2*x', mixed)
+array = expr.interpret_model_output('[{"expr": "y=x"}, {"expr": "y=x^2"}]')
+check('曲线数组也收', array['ok'] and len(array['curves']) == 2, array)
+overflow = '\n'.join(
+    '{"found": true, "curves": [{"expr": "y=%d*x"}]}' % i for i in range(1, 18))
+capped = expr.interpret_model_output(overflow)
+eq('多个 JSON 合计最多 16 条', len(capped['curves']), 16)
+eq('多个 JSON 多出来记一笔', capped['truncated'], True)
 
 print('\n== 密钥文件 ==')
 FAKE = 'sk-TESTKEYONLY0001'

@@ -4,6 +4,7 @@
 前端画布肯不肯收下这条式子，**不求值、不 exec**。两边漂移时以
 dev/zz_plot_ai_unit.py 里对 buildModel 的对照为准。
 """
+import json
 import math
 import re
 
@@ -335,20 +336,58 @@ def accept_curves(items):
     return {'curves': curves, 'skipped': skipped, 'truncated': truncated}
 
 
-def parse_plot_response(text):
-    """只认首尾大括号之间的 JSON 对象，且必须有布尔 found。围栏、前后废话都剥掉。"""
-    cleaned = text or ''
-    start, end = cleaned.find('{'), cleaned.rfind('}')
-    if start < 0 or end <= start:
-        return None
-    try:
-        import json
-        data = json.loads(cleaned[start:end + 1])
-    except ValueError:
-        return None
-    if not isinstance(data, dict) or not isinstance(data.get('found'), bool):
-        return None
-    return data
+def iter_json_values(text):
+    """按出现顺序取出顶层 JSON 对象或数组。围栏、前后废话都跳过。
+
+    从一个 `{` 或 `[` 起用 raw_decode，失败就前进一个字符。这样连续的多个
+    JSON 体（中间可以换行）都能留下，不会把第一对到最后一对大括号糊成一段。
+    """
+    decoder = json.JSONDecoder()
+    index = 0
+    length = len(text or '')
+    while index < length:
+        if text[index] not in '{[':
+            index += 1
+            continue
+        try:
+            value, end = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            index += 1
+            continue
+        yield value
+        index = max(end, index + 1)
+
+
+def _gather_curve_items(value, items, refusals):
+    """一个 JSON 体里能画的曲线放进 items。found 为 false 的记一笔拒绝。"""
+    if isinstance(value, list):
+        bare = value and all(
+            isinstance(item, dict) and ('expr' in item or 'equation' in item) and 'found' not in item
+            for item in value)
+        if bare:
+            items.extend(value)
+            return
+        for item in value:
+            _gather_curve_items(item, items, refusals)
+        return
+    if not isinstance(value, dict):
+        return
+    found = value.get('found')
+    if isinstance(found, bool):
+        if found:
+            curves = value.get('curves')
+            if isinstance(curves, list):
+                items.extend(curves)
+            elif 'expr' in value or 'equation' in value:
+                items.append(value)
+        else:
+            refusals.append(value.get('error'))
+        return
+    if isinstance(value.get('curves'), list):
+        items.extend(value['curves'])
+        return
+    if 'expr' in value or 'equation' in value:
+        items.append(value)
 
 
 def sanitize_reason(reason):
@@ -363,19 +402,51 @@ def sanitize_reason(reason):
 
 
 def interpret_model_output(content):
-    """HTTP 200 的正文怎么处理。ok 为假时这次仍然算花过 token（由调用方记账）。"""
-    data = parse_plot_response(content)
-    if data is None:
+    """HTTP 200 的正文怎么处理。ok 为假时这次仍然算花过 token（由调用方记账）。
+
+    一个 JSON 对象，或连续多个 JSON 体，都收。方程合并后再套 16 条上限。
+    """
+    items = []
+    refusals = []
+    saw_found_true = False
+    for value in iter_json_values(content or ''):
+        before = len(items)
+        _gather_curve_items(value, items, refusals)
+        if isinstance(value, dict) and value.get('found') is True:
+            saw_found_true = True
+        elif len(items) > before:
+            saw_found_true = True
+    if not items and not refusals and not saw_found_true:
         return {
             'ok': False, 'code': 'unparseable', 'detail': '',
             'curves': [], 'skipped': 0, 'truncated': False,
         }
-    if not data.get('found'):
+    if not items and not saw_found_true:
+        detail = ''
+        for reason in refusals:
+            detail = sanitize_reason(reason)
+            if detail:
+                break
         return {
-            'ok': False, 'code': 'not_plottable', 'detail': sanitize_reason(data.get('error')),
+            'ok': False, 'code': 'not_plottable', 'detail': detail,
             'curves': [], 'skipped': 0, 'truncated': False,
         }
-    accepted = accept_curves(data.get('curves'))
+    if not items:
+        return {
+            'ok': False, 'code': 'bad_expr', 'detail': '',
+            'curves': [], 'skipped': 0, 'truncated': False,
+        }
+    accepted = accept_curves(items)
+    if not accepted['curves'] and not saw_found_true:
+        detail = ''
+        for reason in refusals:
+            detail = sanitize_reason(reason)
+            if detail:
+                break
+        return {
+            'ok': False, 'code': 'not_plottable', 'detail': detail,
+            'curves': [], 'skipped': accepted['skipped'], 'truncated': accepted['truncated'],
+        }
     if not accepted['curves']:
         return {
             'ok': False, 'code': 'bad_expr', 'detail': '',

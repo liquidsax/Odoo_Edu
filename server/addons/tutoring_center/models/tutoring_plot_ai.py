@@ -198,7 +198,8 @@ class TutoringPlotAiCall(models.Model):
             'max_tokens': MAX_OUTPUT_TOKENS,
             # 不传就自己思考，输出额度会被推理吃掉；与错题摘要一样显式关掉
             'thinking': {'type': 'disabled'},
-            'response_format': {'type': 'json_object'},
+            # 不传 response_format。json_object 会把模型锁成单个对象，
+            # 复杂图像需要连续多个 JSON 体，由 interpret_model_output 合并。
         }
 
     @api.model
