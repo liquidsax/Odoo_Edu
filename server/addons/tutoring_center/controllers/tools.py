@@ -4,6 +4,9 @@ from odoo import http
 from odoo.exceptions import AccessError, UserError
 from odoo.http import request
 
+# 类常量不能从空记录集上读：env['model'].DAILY_QUOTA 会走字段查找，页面直接 500。
+from ..models.tutoring_plot_ai import DAILY_QUOTA
+
 
 def _json(payload, status=200):
     """自己编码，Content-Length 按字节算，中文错误信息不会被截断。"""
@@ -31,7 +34,7 @@ class TutoringTools(http.Controller):
         return request.render('tutoring_center.function_plot_page', {
             'plot_ai_user': not public,
             'plot_ai_left': 0 if public else Call.quota_left(),
-            'plot_ai_max': Call.DAILY_QUOTA,
+            'plot_ai_max': DAILY_QUOTA,
             'plot_ai_admin': admin,
             'plot_ai_key_masked': masked,
             'plot_ai_key_source': source,
@@ -52,7 +55,7 @@ class TutoringTools(http.Controller):
                 'ok': False,
                 'error': str(exc),
                 'quota_left': Call.quota_left(),
-                'quota_max': Call.DAILY_QUOTA,
+                'quota_max': DAILY_QUOTA,
             })
         return _json({
             'ok': True,
