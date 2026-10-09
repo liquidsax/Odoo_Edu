@@ -882,8 +882,13 @@ class TutoringPortal(CustomerPortal):
         return entries
 
     def _library_searchbar_filters(self):
+        uid = request.env.user.id
         return dict(
-            [('all', {'label': _('全部'), 'domain': []})] +
+            [('all', {'label': _('全部'), 'domain': []}),
+             # 别人共享给我的：归属反过来，且不带文件夹维度（那是人家的收纳格）
+             ('shared', {'label': _('共享给我'),
+                         'domain': [('user_id', '!=', uid),
+                                    ('share_user_ids', 'in', uid)]})] +
             [(key, {'label': label, 'domain': [('category', '=', key)]})
              for key, label in self._library_categories().items()])
 
@@ -891,18 +896,27 @@ class TutoringPortal(CustomerPortal):
     def portal_my_library(self, sortby=None, filterby=None, search=None, folder=None,
                           page=1, limit=None, **kwargs):
         Item = request.env['tutoring.library.item']
-        base_domain = [('user_id', '=', request.env.user.id)]
-        folder_domain, active_folder, folder_key = self._library_folder(folder)
-        scope_domain = base_domain + folder_domain
-
+        uid = request.env.user.id
         searchbar_filters = self._library_searchbar_filters()
         if filterby not in searchbar_filters:
             filterby = 'all'
-        domain = scope_domain + searchbar_filters[filterby]['domain']
+        shared_scope = filterby == 'shared'
+        # 「共享给我」换的是归属这一维：这时不能再按"我的"过滤，否则两条域互相否掉
+        owner_domain = ([('user_id', '!=', uid), ('share_user_ids', 'in', uid)]
+                        if shared_scope else [('user_id', '=', uid)])
+        folder_domain, active_folder, folder_key = (
+            ([], None, 'all') if shared_scope else self._library_folder(folder))
+        scope_domain = owner_domain + folder_domain
+        domain = scope_domain + ([] if shared_scope else searchbar_filters[filterby]['domain'])
         search_domain = []
         if search:
-            search_domain = ['|', '|', ('name', 'ilike', search),
-                             ('filename', 'ilike', search), ('tag_ids.name', 'ilike', search)]
+            # 共享那一栏不搜标签名：标签是别人私有的，搜得动就等于把名字透出去了
+            search_domain = (['|', '|', ('name', 'ilike', search),
+                              ('filename', 'ilike', search),
+                              ('tag_ids.name', 'ilike', search)]
+                             if not shared_scope else
+                             ['|', ('name', 'ilike', search),
+                              ('filename', 'ilike', search)])
             domain += search_domain
 
         sortings = self._library_sortings()
@@ -924,11 +938,15 @@ class TutoringPortal(CustomerPortal):
             domain, order=sortings[sortby]['order'],
             limit=page_size, offset=(page - 1) * page_size)
 
-        # 分类药丸上的计数：在当前文件夹 + 搜索词下按分类一次 read_group
+        # 分类药丸上的计数：始终数"我自己"的那一份（切到共享栏也不改口径，
+        # 否则同一个数字在两栏之间会莫名其妙地变小），共享那条单独数
+        own_scope_domain = [('user_id', '=', uid)] + folder_domain
         filter_counts = {}
-        for key, count in Item._read_group(scope_domain + search_domain, ['category'], ['__count']):
+        for key, count in Item._read_group(own_scope_domain + search_domain, ['category'], ['__count']):
             filter_counts[key] = count
         filter_counts['all'] = sum(filter_counts.values())
+        filter_counts['shared'] = Item.search_count(
+            [('user_id', '!=', uid), ('share_user_ids', 'in', uid)])
 
         url_args = {
             'sortby': sortby, 'filterby': filterby,
@@ -950,9 +968,11 @@ class TutoringPortal(CustomerPortal):
             'filter_counts': filter_counts,
             'page_size': page_size,
             'page_sizes': self.LIBRARY_PAGE_SIZES,
-            'folder_entries': self._library_folder_entries(base_domain, folder_key),
+            'folder_entries': self._library_folder_entries(
+                [('user_id', '=', uid)], folder_key),
             'active_folder': active_folder,
             'folder_key': folder_key,
+            'shared_scope': shared_scope,
             'url_args': url_args,
             'pager': portal_pager(
                 url='/my/library', url_args=url_args,
@@ -1034,7 +1054,8 @@ class TutoringPortal(CustomerPortal):
         走条目的 write()：单文件上限与剩余配额那两道检查、以及"练习册/教辅"
         补完附件才挂进书，都在模型里，这里不重做一遍。
         """
-        item = request.env['tutoring.library.item'].search([('id', '=', item_id)], limit=1)
+        item = request.env['tutoring.library.item'].search(
+            [('id', '=', item_id), ('user_id', '=', request.env.user.id)], limit=1)
         if not item:
             return request.not_found()
         upload = request.httprequest.files.get('file')
@@ -1096,23 +1117,42 @@ class TutoringPortal(CustomerPortal):
 
     @http.route('/my/library/<int:item_id>', type='http', auth='user', website=True)
     def portal_my_library_item(self, item_id, **kwargs):
-        item = request.env['tutoring.library.item'].browse(item_id).exists()
-        if not item or not item.has_access('read') or item.user_id != request.env.user:
+        # 走 search 而不是 browse：「被共享的人可读」那条规则就是在这里生效，
+        # browse 之后再自己判 user_id 会把共享进来的人重新挡回门外
+        item = request.env['tutoring.library.item'].search(
+            [('id', '=', item_id)], limit=1)
+        if not item:
             return request.not_found()
         return request.render('tutoring_center.portal_my_library_item', {
             'page_name': 'library',
             'item': item,
+            'is_owner': item.user_id.id == request.env.user.id,
             'categories': dict(item._fields['category'].selection),
             'folders': request.env['tutoring.library.folder'].search([]),
+            'share_candidates': item.share_candidate_ids,
         })
+
+    @http.route('/my/library/<int:item_id>/share', type='http', auth='user',
+                methods=['POST'], website=True, csrf=True)
+    def portal_my_library_item_share(self, item_id, **kw):
+        """改「谁可以看」。域里写死 user_id：只有条目主人改得动。"""
+        item = request.env['tutoring.library.item'].search(
+            [('id', '=', item_id), ('user_id', '=', request.env.user.id)], limit=1)
+        if not item:
+            return request.not_found()
+        uids = [uid for uid in request.httprequest.values.getlist(
+            'share_uid', type=int) if uid]
+        item.write({'share_user_ids': [(6, 0, uids)]})
+        return request.redirect('/my/library/%s?shared=1' % item.id)
 
     @http.route('/my/library/<int:item_id>/edit', type='http', auth='user', methods=['POST'],
                 website=True, csrf=True)
     def portal_my_library_item_edit(self, item_id, **kw):
         # 走 search 而不是 browse：规则会直接把别人那条过滤成"不存在"，
-        # 用 browse 再读 user_id 判归属，越权请求是先炸 500 再被规则拦住
+        # 用 browse 再读 user_id 判归属，越权请求是先炸 500 再被规则拦住。
+        # 加了共享规则之后，域里必须再钉一次 user_id——别人能读不等于能改
         item = request.env['tutoring.library.item'].search(
-            [('id', '=', item_id)], limit=1)
+            [('id', '=', item_id), ('user_id', '=', request.env.user.id)], limit=1)
         if not item:
             return request.not_found()
         category = kw.get('category') or item.category
@@ -1136,7 +1176,8 @@ class TutoringPortal(CustomerPortal):
         页面不给按钮，这里再挡一次（免得有人直接 POST）。
         配额由条目的 write() 按增量重算，超了会抛 UserError，转成一句人话回去。
         """
-        item = request.env['tutoring.library.item'].search([('id', '=', item_id)], limit=1)
+        item = request.env['tutoring.library.item'].search(
+            [('id', '=', item_id), ('user_id', '=', request.env.user.id)], limit=1)
         if not item:
             return request.not_found()
         if not item.editable:
@@ -1152,7 +1193,8 @@ class TutoringPortal(CustomerPortal):
     @http.route('/my/library/<int:item_id>/delete', type='http', auth='user', methods=['POST'],
                 website=True, csrf=True)
     def portal_my_library_item_delete(self, item_id, **kw):
-        item = request.env['tutoring.library.item'].search([('id', '=', item_id)], limit=1)
+        item = request.env['tutoring.library.item'].search(
+            [('id', '=', item_id), ('user_id', '=', request.env.user.id)], limit=1)
         if item:
             item.unlink()
         return request.redirect('/my/library')
