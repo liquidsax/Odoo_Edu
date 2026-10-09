@@ -140,6 +140,13 @@
                                        invisible="not from_workbook"/>
                                 <field name="mistake_id" placeholder="（不关联）"
                                        title="错题的照片或说明挂在哪一条错题上"/>
+                                <!-- 谁可以看：域钉在「可以共享给」上（学生档案的门户账号）。
+                                     服务端 write() 还会再剔一次名单外的人，不信任界面 -->
+                                <field name="share_candidate_ids" invisible="1"/>
+                                <field name="share_user_ids" widget="many2many_tags"
+                                       options="{'no_create': True}" placeholder="不共享"
+                                       domain="[('id', 'in', share_candidate_ids)]"
+                                       title="勾上的人只能看和下载，也不占他的容量"/>
                             </group>
                         </group>
                         <div class="o_library_preview">
