@@ -105,6 +105,68 @@ body.tutoring_plot_noscroll {
     box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18);
 }
 
+/* 数学小键盘：键面印课本记号（π、×、√、|x|），插进输入框的是画布收得下的写法 */
+.tutoring_plot_keypad {
+    margin-top: 0.5rem;
+    padding: 0.6rem;
+    background: #f4f5f7;
+    border: 1px solid #dee2e6;
+    border-radius: 0.5rem;
+}
+
+.tutoring_plot_keypad_tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.tutoring_plot_keypad_grid {
+    display: grid;
+    grid-template-columns: repeat(var(--plot-keypad-cols, 5), minmax(0, 1fr));
+    gap: 0.3rem;
+}
+
+.tutoring_plot_keypad_edit {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #e2e4e8;
+}
+
+.tutoring_plot_key {
+    width: 100%;
+    min-height: 2.4rem;
+    padding: 0.15rem 0.2rem;
+    font-size: 1.05rem;
+    line-height: 1.1;
+}
+
+/* 字母键按课本的斜体衬线排，与滑块条上那个字母同一副面孔 */
+.tutoring_plot_key_var {
+    font-family: "Times New Roman", Georgia, serif;
+    font-style: italic;
+    font-weight: 600;
+}
+
+/* 模板键是一整条方程，字号让位给长度 */
+.tutoring_plot_key_text {
+    min-height: 2.6rem;
+    font-size: 0.85rem;
+    white-space: normal;
+    word-break: break-word;
+}
+
+@media (max-width: 575.98px) {
+    .tutoring_plot_key {
+        min-height: 2.75rem;
+    }
+
+    /* 三条模板并排在手机上排不开，退成两列 */
+    .tutoring_plot_keypad_grid_text {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 @media (min-width: 576px) {
     .tutoring_plot_modal {
         align-items: center;

@@ -15,11 +15,16 @@ const FUNCTIONS = {
     asin: Math.asin,
     acos: Math.acos,
     atan: Math.atan,
+    // 课本写 arcsin 比 asin 多，两个名字都收（Desmos 也只认得下 asin 那种写法）
+    arcsin: Math.asin,
+    arccos: Math.acos,
+    arctan: Math.atan,
     sqrt: Math.sqrt,
     abs: Math.abs,
     exp: Math.exp,
     ln: Math.log,
     log: Math.log10,
+    lg: Math.log10,
 };
 
 const BINARY_PRECEDENCE = { "+": 1, "-": 1, "*": 2, "/": 2, "^": 4 };
@@ -79,6 +84,10 @@ function tokenize(text) {
         } else if (char === "(" || char === ")") {
             tokens.push({ type: char === "(" ? "lparen" : "rparen" });
             index++;
+        } else if (char === "|") {
+            // 绝对值竖线：开还是合要到 toRPN 里看前一个 token 才能定
+            tokens.push({ type: "bar" });
+            index++;
         } else if ("+-*/^".includes(char)) {
             tokens.push({ type: "op", value: char });
             index++;
@@ -134,7 +143,7 @@ function toRPN(tokens) {
         const rightAssociative = value === "^";
         while (top()) {
             const head = top();
-            if (head.type === "lparen") {
+            if (head.type === "lparen" || head.type === "absopen") {
                 break;
             }
             const headPrecedence =
@@ -199,6 +208,24 @@ function toRPN(tokens) {
                 output.push(operators.pop());
             }
             previous = token;
+        } else if (token.type === "bar") {
+            // 竖线是开还是合，看前一个 token 收不收尾、栈里有没有等合的：
+            // |x|+|y| 第二条合、第三条开；||x|-1| 前两条都开、第三条合最里层
+            const closing = endsValue(previous) && operators.some((op) => op.type === "absopen");
+            if (closing) {
+                while (top() && top().type !== "absopen") {
+                    output.push(operators.pop());
+                }
+                operators.pop();
+                output.push({ type: "func", name: "abs" });
+                previous = { type: "rparen" };
+            } else {
+                if (endsValue(previous)) {
+                    pushBinary("*"); // 2|x|、|x||y| 里的隐式乘法
+                }
+                operators.push({ type: "absopen" });
+                previous = { type: "baropen" };
+            }
         } else {
             // 一元负号：直接入栈，不弹出已有运算符（保证 2^-3、-x^2 都正确）
             if (token.value === "-" && !endsValue(previous)) {
@@ -214,6 +241,9 @@ function toRPN(tokens) {
         const head = operators.pop();
         if (head.type === "lparen") {
             throw new Error("括号不匹配");
+        }
+        if (head.type === "absopen") {
+            throw new Error("绝对值少了一条竖线「|」");
         }
         output.push(head);
     }
@@ -272,27 +302,34 @@ function compileRPN(rpn, scope = {}) {
 
 const LINEAR_TOLERANCE = 1e-7;
 
-// 用数值差分判断 F 对 y 是否线性：是则能解出 y = f(x)，走显式采样（更快更平滑）
+// 用数值差分判断 F 对 y 是否线性：是则能解出 y = f(x)，走显式采样（更快更平滑）。
+// 两侧都要探：|y| 在 y=0 处折一下，只按 y=0,1,2 差分看着完全"线性"，
+// 解出来会把 x=|y| 的下半支整个丢掉。
 function solveForY(F) {
     const probes = [0.37, 1.13];
     const slopes = [];
     for (const x of probes) {
-        const v0 = F(x, 0);
-        const v1 = F(x, 1);
-        const v2 = F(x, 2);
-        if (![v0, v1, v2].every(Number.isFinite)) {
-            return null;
+        for (const dir of [1, -1]) {
+            const v0 = F(x, 0);
+            const v1 = F(x, dir);
+            const v2 = F(x, 2 * dir);
+            if (![v0, v1, v2].every(Number.isFinite)) {
+                return null;
+            }
+            const scale = Math.max(1, Math.abs(v0), Math.abs(v1), Math.abs(v2));
+            const curvature = v2 - 2 * v1 + v0;
+            if (Math.abs(curvature) > LINEAR_TOLERANCE * scale) {
+                return null;
+            }
+            slopes.push((v1 - v0) / dir);
         }
-        const scale = Math.max(1, Math.abs(v0), Math.abs(v1), Math.abs(v2));
-        const curvature = v2 - 2 * v1 + v0;
-        if (Math.abs(curvature) > LINEAR_TOLERANCE * scale) {
-            return null;
-        }
-        slopes.push(v1 - v0);
     }
-    const [first, second] = slopes;
-    const scale = Math.max(1, Math.abs(first), Math.abs(second));
-    if (Math.abs(first - second) > LINEAR_TOLERANCE * scale || Math.abs(first) <= LINEAR_TOLERANCE) {
+    const [first, ...rest] = slopes;
+    if (Math.abs(first) <= LINEAR_TOLERANCE) {
+        return null;
+    }
+    const diverged = rest.some((slope) => Math.abs(slope - first) > LINEAR_TOLERANCE * Math.max(1, Math.abs(slope)));
+    if (diverged) {
         return null;
     }
     return (x) => -F(x, 0) / first;
@@ -2096,7 +2133,6 @@ function displayMasked(value) {
 }
 
 const PLOT_AI_IMAGE_LIMIT = 8 * 1024 * 1024;
-
 async function postPlotForm(url, fields, file) {
     let body;
     const headers = {};
@@ -2123,6 +2159,168 @@ async function postPlotForm(url, fields, file) {
     } catch {
         return null;
     }
+}
+
+/* =========================================================================
+ * 五、数学小键盘：点一下往方程框里插一段，与系统键盘并存
+ *    键位表就是解析器认得的那套写法——键上印课本记号，插进去是画布收得下的式子
+ * ========================================================================= */
+
+const KEYPAD_FUNCTION_NAMES = [
+    "sin", "cos", "tan", "asin", "acos",
+    "atan", "arcsin", "arccos", "arctan", "sqrt",
+    "abs", "ln", "lg", "log", "exp",
+];
+
+const FUNCTION_HINTS = {
+    sin: "正弦",
+    cos: "余弦",
+    tan: "正切",
+    asin: "反正弦，课本里的 arcsin 也在",
+    acos: "反余弦",
+    atan: "反正切",
+    arcsin: "反正弦，与 asin 同值",
+    arccos: "反余弦，与 acos 同值",
+    arctan: "反正切，与 atan 同值",
+    sqrt: "根号，光标留在括号里",
+    abs: "绝对值，与 |x| 等价",
+    ln: "自然对数（以 e 为底）",
+    lg: "常用对数（以 10 为底）",
+    log: "常用对数，同 lg",
+    exp: "e 的 x 次方",
+};
+
+// insert 是真正写进输入框的内容，label 是键面上印的写法（π 插 pi、× 插 *）
+// caretBack：插完把光标往前挪几格，用于 sqrt()、|| 这种"光标留在括号里"的键
+const KEYPAD_PAGES = [
+    {
+        key: "num",
+        label: "数字",
+        columns: 5,
+        keys: [
+            { label: "7", insert: "7" },
+            { label: "8", insert: "8" },
+            { label: "9", insert: "9" },
+            { label: "(", insert: "(" },
+            { label: ")", insert: ")" },
+            { label: "4", insert: "4" },
+            { label: "5", insert: "5" },
+            { label: "6", insert: "6" },
+            { label: "+", insert: "+" },
+            { label: "−", insert: "-", title: "减号" },
+            { label: "1", insert: "1" },
+            { label: "2", insert: "2" },
+            { label: "3", insert: "3" },
+            { label: "×", insert: "*", title: "乘号（也可以省：2x、3(x+1)）" },
+            { label: "÷", insert: "/", title: "除号" },
+            { label: "0", insert: "0" },
+            { label: ".", insert: "." },
+            { label: "=", insert: "=" },
+            { label: "^", insert: "^", title: "乘方：x^2" },
+            { label: "π", insert: "pi", title: "圆周率，插进去是 pi" },
+        ],
+    },
+    {
+        key: "op",
+        label: "运算",
+        columns: 5,
+        keys: [
+            { label: "x", insert: "x", italic: true },
+            { label: "y", insert: "y", italic: true },
+            { label: "a", insert: "a", italic: true, title: "x、y 以外的字母都算这条曲线的参数，自动长出滑块" },
+            { label: "k", insert: "k", italic: true, title: "x、y 以外的字母都算这条曲线的参数，自动长出滑块" },
+            { label: "e", insert: "e", italic: true, title: "自然常数（大写 E 才是参数）" },
+            { label: "x²", insert: "^2", title: "平方：接在括号或字母后面" },
+            { label: "x³", insert: "^3", title: "立方" },
+            { label: "xⁿ", insert: "^", title: "任意次方" },
+            { label: "√", insert: "sqrt()", caretBack: 1, title: "根号，光标留在括号里" },
+            { label: "ⁿ√", insert: "^(1/)", caretBack: 1, title: "开 n 次方：先按它再按根指数，如 x^(1/3)" },
+            { label: "|x|", insert: "||", caretBack: 1, title: "绝对值，光标留在两竖线中间" },
+            { label: "a/b", insert: "()/()", caretBack: 4, title: "分式：光标先留在分子里，按 → 三次到分母" },
+            { label: "1/x", insert: "1/", title: "倒数：按完再按分母" },
+            { label: "π", insert: "pi" },
+            { label: "2π", insert: "2pi", title: "三角题里常用" },
+        ],
+    },
+    {
+        key: "func",
+        label: "函数",
+        columns: 5,
+        keys: KEYPAD_FUNCTION_NAMES.map((name) => ({
+            label: name,
+            insert: `${name}(`,
+            title: FUNCTION_HINTS[name],
+        })),
+    },
+    {
+        key: "template",
+        label: "模板",
+        columns: 3,
+        text: true,
+        keys: [
+            { label: "y = kx + b", insert: "y=kx+b", title: "一次函数" },
+            { label: "y = ax² + bx + c", insert: "y=ax^2+bx+c", title: "二次函数" },
+            { label: "y = k / x", insert: "y=k/x", title: "反比例函数" },
+            { label: "y = xᵃ", insert: "y=x^a", title: "幂函数（a 是滑块）" },
+            { label: "y = aˣ", insert: "y=a^x", title: "指数函数" },
+            { label: "y = lg(x)", insert: "y=lg(x)", title: "对数函数（以 10 为底）" },
+            { label: "y = ln(x)", insert: "y=ln(x)", title: "自然对数" },
+            { label: "y = |x − a| + b", insert: "y=|x-a|+b", title: "绝对值" },
+            { label: "y = A·sin(ωx+φ)", insert: "y=A*sin(w*x+p)", title: "三角函数（A 振幅、w 角频率、p 初相）" },
+            { label: "x² + y² = r²", insert: "x^2+y^2=r^2", title: "圆" },
+            { label: "x²/a² + y²/b² = 1", insert: "x^2/a^2+y^2/b^2=1", title: "椭圆" },
+            { label: "x²/a² − y²/b² = 1", insert: "x^2/a^2-y^2/b^2=1", title: "双曲线" },
+            { label: "y² = 2px", insert: "y^2=2px", title: "抛物线（开口向右）" },
+            { label: "y = ax³ + bx² + cx + d", insert: "y=ax^3+bx^2+cx+d", title: "三次函数" },
+            { label: "y = a / (x − b) + c", insert: "y=a/(x-b)+c", title: "分式函数" },
+            { label: "x² + y² + Dx + Ey + F = 0", insert: "x^2+y^2+Dx+Ey+F=0", title: "圆的一般式" },
+        ],
+    },
+];
+
+// 键面上印的写法与插进去的写法不同，退格也要按"一整块"删回去
+const KEYPAD_TOKEN_PATTERNS = [
+    /\^\(1\/\)$/,
+    /(?:arcsin|arccos|arctan|asin|acos|atan|sqrt|abs|exp|log|lg|ln|sin|cos|tan)\($/i,
+    /\^\d+$/,
+    /\(\)\/\(\)$/,
+];
+
+// 每一页都常驻的这一行：改光标与提交，不参与换页
+const KEYPAD_EDIT_KEYS = [
+    { label: "←", action: "left", title: "光标左移" },
+    { label: "→", action: "right", title: "光标右移" },
+    { label: "⌫", action: "back", title: "删除（根号、平方这类整块一次删掉）" },
+    { label: "清空", action: "clear", title: "只清空方程输入框，不动已经画出的曲线" },
+    { label: "绘制", action: "submit", primary: true },
+];
+
+function keypadTokenWidth(textBefore) {
+    for (const pattern of KEYPAD_TOKEN_PATTERNS) {
+        const match = pattern.exec(textBefore);
+        if (match) {
+            return match[0].length;
+        }
+    }
+    return 1;
+}
+
+// 改写选区。走 execCommand 是为了保住浏览器自带的撤销栈（手动改 value 会把 Ctrl+Z 弄没），
+// 它只在"当前可编辑态"下有效，返回 false 时退回手动改写
+function editKeypadSelection(input, text) {
+    let handled = false;
+    try {
+        handled = text ? document.execCommand("insertText", false, text) : document.execCommand("delete");
+    } catch {
+        handled = false;
+    }
+    if (handled) {
+        return;
+    }
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    input.value = input.value.slice(0, start) + text + input.value.slice(end);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 export class FunctionPlot extends Interaction {
@@ -2236,6 +2434,8 @@ export class FunctionPlot extends Interaction {
             { signal }
         );
 
+        this.buildKeypad(signal);
+
         const observer = new ResizeObserver(() => this.surface.resize());
         observer.observe(stage);
         this.registerCleanup(() => observer.disconnect());
@@ -2304,6 +2504,183 @@ export class FunctionPlot extends Interaction {
         } catch (error) {
             this.surface.showError(error.message);
         }
+    }
+
+    /* ------------------------------ 数学小键盘 ------------------------------ */
+
+    buildKeypad(signal) {
+        const input = this.surface.input;
+        this.keypadEl = this.el.querySelector("[data-plot-keypad]");
+        this.keypadTabs = this.el.querySelector("[data-plot-keypad-tabs]");
+        this.keypadGrid = this.el.querySelector("[data-plot-keypad-grid]");
+        this.keypadPage = KEYPAD_PAGES[0].key;
+        this.keypadCaret = { start: 0, end: 0 };
+
+        const toggle = this.el.querySelector("[data-plot-keyboard]");
+        toggle.addEventListener(
+            "click",
+            () => {
+                const hidden = this.keypadEl.classList.toggle("d-none");
+                toggle.setAttribute("aria-expanded", hidden ? "false" : "true");
+                toggle.classList.toggle("btn-primary", !hidden);
+                toggle.classList.toggle("btn-outline-secondary", hidden);
+            },
+            { signal }
+        );
+
+        // 点键面时焦点会离开输入框，光标位置要在离开前留住
+        for (const name of ["click", "keyup", "select", "blur"]) {
+            input.addEventListener(name, () => this.rememberKeypadCaret(), { signal });
+        }
+
+        const editRow = this.el.querySelector("[data-plot-keypad-edit]");
+        editRow.style.setProperty("--plot-keypad-cols", KEYPAD_EDIT_KEYS.length);
+        for (const key of KEYPAD_EDIT_KEYS) {
+            editRow.appendChild(this.buildKeypadKey(key));
+        }
+        this.renderKeypadPage();
+    }
+
+    renderKeypadPage() {
+        const page = KEYPAD_PAGES.find((item) => item.key === this.keypadPage);
+        this.keypadTabs.textContent = "";
+        for (const item of KEYPAD_PAGES) {
+            this.keypadTabs.appendChild(this.buildKeypadTab(item));
+        }
+        this.keypadGrid.textContent = "";
+        this.keypadGrid.style.setProperty("--plot-keypad-cols", page.columns);
+        this.keypadGrid.classList.toggle("tutoring_plot_keypad_grid_text", !!page.text);
+        for (const key of page.keys) {
+            this.keypadGrid.appendChild(this.buildKeypadKey(key, page));
+        }
+    }
+
+    buildKeypadTab(item) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `btn btn-sm ${item.key === this.keypadPage ? "btn-primary" : "btn-outline-secondary"}`;
+        button.textContent = item.label;
+        button.addEventListener("click", () => {
+            if (this.keypadPage === item.key) {
+                return;
+            }
+            this.keypadPage = item.key;
+            this.renderKeypadPage();
+        });
+        return button;
+    }
+
+    buildKeypadKey(key, page = null) {
+        const button = document.createElement("button");
+        button.type = "button";
+        const classes = ["btn", "btn-sm", "tutoring_plot_key"];
+        if (key.primary) {
+            classes.push("btn-primary");
+        } else {
+            classes.push("btn-light", "border");
+        }
+        if (key.italic) {
+            classes.push("tutoring_plot_key_var");
+        }
+        if (page && page.text) {
+            classes.push("tutoring_plot_key_text");
+        }
+        button.className = classes.join(" ");
+        button.textContent = key.label;
+        if (key.title) {
+            button.title = key.title;
+        }
+        button.addEventListener("click", () => this.pressKeypadKey(key));
+        return button;
+    }
+
+    pressKeypadKey(key) {
+        if (key.action === "submit") {
+            this.submit();
+            return;
+        }
+        if (key.action === "clear") {
+            this.clearKeypadInput();
+            return;
+        }
+        if (key.action === "back") {
+            this.keypadBackspace();
+            return;
+        }
+        if (key.action) {
+            this.keypadMove(key.action === "left" ? -1 : 1);
+            return;
+        }
+        this.keypadInsert(key.insert, key.caretBack || 0);
+    }
+
+    rememberKeypadCaret() {
+        const input = this.surface.input;
+        this.keypadCaret = {
+            start: input.selectionStart ?? input.value.length,
+            end: input.selectionEnd ?? input.value.length,
+        };
+    }
+
+    // 输入框还拿着焦点就读实时的光标，否则读上一次记下的位置（点键面时焦点已经跳到按钮上）
+    keypadCaretRange() {
+        const input = this.surface.input;
+        const length = input.value.length;
+        if (document.activeElement === input) {
+            return {
+                start: input.selectionStart ?? length,
+                end: input.selectionEnd ?? length,
+            };
+        }
+        const { start, end } = this.keypadCaret;
+        return { start: Math.min(start, length), end: Math.min(end, length) };
+    }
+
+    placeKeypadCaret(at) {
+        const input = this.surface.input;
+        const clamped = Math.min(Math.max(0, at), input.value.length);
+        input.setSelectionRange(clamped, clamped);
+        this.rememberKeypadCaret();
+    }
+
+    keypadInsert(text, caretBack) {
+        const input = this.surface.input;
+        const { start, end } = this.keypadCaretRange();
+        input.focus({ preventScroll: true });
+        input.setSelectionRange(start, end);
+        editKeypadSelection(input, text);
+        this.placeKeypadCaret(start + text.length - caretBack);
+    }
+
+    keypadBackspace() {
+        const input = this.surface.input;
+        const { start, end } = this.keypadCaretRange();
+        input.focus({ preventScroll: true });
+        if (start !== end) {
+            input.setSelectionRange(start, end);
+            editKeypadSelection(input, "");
+            this.placeKeypadCaret(start);
+            return;
+        }
+        const from = Math.max(0, start - keypadTokenWidth(input.value.slice(0, start)));
+        input.setSelectionRange(from, start);
+        editKeypadSelection(input, "");
+        this.placeKeypadCaret(from);
+    }
+
+    keypadMove(delta) {
+        const input = this.surface.input;
+        const { start, end } = this.keypadCaretRange();
+        input.focus({ preventScroll: true });
+        this.placeKeypadCaret(start === end ? start + delta : delta < 0 ? start : end);
+    }
+
+    clearKeypadInput() {
+        const input = this.surface.input;
+        input.value = "";
+        input.focus({ preventScroll: true });
+        this.rememberKeypadCaret();
+        this.surface.clearError();
     }
 
     updateAiQuota(left, max) {

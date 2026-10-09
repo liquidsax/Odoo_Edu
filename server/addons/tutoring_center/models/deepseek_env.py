@@ -105,7 +105,10 @@ def write_env_key(path, key):
     fd, tmp = tempfile.mkstemp(prefix='tmp-deepseek-', dir=directory)
     tmp_left = tmp
     try:
-        os.fchmod(fd, 0o600)
+        # 写之前就把权限收紧，别留一个谁都能读的窗口。Windows 没有 os.fchmod，
+        # mkstemp 建的临时文件本来就只属于当前用户，跳过即可（本机踩过：AttributeError 直接 500）
+        if hasattr(os, 'fchmod'):
+            os.fchmod(fd, 0o600)
         with os.fdopen(fd, 'w', encoding='utf-8') as handle:
             handle.write(data)
         os.chmod(tmp, 0o600)

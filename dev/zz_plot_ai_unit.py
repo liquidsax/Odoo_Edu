@@ -80,6 +80,18 @@ SAMPLES = [
     'y=（x）',
     'import os',
     '(x^2)/(16)+(y^2)/(7)=1',
+    'y=|x|',
+    'y=|x-1|',
+    'y=2|x|',
+    'y=||x|-1|',
+    '|x|*|y|=4',
+    'y=|sin(x)|',
+    'x=|y|',
+    'y=|x-a|+b',
+    'y=lg(x)',
+    'y=arcsin(x)',
+    'y=arccos(x)',
+    'y=arctan(x)',
 ]
 for sample in SAMPLES:
     try:
@@ -92,7 +104,8 @@ for sample in SAMPLES:
 # 服务端必须跟着收下，但不能因此去跑它。带引号和下划线的 __import__ 才是非法字符。
 info = expr.validate_plot_expression('import os')
 eq('import os 只是参数', info['params'], ['i', 'm', 'p', 'o', 'r', 't', 's'])
-REJECTS = ['', '   ', '1+1=2', 'y=sn(x)', 'y=x=1', "y=__import__('os')", 'y=<script>', '只是中文', 'y=x+甲']
+REJECTS = ['', '   ', '1+1=2', 'y=sn(x)', 'y=x=1', "y=__import__('os')", 'y=<script>', '只是中文', 'y=x+甲',
+           'y=|x', 'y=x|', 'y=|x|+|y']
 for sample in REJECTS:
     try:
         expr.validate_plot_expression(sample)
@@ -106,6 +119,20 @@ eq('A*sin 留着振幅', expr.validate_plot_expression('y=A*sin(x)')['params'], 
 eq('Asin 被当成反正弦', expr.validate_plot_expression('y=Asin(x)')['params'], [])
 eq('e 是常数', expr.validate_plot_expression('y=e*x')['params'], [])
 eq('E 是参数', expr.validate_plot_expression('y=E*x')['params'], ['E'])
+eq('竖线不产生参数', expr.validate_plot_expression('y=|x|')['params'], [])
+eq('竖线里的字母照旧是参数', expr.validate_plot_expression('y=|x-a|+b')['params'], ['a', 'b'])
+eq('lg 不拆成 l 与 g', expr.validate_plot_expression('y=lg(x)')['params'], [])
+eq('arcsin 不拆成六个参数', expr.validate_plot_expression('y=arcsin(x)')['params'], [])
+eq('竖线合上才收', expr.validate_plot_expression('|x|*|y|=4')['expr'], '|x|*|y|=4')
+
+print('\n== 课本 LaTeX 记号收成画布写法 ==')
+eq('\\lvert x \\rvert 收成竖线', expr.normalize_textbook_math('\\lvert x \\rvert'), '| x |')
+eq('\\left|\\frac{x}{2}\\right| 收下',
+   expr.validate_plot_expression(expr.normalize_textbook_math('\\left|\\frac{x}{2}\\right|'))['expr'],
+   '|(x)/(2)|')
+eq('\\frac{x^{2}}{16}+\\frac{y^{2}}{9}=1 仍收下',
+   expr.validate_plot_expression(expr.normalize_textbook_math('\\frac{x^{2}}{16}+\\frac{y^{2}}{9}=1'))['expr'],
+   '(x^2)/(16)+(y^2)/(9)=1')
 
 print('\n== 模型输出 ==')
 good = expr.interpret_model_output(
@@ -207,7 +234,8 @@ with tempfile.TemporaryDirectory() as tmp:
     os.chmod(path, 0o644)
     envfile.write_env_key(path, FAKE)
     mode = stat.S_IMODE(os.stat(path).st_mode)
-    eq('权限 0600', mode, 0o600)
+    # Windows 的 chmod 只认「可写 / 只读」，永远报 0666；0600 这件事只有在 Unix（云机）上验得成
+    check('权限 0600', mode == 0o600 or os.name == 'nt', '得到 %o' % mode)
     text = open(path, encoding='utf-8').read()
     check('别的键还在', 'OTHER=keep-me' in text and '# keep' in text)
     check('旧钥匙换掉且只留一行', text.count('DEEPSEEK_API_KEY=') == 1 and FAKE in text)
