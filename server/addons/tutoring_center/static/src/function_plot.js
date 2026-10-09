@@ -2248,7 +2248,8 @@ const KEYPAD_PAGES = [
         columns: 5,
         keys: KEYPAD_FUNCTION_NAMES.map((name) => ({
             label: name,
-            insert: `${name}(`,
+            insert: `${name}()`,
+            caretBack: 1,
             title: FUNCTION_HINTS[name],
         })),
     },
@@ -2281,7 +2282,7 @@ const KEYPAD_PAGES = [
 // 键面上印的写法与插进去的写法不同，退格也要按"一整块"删回去
 const KEYPAD_TOKEN_PATTERNS = [
     /\^\(1\/\)$/,
-    /(?:arcsin|arccos|arctan|asin|acos|atan|sqrt|abs|exp|log|lg|ln|sin|cos|tan)\($/i,
+    /(?:arcsin|arccos|arctan|asin|acos|atan|sqrt|abs|exp|log|lg|ln|sin|cos|tan)\(\)$/i,
     /\^\d+$/,
     /\(\)\/\(\)$/,
 ];
@@ -2349,6 +2350,8 @@ export class FunctionPlot extends Interaction {
         stage.addEventListener("pointerdown", (event) => this.onPointerDown(event), { signal });
         stage.addEventListener("pointermove", (event) => this.onPointerMove(event), { signal });
         stage.addEventListener("pointerup", (event) => this.onPointerUp(event), { signal });
+        // 系统打断触摸（来电、手势被接管）时按抬手处理，不然捏合状态会留在图上
+        stage.addEventListener("pointercancel", (event) => this.onPointerUp(event), { signal });
         stage.addEventListener("pointerleave", () => this.onPointerLeave(), { signal });
 
         this.el.querySelector("[data-plot-add]").addEventListener(
@@ -2384,6 +2387,9 @@ export class FunctionPlot extends Interaction {
         this.modalExtraInputs = [];
         this.modalExtras = {};
         this.lastPointerDownAt = 0;
+        // 按下的指针（含多指）与捏合起点；捏合＝两指间距定缩放、两指中点定平移
+        this.pointers = new Map();
+        this.pinch = null;
         for (const button of this.el.querySelectorAll("[data-plot-type]")) {
             button.addEventListener("click", () => this.openTypeModal(button.dataset.plotType), { signal });
         }
@@ -3130,58 +3136,126 @@ export class FunctionPlot extends Interaction {
             return;
         }
         event.preventDefault();
+        const surface = this.surface;
+        try {
+            surface.stage.setPointerCapture(event.pointerId);
+        } catch {
+            // 合成事件/无有效指针 id 时无需捕获，拖动仍按 clientX/clientY 计算
+        }
+        this.pointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+
+        if (this.pointers.size > 1) {
+            // 第二根手指落下：单指拖动让位给捏合，双击重置的判定也一并停掉
+            surface.drag = null;
+            surface.hover = null;
+            this.lastPointerDownAt = 0;
+            this.pinch = this.pinchGeometry();
+            surface.drawOverlay();
+            return;
+        }
 
         // 双击重置自己判定：上面那句 preventDefault 会抑制浏览器合成的 dblclick
         const now = Date.now();
         if (now - this.lastPointerDownAt < 300) {
             this.lastPointerDownAt = 0;
-            this.surface.resetView();
+            surface.resetView();
             return;
         }
         this.lastPointerDownAt = now;
-
-        try {
-            this.surface.stage.setPointerCapture(event.pointerId);
-        } catch {
-            // 合成事件/无有效指针 id 时无需捕获，拖动仍按 clientX/clientY 计算
-        }
-        this.surface.drag = {
+        surface.drag = {
             clientX: event.clientX,
             clientY: event.clientY,
-            cx: this.surface.view.cx,
-            cy: this.surface.view.cy,
+            cx: surface.view.cx,
+            cy: surface.view.cy,
         };
-        this.surface.stage.style.cursor = "grabbing";
-        this.surface.drawOverlay();
+        surface.stage.style.cursor = "grabbing";
+        surface.drawOverlay();
+    }
+
+    // 两指当前的间距与中点（中点按画布左上角算，与 zoomAt 的锚点同一套坐标）
+    pinchGeometry() {
+        const rect = this.surface.stage.getBoundingClientRect();
+        const [first, second] = [...this.pointers.values()];
+        return {
+            dist: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY),
+            midX: (first.clientX + second.clientX) / 2 - rect.left,
+            midY: (first.clientY + second.clientY) / 2 - rect.top,
+        };
+    }
+
+    onPinchMove() {
+        const surface = this.surface;
+        const previous = this.pinch;
+        const current = this.pinchGeometry();
+        this.pinch = current;
+        // 先按两指间距的变化缩放（锚在两指中点），再跟着中点整体平移，
+        // 这样"捏着拖"与"转个方向捏"都跟手
+        if (previous.dist > 0 && current.dist > 0 && current.dist !== previous.dist) {
+            this.zoomAt(current.dist / previous.dist, current.midX, current.midY);
+        }
+        const dx = current.midX - previous.midX;
+        const dy = current.midY - previous.midY;
+        if (dx || dy) {
+            surface.view.cx -= dx / surface.scale;
+            surface.view.cy += dy / surface.scale;
+        }
+        surface.scheduleDraw(true);
     }
 
     onPointerMove(event) {
         const surface = this.surface;
-        const rect = surface.stage.getBoundingClientRect();
+        const tracked = this.pointers.get(event.pointerId);
+        if (tracked) {
+            tracked.clientX = event.clientX;
+            tracked.clientY = event.clientY;
+        }
+        if (this.pinch && this.pointers.size > 1) {
+            this.onPinchMove();
+            return;
+        }
         if (surface.drag) {
             surface.view.cx = surface.drag.cx - (event.clientX - surface.drag.clientX) / surface.scale;
             surface.view.cy = surface.drag.cy + (event.clientY - surface.drag.clientY) / surface.scale;
             surface.scheduleDraw(true);
             return;
         }
-        surface.hover = { pixelX: event.clientX - rect.left, pixelY: event.clientY - rect.top };
+        surface.hover = {
+            pixelX: event.clientX - surface.stage.getBoundingClientRect().left,
+            pixelY: event.clientY - surface.stage.getBoundingClientRect().top,
+        };
         surface.drawOverlay();
         this.updateReadout();
     }
 
     onPointerUp(event) {
         const surface = this.surface;
-        if (!surface.drag) {
-            return;
-        }
-        surface.drag = null;
-        surface.stage.style.cursor = "grab";
+        this.pointers.delete(event.pointerId);
         try {
             surface.stage.releasePointerCapture(event.pointerId);
         } catch {
             // 未成功捕获时忽略
         }
-        surface.scheduleDraw(false);
+        if (this.pointers.size > 1) {
+            // 三指里抬起一根：剩下两指接着捏，别重新算一遍起点
+            this.pinch = this.pinchGeometry();
+            return;
+        }
+        if (this.pointers.size === 1) {
+            // 捏合里抬起一根：剩下那根接着拖，接住当前视图就不会把图弹走
+            const [rest] = [...this.pointers.values()];
+            this.pinch = null;
+            surface.drag = {
+                clientX: rest.clientX,
+                clientY: rest.clientY,
+                cx: surface.view.cx,
+                cy: surface.view.cy,
+            };
+            return;
+        }
+        this.pinch = null;
+        surface.drag = null;
+        surface.stage.style.cursor = "grab";
+        surface.scheduleDraw(false); // 松手补一次细采样
     }
 
     onPointerLeave() {
