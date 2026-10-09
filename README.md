@@ -16,7 +16,21 @@
 
 ## 界面速览
 
-> 截图位（待补）：门户学习首页、错题卡片页、错题详情（右下角显示教材原页）、后台错题看板、函数图像与参数滑块、知识库。
+以下截图来自本机运行实例（`19.0.1.26.0`），门户用演示账号「表弟」。
+
+**学生 / 家长门户**
+
+| 学习首页 | 错题卡片页 | 错题详情（AI 抄回的题目原文与摘要） | 知识库 |
+|---|---|---|---|
+| <img src="docs/screenshots/portal-learning.png" width="240" alt="门户学习首页"> | <img src="docs/screenshots/portal-mistakes.png" width="240" alt="门户错题卡片页"> | <img src="docs/screenshots/portal-mistake-detail.png" width="240" alt="错题详情：出处、摘要、题目原文、错因、难度、题目照片"> | <img src="docs/screenshots/portal-library.png" width="240" alt="知识库：容量条、文件夹、分类计数"> |
+
+**公开工具 · 函数图像**（`/tools/function-plot`，无需登录即可成图；「智能画图」需登录）
+
+| 参数滑块：方程写成 `x²/a²+y²/b²=1`，拖一下离心率跟着重算 | 智能画图：一句话或一张题目照片，只收回方程 |
+|---|---|
+| <img src="docs/screenshots/plot-param-sliders.png" width="420" alt="函数图像页的参数滑块与两条曲线的离心率徽标"> | <img src="docs/screenshots/plot-ai-panel.png" width="420" alt="智能画图输入框与题目照片上传"> |
+
+> 教师后台（错题看板、练习册阅读台）的截图还欠着。
 
 ## 亮点
 
