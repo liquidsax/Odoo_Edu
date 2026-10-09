@@ -147,7 +147,7 @@ E:\odoo19\venv\Scripts\python E:\odoo19\odoo-bin -c E:\Odoo_Edu\odoo.conf --dev=
 |---|---|
 | 视图 / 数据 XML | 保存后**刷新浏览器** |
 | QWeb 模板（`views/*.xml` 里的模板） | 同上 |
-| 前端 JS / CSS（`static/src`） | **打包模式下刷新无效**：需 `-u tutoring_center --stop-after-init` 重建资产包；启动时带 `--dev=assets` 则直接读源文件、刷新即可 |
+| 前端 JS / CSS（`static/src`） | **打包模式下刷新无效**：资产包的版本是 registry 加载时算的，要么 `-u tutoring_center --stop-after-init` 重建、要么重启进程。⚠️ Odoo 19 的 `--dev` 只认 `access qweb reload xml`，**没有 `assets` 这一档**（写了不报错也不生效）；要逐文件从磁盘读，在网址后面加 `?debug=assets` |
 | Python 模型 / 控制器 | 控制台 Ctrl+C 后重新运行（改模型类/控制器必须重启；纯字段/视图变更可免） |
 | `__manifest__.py`、新增字段后视图报错 | 手动升级：`-u tutoring_center --stop-after-init` 后再启动 |
 
