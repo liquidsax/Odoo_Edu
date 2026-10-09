@@ -158,10 +158,11 @@ eq('png 文件头', expr.sniff_image(b'\x89PNG\r\n\x1a\n' + b'\x00' * 16), 'png'
 eq('太大', expr.classify_image(b'\xff\xd8\xff' + b'0' * expr.MAX_IMAGE_BYTES), 'too_big')
 many = expr.interpret_model_output(json.dumps({
     'found': True,
-    'curves': [{'expr': 'y=%d*x' % i} for i in range(1, 7)] + [{'expr': 'not an expr'}],
+    'curves': [{'expr': 'y=%d*x' % i} for i in range(1, 18)],
 }))
-eq('最多 4 条', len(many['curves']), 4)
+eq('最多 16 条', len(many['curves']), 16)
 eq('多出来的记一笔', many['truncated'], True)
+eq('第 16 条还在', many['curves'][-1]['expr'], 'y=16*x')
 partial = expr.interpret_model_output(
     '{"found": true, "curves": [{"expr": "y=x"}, {"expr": "???"}]}')
 eq('坏的那条略过', partial['ok'] and partial['skipped'] == 1, True)
