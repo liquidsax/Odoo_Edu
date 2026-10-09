@@ -79,6 +79,7 @@ SAMPLES = [
     'y=2pi*x',
     'y=（x）',
     'import os',
+    '(x^2)/(16)+(y^2)/(7)=1',
 ]
 for sample in SAMPLES:
     try:
@@ -128,6 +129,33 @@ eq('画不了', off['code'], 'not_plottable')
 eq('原因洗过', off['detail'], '不是函数图像')
 eq('带尖括号的原因丢掉', expr.sanitize_reason('<script>'), '')
 eq('废话不是 JSON', expr.interpret_model_output('我不会')['code'], 'unparseable')
+PROBLEM = (
+    '3.椭圆 C: frac{x^{2}}{16}+frac{y^{2}}{7}=1 的两个焦点分别为 F_{1}, F_{2}, '
+    '椭圆 C 上有一点 P, 则 triangle P F_{1} F_{2} 的周长为'
+)
+picked = expr.extract_plot_equations(PROBLEM)
+eq('大题里捞出一条', len(picked['curves']), 1)
+eq('大题标成椭圆', picked['curves'][0].get('label'), '椭圆')
+picked_expr = picked['curves'][0]['expr']
+check('捞出的是这条椭圆', '16' in picked_expr and '7' in picked_expr and 'x' in picked_expr and 'y' in picked_expr, picked_expr)
+eq('天气里没有方程', expr.extract_plot_equations('今天天气怎么样')['curves'], [])
+latex = expr.interpret_model_output(json.dumps({
+    'found': True,
+    'curves': [{'expr': r'\frac{x^{2}}{16}+\frac{y^{2}}{7}=1', 'label': '椭圆'}],
+}))
+eq('LaTeX 分式也能收', latex['ok'], True)
+check('LaTeX 收成画布写法', latex['ok'] and '16' in latex['curves'][0]['expr'] and '^' in latex['curves'][0]['expr'], latex)
+bare = expr.interpret_model_output(json.dumps({
+    'found': True,
+    'curves': [{'expr': 'frac{x^{2}}{16}+frac{y^{2}}{7}=1'}],
+}))
+eq('没有反斜杠的 frac 也能收', bare['ok'], True)
+eq('图片空', expr.classify_image(b'') , 'empty')
+eq('图片没有', expr.classify_image(None), 'absent')
+eq('svg 不收', expr.classify_image(b'<svg xmlns="http://www.w3.org/2000/svg"></svg>'), 'type')
+eq('jpeg 文件头', expr.sniff_image(b'\xff\xd8\xff' + b'\x00' * 16), 'jpeg')
+eq('png 文件头', expr.sniff_image(b'\x89PNG\r\n\x1a\n' + b'\x00' * 16), 'png')
+eq('太大', expr.classify_image(b'\xff\xd8\xff' + b'0' * expr.MAX_IMAGE_BYTES), 'too_big')
 many = expr.interpret_model_output(json.dumps({
     'found': True,
     'curves': [{'expr': 'y=%d*x' % i} for i in range(1, 7)] + [{'expr': 'not an expr'}],

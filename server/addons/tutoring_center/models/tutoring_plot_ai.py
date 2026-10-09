@@ -1,10 +1,14 @@
-"""函数图像页的智能画图：一句话描述 → DeepSeek 出方程 → 前端 addCurve。
+"""函数图像页的智能画图：一句话或一张题目图 → DeepSeek 出方程 → 前端 addCurve。
 
 额度按发起人的自然日算，一天 10 次，记在本模型上，不靠页面上的数字。
 分界线与错题摘要一致，只是更严一点：请求送出去之前的失败（空输入、超长、
-没密钥、我们自己的代码）不扣；超时、连不上、非 200 也没看到用量，不扣；
+图片不合格、没密钥、我们自己的代码）不扣；超时、连不上、非 200 也没看到用量，不扣；
 接口 200（模型已经回话，含「画不了」和 JSON 不合约定）才扣一次。
+模型把整道大题拒成「不是函数图像」时，若原文里已经有画布肯收的方程，仍按那条方程画，
+这次已经花了 token，照样扣。
 """
+import base64
+import io
 import logging
 import os
 
@@ -18,7 +22,10 @@ from .deepseek_config import ICP_PLOT_MODEL, deepseek_settings
 from .deepseek_env import ENV_KEY, mask_secret, normalize_api_key, write_env_key
 from .plot_expr import (
     MAX_CURVES,
+    MAX_IMAGE_BYTES,
     MAX_INPUT_CHARS,
+    classify_image,
+    extract_plot_equations,
     interpret_model_output,
     prepare_description,
 )
@@ -27,11 +34,15 @@ _logger = logging.getLogger(__name__)
 
 DAILY_QUOTA = 10
 API_TIMEOUT = 30          # 纯文本小 JSON，留在 limit_time_real=120 之内
+API_TIMEOUT_IMAGE = 60    # 识图比纯文本慢，仍留在 limit_time_real=120 之内
 MAX_OUTPUT_TOKENS = 256   # 只要几条方程的 JSON，不给讲解留地方
+IMAGE_LONG_SIDE = 1600    # 与错题摘要同一档：长边缩到 1600 仍能看清公式
+IMAGE_JPEG_QUALITY = 82
 
 PROMPT_FILES = {
     'system': 'tutoring_center/prompts/plot_system.txt',
     'user': 'tutoring_center/prompts/plot_user.txt',
+    'image': 'tutoring_center/prompts/plot_user_image.txt',
 }
 
 
@@ -154,21 +165,34 @@ class TutoringPlotAiCall(models.Model):
             raise RuntimeError('missing plot prompt %s' % kind) from exc
 
     @api.model
-    def _user_text(self, description):
-        template = self._prompt('user')
+    def _fill_prompt(self, kind, description):
+        template = self._prompt(kind)
         token = '%%DESCRIPTION%%'
         if token not in template:
-            raise RuntimeError('plot user prompt missing placeholder')
+            raise RuntimeError('plot %s prompt missing placeholder' % kind)
         head, tail = template.split(token, 1)
-        return head + description + tail
+        return head + (description or '（无）') + tail
 
     @api.model
-    def _payload(self, description, model):
+    def _user_content(self, description, image_b64):
+        if not image_b64:
+            return self._fill_prompt('user', description)
+        # 与错题摘要同一条识图格式：JPEG data URL，detail=high。不要把原图写进日志。
+        return [
+            {'type': 'text', 'text': self._fill_prompt('image', description)},
+            {'type': 'image_url', 'image_url': {
+                'url': 'data:image/jpeg;base64,' + image_b64,
+                'detail': 'high',
+            }},
+        ]
+
+    @api.model
+    def _payload(self, description, model, image_b64=None):
         return {
             'model': model,
             'messages': [
                 {'role': 'system', 'content': self._prompt('system')},
-                {'role': 'user', 'content': self._user_text(description)},
+                {'role': 'user', 'content': self._user_content(description, image_b64)},
             ],
             'temperature': 0,
             'max_tokens': MAX_OUTPUT_TOKENS,
@@ -176,6 +200,30 @@ class TutoringPlotAiCall(models.Model):
             'thinking': {'type': 'disabled'},
             'response_format': {'type': 'json_object'},
         }
+
+    @api.model
+    def _jpeg_base64(self, raw):
+        """收成 JPEG。文件头已经在调用前检查过；这里打不开就当图片不合格。"""
+        from PIL import Image, UnidentifiedImageError
+
+        Image.MAX_IMAGE_PIXELS = 16_000_000
+        try:
+            img = Image.open(io.BytesIO(raw))
+            img.load()
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+            raise ValueError('type') from exc
+        if getattr(img, 'n_frames', 1) > 1:
+            img.seek(0)
+        img = img.convert('RGB')
+        long_side = max(img.size)
+        if long_side > IMAGE_LONG_SIDE:
+            ratio = float(IMAGE_LONG_SIDE) / long_side
+            img = img.resize(
+                (max(1, int(img.width * ratio)), max(1, int(img.height * ratio))),
+                Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, 'JPEG', quality=IMAGE_JPEG_QUALITY, optimize=True)
+        return base64.b64encode(buf.getvalue()).decode('ascii')
 
     def _message(self, code, detail):
         if code == 'not_plottable' and detail:
@@ -188,6 +236,8 @@ class TutoringPlotAiCall(models.Model):
 
     def _note(self, outcome):
         parts = []
+        if outcome.get('recovered'):
+            parts.append(_('题目里已经有方程，已按该方程绘制。'))
         if outcome['truncated']:
             parts.append(_('只绘制前 %d 条。') % MAX_CURVES)
         if outcome['skipped']:
@@ -195,31 +245,57 @@ class TutoringPlotAiCall(models.Model):
         return ''.join(parts)
 
     @api.model
-    def draw(self, description):
+    def _image_failure(self, code):
+        if code == 'too_big':
+            return UserError(_(
+                '图片太大了（最大 %dMB），请换一张小一点的。这次没有扣次数。') % (
+                    MAX_IMAGE_BYTES // (1024 * 1024)))
+        return UserError(_(
+            '这张图片打不开，或不是 jpg、png、webp、gif。这次没有扣次数。'))
+
+    @api.model
+    def draw(self, description='', image=None):
         user = self.env.user
         if not user or user._is_public():
             raise AccessError(_('请先登录后再使用智能画图。'))
+        if image is not None and not isinstance(image, (bytes, bytearray)):
+            raise self._image_failure('type')
+        if image is not None and len(image) == 0:
+            image = None
         code, text = prepare_description(description, MAX_INPUT_CHARS)
-        if code == 'empty' or code == 'bad_type':
-            raise UserError(_(
-                '请先写一句要画的图像，例如「焦点在 x 轴、离心率 √5/3、长轴长 6 的椭圆」。'))
+        if code == 'bad_type':
+            code, text = 'empty', ''
         if code == 'too_long':
             raise UserError(_(
                 '描述太长了（最多 %d 个字），请缩短后再试。这次没有扣次数。') % MAX_INPUT_CHARS)
+        if code == 'empty' and image is None:
+            raise UserError(_(
+                '请先写一句要画的图像，或上传一张题目图片。'
+                '例如「焦点在 x 轴、离心率 √5/3、长轴长 6 的椭圆」。'))
+        image_code = classify_image(image)
+        if image is not None and image_code != 'ok':
+            raise self._image_failure(image_code)
+        image_b64 = None
+        if image is not None:
+            try:
+                image_b64 = self._jpeg_base64(image)
+            except ValueError as exc:
+                raise self._image_failure('type') from exc
         conf = deepseek_settings(self.env, model_param=ICP_PLOT_MODEL)
         if not conf['key']:
             raise UserError(_(
                 '还没有配置 DeepSeek 密钥。请管理员在本页保存密钥，'
                 '或给服务设置环境变量 DEEPSEEK_API_KEY。'))
         # sudo 只为了记账；返回给页面的额度必须按发起人算，不能按超级用户算。
+        # 图片正文不入库。
         job = self.sudo().create({
             'user_id': user.id,
             'day': fields.Date.context_today(self),
             'state': 'pending',
-            'description': text[:200],
+            'description': (text or '（图片）')[:200],
         })
         try:
-            result = job._execute(conf, text)
+            result = job._execute(conf, text, image_b64)
         except UserError:
             if job.state == 'pending':
                 job.sudo().write({'state': 'error', 'error': 'aborted'})
@@ -233,15 +309,15 @@ class TutoringPlotAiCall(models.Model):
         result['quota_max'] = DAILY_QUOTA
         return result
 
-    def _execute(self, conf, text):
+    def _execute(self, conf, text, image_b64=None):
         self.ensure_one()
-        payload = self._payload(text, conf['model'])
+        payload = self._payload(text, conf['model'], image_b64)
         try:
             resp = requests.post(
                 conf['url'],
                 headers={'Authorization': 'Bearer ' + conf['key']},
                 json=payload,
-                timeout=API_TIMEOUT,
+                timeout=API_TIMEOUT_IMAGE if image_b64 else API_TIMEOUT,
                 allow_redirects=False,
             )
         except requests.Timeout:
@@ -259,6 +335,21 @@ class TutoringPlotAiCall(models.Model):
             body = resp.json()
             content = body['choices'][0]['message'].get('content') or ''
         except Exception:  # noqa: BLE001
+            recovered = extract_plot_equations(text)
+            if recovered['curves']:
+                self.sudo().write({
+                    'state': 'done',
+                    'error': False,
+                    'response_raw': (resp.text or '')[:500],
+                })
+                return {
+                    'curves': recovered['curves'],
+                    'note': str(self._note({
+                        'recovered': True,
+                        'truncated': recovered['truncated'],
+                        'skipped': 0,
+                    })),
+                }
             self.sudo().write({
                 'state': 'failed',
                 'error': 'bad shape',
@@ -267,6 +358,19 @@ class TutoringPlotAiCall(models.Model):
             raise UserError(self._message('unparseable', ''))
         usage = body.get('usage') or {}
         outcome = interpret_model_output(content)
+        if not outcome['ok']:
+            # 模型把整道题拒了，或把 frac 抄成画布不认的式子。原文里已经有方程就直接画。
+            recovered = extract_plot_equations(text)
+            if recovered['curves']:
+                outcome = {
+                    'ok': True,
+                    'code': 'ok',
+                    'detail': '',
+                    'curves': recovered['curves'],
+                    'skipped': 0,
+                    'truncated': recovered['truncated'],
+                    'recovered': True,
+                }
         self.sudo().write({
             'state': 'done' if outcome['ok'] else 'failed',
             'error': False if outcome['ok'] else outcome['code'],
