@@ -1215,8 +1215,41 @@ class PlotSurface {
 
     // meta 是"这条曲线的附带信息"：椭圆的离心率、双曲线勾选的渐近线
     addCurve(expression, meta = null) {
-        buildModel(expression, {}); // 语法不过就别把这条加进列表
-        this.pushCurve({ expression, typed: null, meta, params: new Map() });
+        // 先按默认参数编译一次：语法不过就别进列表。智能画图带回来的初值只播种
+        // 这条式子里真出现的字母，别的键（以及 label 以外的杂项）不进图例。
+        const preview = buildModel(expression, {});
+        const params = new Map();
+        const seed = meta && meta.params && typeof meta.params === "object" ? meta.params : null;
+        if (seed) {
+            for (const name of preview.used) {
+                const value = Number(seed[name]);
+                if (Number.isFinite(value)) {
+                    ensureParam(params, name, { value, label: "智能画图" });
+                }
+            }
+        }
+        let display = meta;
+        if (
+            meta &&
+            (Object.prototype.hasOwnProperty.call(meta, "params") ||
+                Object.prototype.hasOwnProperty.call(meta, "label"))
+        ) {
+            display = { ...meta };
+            delete display.params;
+            if (typeof display.label === "string") {
+                const label = display.label.trim().slice(0, 16);
+                display.label = label && !/[<>]/.test(label) ? label : undefined;
+            } else {
+                delete display.label;
+            }
+            if (!display.label) {
+                delete display.label;
+            }
+            if (!Object.keys(display).length) {
+                display = null;
+            }
+        }
+        this.pushCurve({ expression, typed: null, meta: display, params });
     }
 
     // 按类型添加：把"当初填的那份数"一起存下，滑块一动就用同一套 compose 重出附带信息。
@@ -1396,6 +1429,9 @@ class PlotSurface {
             wrap.appendChild(label);
 
             const info = curve.meta || {};
+            if (info.label) {
+                wrap.appendChild(infoBadge(info.label, "智能画图给出的名称"));
+            }
             if (curve.error) {
                 wrap.appendChild(infoBadge("这个值画不出来", curve.error));
             }
@@ -2048,6 +2084,34 @@ class PlotSurface {
  * 三、页面交互
  * ========================================================================= */
 
+// 页面只接受「未配置 / **** / ****加末四位」这种掩码，免得接口哪天把整把钥匙吐回来还被画上去。
+function displayMasked(value) {
+    if (value === "未配置" || value === "****") {
+        return value;
+    }
+    if (typeof value === "string" && /^\*{4}[A-Za-z0-9._-]{4}$/.test(value)) {
+        return value;
+    }
+    return "已保存";
+}
+
+async function postPlotForm(url, fields) {
+    const body = new URLSearchParams();
+    for (const [name, value] of Object.entries(fields)) {
+        body.set(name, value ?? "");
+    }
+    const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+        body,
+    });
+    try {
+        return await resp.json();
+    } catch {
+        return null;
+    }
+}
+
 export class FunctionPlot extends Interaction {
     static selector = ".tutoring_plot";
 
@@ -2163,6 +2227,43 @@ export class FunctionPlot extends Interaction {
         observer.observe(stage);
         this.registerCleanup(() => observer.disconnect());
 
+        const aiOpen = this.el.querySelector("[data-plot-ai-open]");
+        const aiPanel = this.el.querySelector("[data-plot-ai-panel]");
+        if (aiOpen && aiPanel) {
+            aiOpen.addEventListener(
+                "click",
+                () => {
+                    aiPanel.classList.toggle("d-none");
+                    const box = aiPanel.querySelector("[data-plot-ai-input]");
+                    if (box && !aiPanel.classList.contains("d-none")) {
+                        box.focus();
+                    }
+                },
+                { signal }
+            );
+        }
+        const aiSubmit = this.el.querySelector("[data-plot-ai-submit]");
+        if (aiSubmit) {
+            aiSubmit.addEventListener("click", () => this.submitAi(), { signal });
+            const aiInput = this.el.querySelector("[data-plot-ai-input]");
+            if (aiInput) {
+                aiInput.addEventListener(
+                    "keydown",
+                    (event) => {
+                        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                            event.preventDefault();
+                            this.submitAi();
+                        }
+                    },
+                    { signal }
+                );
+            }
+        }
+        const keySave = this.el.querySelector("[data-plot-ai-key-save]");
+        if (keySave) {
+            keySave.addEventListener("click", () => this.saveAiKey(), { signal });
+        }
+
         this.surface.resize();
         this.presetDefault();
     }
@@ -2189,6 +2290,130 @@ export class FunctionPlot extends Interaction {
             this.surface.input.focus();
         } catch (error) {
             this.surface.showError(error.message);
+        }
+    }
+
+    updateAiQuota(left, max) {
+        const el = this.el.querySelector("[data-plot-ai-quota]");
+        if (!el || left == null || max == null) {
+            return;
+        }
+        el.textContent = `今日还可智能画图 ${left}/${max} 次`;
+    }
+
+    async submitAi() {
+        if (this.aiBusy) {
+            return;
+        }
+        const input = this.el.querySelector("[data-plot-ai-input]");
+        const status = this.el.querySelector("[data-plot-ai-status]");
+        const button = this.el.querySelector("[data-plot-ai-submit]");
+        const text = (input?.value || "").trim();
+        if (!text) {
+            this.surface.showError("请先写一句要画的图像");
+            return;
+        }
+        this.aiBusy = true;
+        if (button) {
+            button.disabled = true;
+        }
+        if (status) {
+            status.textContent = "正在生成方程…";
+        }
+        try {
+            const data = await postPlotForm("/tools/function-plot/ai", {
+                csrf_token: this.el.querySelector("[data-plot-ai-csrf]")?.value || "",
+                description: text,
+            });
+            if (!data) {
+                this.surface.showError("没有得到有效结果。若刚退出登录，请重新登录后再试。");
+                if (status) {
+                    status.textContent = "";
+                }
+                return;
+            }
+            this.updateAiQuota(data.quota_left, data.quota_max);
+            if (!data.ok) {
+                this.surface.showError(data.error || "智能画图没有完成");
+                if (status) {
+                    status.textContent = "";
+                }
+                return;
+            }
+            const curves = Array.isArray(data.curves) ? data.curves : [];
+            let drawn = 0;
+            for (const curve of curves) {
+                if (!curve || typeof curve.expr !== "string") {
+                    continue;
+                }
+                try {
+                    this.surface.addCurve(curve.expr, {
+                        label: typeof curve.label === "string" ? curve.label : "",
+                        params: curve.params && typeof curve.params === "object" ? curve.params : {},
+                    });
+                    drawn += 1;
+                } catch (error) {
+                    this.surface.showError(error.message);
+                }
+            }
+            if (!drawn) {
+                this.surface.showError("没有画出曲线");
+                if (status) {
+                    status.textContent = "";
+                }
+                return;
+            }
+            this.surface.clearError();
+            if (status) {
+                status.textContent = data.note ? `已绘制 ${drawn} 条。${data.note}` : `已绘制 ${drawn} 条`;
+            }
+        } finally {
+            this.aiBusy = false;
+            if (button) {
+                button.disabled = false;
+            }
+        }
+    }
+
+    async saveAiKey() {
+        const input = this.el.querySelector("[data-plot-ai-key]");
+        const note = this.el.querySelector("[data-plot-ai-key-note]");
+        const key = input?.value.trim() || "";
+        if (!key) {
+            if (note) {
+                note.textContent = "请先粘贴密钥。";
+            }
+            return;
+        }
+        let data;
+        try {
+            data = await postPlotForm("/tools/function-plot/ai-key", {
+                csrf_token: this.el.querySelector("[data-plot-ai-csrf]")?.value || "",
+                api_key: key,
+            });
+        } finally {
+            if (input) {
+                input.value = "";
+            }
+        }
+        if (!data) {
+            if (note) {
+                note.textContent = "保存没有完成，请稍后再试。";
+            }
+            return;
+        }
+        if (!data.ok) {
+            if (note) {
+                note.textContent = data.error || "没有保存。";
+            }
+            return;
+        }
+        const current = this.el.querySelector("[data-plot-ai-key-current]");
+        if (current) {
+            current.textContent = displayMasked(data.masked);
+        }
+        if (note) {
+            note.textContent = "已保存，当前进程立刻生效。页面不显示完整密钥。";
         }
     }
 

@@ -28,5 +28,16 @@
             <field name="key">tutoring_center.deepseek_base_url</field>
             <field name="value">https://api.deepseek.com/v1/chat/completions</field>
         </record>
+        <!-- 留空 = 用上面的共用模型。官方文档里 DeepSeek-V4.1-Flash 的接口名就是
+             deepseek-flash，不另造一个 id。要换成别的（例如 deepseek-v4-pro）再填这里。 -->
+        <record id="param_deepseek_plot_model" model="ir.config_parameter">
+            <field name="key">tutoring_center.deepseek_plot_model</field>
+            <field name="value"></field>
+        </record>
+        <!-- 留空 = 模块目录下的 .env。Docker 只挂了这个目录，所以默认写在这里。 -->
+        <record id="param_deepseek_env_file" model="ir.config_parameter">
+            <field name="key">tutoring_center.deepseek_env_file</field>
+            <field name="value"></field>
+        </record>
     </data>
 </odoo>
