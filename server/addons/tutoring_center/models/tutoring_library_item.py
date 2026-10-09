@@ -258,6 +258,15 @@ class TutoringLibraryItem(models.Model):
              '练习册教材那类文件不用填')
     mistake_label = fields.Char('错题出处', compute='_compute_mistake_label')
 
+    # 「谁可以看」：留空＝只有你自己。共享只是给读多加一条规则，行仍然挂在
+    # `user_id` 上，配额也按 `user_id` 求和，所以被共享的人一格空间都不占。
+    share_user_ids = fields.Many2many(
+        'res.users', 'tutoring_library_item_share_rel', 'item_id', 'user_id',
+        string='谁可以看',
+        help='勾上的人只能看和下载，改不了也删不了；能勾的只有学生档案上的门户账号。')
+    share_candidate_ids = fields.Many2many(
+        'res.users', compute='_compute_share_candidates', string='可以共享给')
+
     content = fields.Binary('文件', attachment=False)
     filename = fields.Char('文件名')
     file_size = fields.Integer(
@@ -368,6 +377,22 @@ class TutoringLibraryItem(models.Model):
             item.mistake_label = ' · '.join(part for part in (
                 mistake.workbook_id.display_name or mistake.student_id.display_name,
                 where) if part) or mistake.display_name
+
+    @api.depends_context('uid')
+    def _compute_share_candidates(self):
+        """能共享给谁：学生档案上的门户账号，排除自己。
+
+        学生与账号之间只有「联系人」这一条链（`tutoring.student.partner_id`），
+        库里没有任何"我的学生"字段可认，所以这里只能按档案的联系人反查账号；
+        教师本人那份「我自己」档案挂的是内部账号，用 `group_user` 挡掉——
+        共享的口径是"给学生看"，不是给同事看。
+        """
+        partners = self.env['tutoring.student'].search([]).partner_id
+        users = partners.user_ids.filtered(
+            lambda u: u.active and u.id != self.env.uid
+            and not u.has_group('base.group_user'))
+        for item in self:
+            item.share_candidate_ids = users
 
     @api.depends('workbook_file_ids.workbook_id')
     def _compute_from_workbook(self):
@@ -548,8 +573,25 @@ class TutoringLibraryItem(models.Model):
         items = super().create(vals_list)
         return items._sync_workbook_link()
 
+    def _clean_share_commands(self, value):
+        """把界面传来的共享名单收敛到「可以共享给」里面。
+
+        不信任下拉：越权勾选、直接 POST 一个不相干的 uid，都在这里丢掉。
+        """
+        wanted = set()
+        for cmd in value or []:
+            if not isinstance(cmd, (list, tuple)):
+                wanted.add(cmd)
+            elif cmd[0] in (0, 4):
+                wanted.add(cmd[1])
+            elif cmd[0] == 6:
+                wanted |= set(cmd[2] or [])
+        return [(6, 0, sorted(wanted & set(self.share_candidate_ids.ids)))]
+
     def write(self, vals):
         """换文件时只算增量：旧的那份先让出来，再判新的放不放得下。"""
+        if 'share_user_ids' in vals:
+            vals = dict(vals, share_user_ids=self._clean_share_commands(vals['share_user_ids']))
         if 'content' in vals and not self.env.context.get('library_skip_quota'):
             new_size = bytes_from_base64(vals.get('content'))
             for item in self:
