@@ -22,8 +22,10 @@ access_tutoring_exam_portal,tutoring.exam.portal,model_tutoring_exam,base.group_
 access_tutoring_exam_line_portal,tutoring.exam.line.portal,model_tutoring_exam_line,base.group_portal,1,0,0,0
 access_tutoring_knowledge_point_portal,tutoring.knowledge.point.portal,model_tutoring_knowledge_point,base.group_portal,1,0,0,0
 access_tutoring_student_point_portal,tutoring.student.point.portal,model_tutoring_student_point,base.group_portal,1,0,0,0
-access_tutoring_mistake_portal,tutoring.mistake.portal,model_tutoring_mistake,base.group_portal,1,1,1,0
+access_tutoring_mistake_portal,tutoring.mistake.portal,model_tutoring_mistake,base.group_portal,1,1,1,1
 access_tutoring_mistake_cause_portal,tutoring.mistake.cause.portal,model_tutoring_mistake_cause,base.group_portal,1,0,0,0
+access_tutoring_mistake_digest_teacher,tutoring.mistake.digest.teacher,model_tutoring_mistake_digest,group_teacher,1,1,1,1
+access_tutoring_mistake_digest_portal,tutoring.mistake.digest.portal,model_tutoring_mistake_digest,base.group_portal,1,1,1,0
 access_tutoring_workbook_portal,tutoring.workbook.portal,model_tutoring_workbook,base.group_portal,1,0,0,0
 access_tutoring_workbook_file_portal,tutoring.workbook.file.portal,model_tutoring_workbook_file,base.group_portal,1,0,0,0
 access_tutoring_library_item_user,tutoring.library.item.user,model_tutoring_library_item,base.group_user,1,1,1,1
