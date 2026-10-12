@@ -54,9 +54,13 @@ class TutoringWorkbook(models.Model):
 
         找不到就把原因写在第三个返回值里而不是抛异常：调用方是计算字段，
         抛错会让整个错题弹窗 500。
+        练习册本身可以空着（拖一张照片记的那类错题）——那也归"找不到"，
+        不能让下面的 ensure_one 拿空集去炸。
         """
-        self.ensure_one()
         empty = self.env['tutoring.workbook.file']
+        if not self:
+            return empty, 0, _('没填练习册，定位不到页。')
+        self.ensure_one()
         page, hint = self._pdf_page_for(page_label)
         if not page:
             return empty, 0, hint

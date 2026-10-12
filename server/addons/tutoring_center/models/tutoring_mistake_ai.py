@@ -2,7 +2,7 @@
 
 设计口径（维护者定的，别改）：
 * 一题一次——成功也好、失败也好，都只允许发起一次，失败后这道题只能手工填；
-* 额度按**发起人**按自然日算，一天 5 条，成败都扣；
+* 额度按**发起人**按自然日算，一天几条由 `DAILY_QUOTA` 说话（页面文案读 `quota_left()`），成败都扣；
 * AI 不解题、不讲思路；页码/资料对不上时它该立刻回 `{"found": false}` 而不是硬猜；
 * 知识点**只在为空时**由 AI 填，且只能从候选列表里逐字选一个，选不出就留空。
 """
@@ -23,7 +23,7 @@ from .tutoring_knowledge import GRADE_LABEL
 
 _logger = logging.getLogger(__name__)
 
-DAILY_QUOTA = 5           # 每人每天几条
+DAILY_QUOTA = 25          # 每人每天几条（2026-10-12 由 5 提到 25：页面文案读这个常量，不再写死）
 PER_TICK = 2              # 每个 cron tick 最多处理几条（就算连点也不会一次打出一堆请求）
 API_TIMEOUT = 90          # 实测 2~4 秒；上限仍留在 limit_time_real=120 之内
 MAX_OUTPUT_TOKENS = 700   # 输出就是一个小 JSON，700 已经宽裕

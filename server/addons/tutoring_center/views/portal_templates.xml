@@ -243,7 +243,7 @@
                                                 <td style="width: 1%; white-space: nowrap;" t-out="m.date"/>
                                                 <td>
                                                     <a t-attf-href="/my/learning/mistakes/#{m.id}">
-                                                        <t t-out="m.workbook_id.name"/>
+                                                        <t t-out="m.workbook_id.name or '没填出处'"/>
                                                         <span class="text-muted small" t-if="m.page or m.question_no">
                                                             <t t-if="m.page">P<t t-out="m.page"/></t><t t-if="m.question_no"> · 第<t t-out="m.question_no"/>题</t>
                                                         </span>
@@ -534,17 +534,44 @@
                         错题
                         <span class="badge text-bg-light border ms-1" t-out="result_total"/>
                     </h4>
-                    <!-- 这块按钮就是速记条的开关（Bootstrap 原生 collapse，与页面里
-                         「更多选项」「+ 新建文件夹」同一套机制，不写一行 JS） -->
-                    <a t-if="can_create" href="#quickadd" role="button"
-                       t-attf-class="btn btn-primary{{ '' if quickadd_open else ' collapsed' }}"
-                       data-bs-toggle="collapse" data-bs-target="#quickadd"
-                       aria-controls="quickadd" t-att-aria-expanded="'true' if quickadd_open else 'false'">+ 记一笔</a>
+                    <div class="d-flex flex-wrap gap-2">
+                        <!-- 这块按钮就是速记条的开关（Bootstrap 原生 collapse，与页面里
+                             「更多选项」「+ 新建文件夹」同一套机制，不写一行 JS） -->
+                        <a t-if="can_create" href="#quickadd" role="button"
+                           t-attf-class="btn btn-primary{{ '' if quickadd_open else ' collapsed' }}"
+                           data-bs-toggle="collapse" data-bs-target="#quickadd"
+                           aria-controls="quickadd" t-att-aria-expanded="'true' if quickadd_open else 'false'">+ 记一笔</a>
+                        <!-- 传照片记题：一张图＝一道题，图落进知识库"错题"分类。
+                             这条口就是为了拆掉"必须先有练习册才能记错题" -->
+                        <a t-if="can_create" href="#mistakedrop" role="button"
+                           class="btn btn-outline-primary collapsed"
+                           data-bs-toggle="collapse" data-bs-target="#mistakedrop"
+                           aria-controls="mistakedrop" aria-expanded="false">+ 传照片记题</a>
+                    </div>
+                </div>
+
+                <!-- 试用版本开关：三个版本共用同一份取数、同一套筛选，只有首屏怎么排不一样。
+                     链接一律 keep_query，切版本时当前的范围/筛选/排序/下钻都留着；
+                     参数写进 URL 就够（单人轮流试，不在库里存"这个人习惯用哪个"） -->
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                    <span class="small text-muted text-nowrap">试用版本</span>
+                    <ul class="nav nav-pills gap-1">
+                        <li class="nav-item" t-foreach="labs.items()" t-as="pair" t-key="pair[0]">
+                            <a t-attf-class="nav-link py-1 px-2 #{'active' if lab == pair[0] else 'text-body'}"
+                               t-attf-href="/my/mistakes?{{ keep_query('*', lab=pair[0], page=None) }}"
+                               t-att-title="pair[1]['hint']" t-out="pair[1]['label']"/>
+                        </li>
+                    </ul>
+                    <span class="small text-muted" t-out="labs[lab]['hint']"/>
                 </div>
 
                 <div t-if="created_count" class="alert alert-success">
                     已记录 <b t-out="created_count"/> 道错题，继续保持！
                 </div>
+                <div t-if="saved_count" class="alert alert-success">
+                    已保存 <b t-out="saved_count"/> 行的改动。
+                </div>
+                <div t-if="flash" class="alert alert-info py-2" t-out="flash"/>
                 <div t-if="error" class="alert alert-danger" t-out="error"/>
 
                 <!-- 范围切换：老师看"我自己 / 全部 / 某个学生"；
@@ -592,8 +619,8 @@
                                 </div>
                                 <div class="col-12 col-md-4">
                                     <label class="form-label small text-muted mb-1" for="q_workbook">哪本练习册</label>
-                                    <select class="form-select" name="workbook_id" id="q_workbook" required="required">
-                                        <option value="">请选择…</option>
+                                    <select class="form-select" name="workbook_id" id="q_workbook">
+                                        <option value="">（不填出处也可以）</option>
                                         <t t-foreach="workbooks" t-as="wb" t-key="wb.id">
                                             <option t-att-value="wb.id"
                                                     t-att-selected="form.get('workbook_id') == wb.id if form else (default_workbook and default_workbook.id == wb.id)">
@@ -676,7 +703,68 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="form-text mt-2">题号可写 <b>1-5</b>、<b>1,3,7</b>，保存时自动拆成多条；只记出处，不用抄题目。</div>
+                            <div class="form-text mt-2">题号可写 <b>1-5</b>、<b>1,3,7</b>，保存时自动拆成多条；<b>练习册可以不填</b>——卷子上的、黑板上的、别人手机里拍的题照样记下来。</div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 传照片记题：拖几张图进来就记几道题，图落进知识库"错题"分类并各自绑一条。
+                     没 JS 时这就是一个原生 multipart 表单（选好文件点"记下"照样能用）；
+                     有 JS 时 mistake_upload.js 接管成拖拽 + 传完跳回同一屏。
+                     练习册整块都是可选的——卷子上的、黑板上的题没有对应的书。 -->
+                <noscript><style>#mistakedrop.collapse { display: block !important; }</style></noscript>
+                <div class="card border-0 shadow-sm mb-4 collapse" id="mistakedrop" t-if="can_create">
+                    <div class="card-body">
+                        <form method="post" action="/my/mistakes/photos" enctype="multipart/form-data"
+                              data-mistake-drop="1">
+                            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                            <t t-foreach="url_args.items()" t-as="k" t-key="k[0]">
+                                <input type="hidden" t-att-name="k[0]" t-att-value="k[1]"/>
+                            </t>
+                            <div class="row g-2 align-items-end">
+                                <div class="col-12 col-md-5" t-if="len(scope_students) > 1">
+                                    <label class="form-label small text-muted mb-1" for="d_student">记到谁</label>
+                                    <select class="form-select form-select-sm" name="student_id" id="d_student">
+                                        <t t-foreach="scope_students" t-as="s" t-key="s.id">
+                                            <option t-att-value="s.id"
+                                                    t-att-selected="s.id == (student.id if student else 0)"
+                                                    t-out="s.name"/>
+                                        </t>
+                                    </select>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <label class="form-label small text-muted mb-1" for="d_workbook">哪本练习册（可不填）</label>
+                                    <select class="form-select form-select-sm" name="workbook_id" id="d_workbook">
+                                        <option value="">（不填出处也可以）</option>
+                                        <t t-foreach="workbooks" t-as="wb" t-key="wb.id">
+                                            <option t-att-value="wb.id" t-out="wb.name"/>
+                                        </t>
+                                    </select>
+                                </div>
+                                <div class="col-3 col-md-2">
+                                    <label class="form-label small text-muted mb-1" for="d_page">页码</label>
+                                    <input type="text" class="form-control form-control-sm" name="page" id="d_page"
+                                           placeholder="13"/>
+                                </div>
+                                <div class="col-3 col-md-2">
+                                    <label class="form-label small text-muted mb-1" for="d_qno">题号</label>
+                                    <input type="text" class="form-control form-control-sm" name="question_no"
+                                           id="d_qno" placeholder="5"/>
+                                </div>
+                            </div>
+                            <div class="o_mistake_dropzone mt-3" data-mistake-dropzone="1">
+                                <i class="fa fa-camera fa-2x d-block mb-2"/>
+                                <div class="fw-bold mb-1">把题目照片拖到这里，<b>一张图记一道题</b></div>
+                                <div class="small text-muted mb-2">
+                                    一次最多 10 张；jpg / png / webp，单张不超过 64MB（知识库的额度）。
+                                </div>
+                                <input type="file" class="form-control form-control-sm" name="file"
+                                       accept="image/*" multiple="multiple" data-mistake-input="1"/>
+                            </div>
+                            <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                                <button type="submit" class="btn btn-primary btn-sm">记下这几道</button>
+                                <span class="small text-muted" data-mistake-dropstate=""/>
+                            </div>
                         </form>
                     </div>
                 </div>
@@ -714,7 +802,9 @@
                         </t>
                     </ul>
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                        <div class="dropdown">
+                        <!-- 分组只在卡片墙这一版有意义：队列首屏只关心"到期这几道"，
+                             表格要的是横着一排排改 -->
+                        <div class="dropdown" t-if="lab == 'wall'">
                             <button class="btn btn-light btn-sm border dropdown-toggle" type="button"
                                     data-bs-toggle="dropdown" aria-expanded="false">
                                 <t t-out="searchbar_groupbys.get(groupby, {}).get('label', '')"/>
@@ -773,49 +863,440 @@
                     </span>
                 </div>
 
-                <!-- 空态 -->
-                <t t-if="not mistakes and not groups">
-                    <div class="alert alert-warning">
+                <!-- ===== 版本 C：表格（一行一道题，就地改了再一起存） ===== -->
+                <t t-if="lab == 'grid'">
+                    <t t-set="heat_note_visible" t-value="False"/>
+                    <div t-if="not mistakes" class="alert alert-warning">
+                        <span t-if="search">没有匹配「<t t-out="search"/>」的错题。</span>
+                        <span t-else="">这一屏没有可编辑的错题，先「+ 记一笔」记两道。</span>
+                    </div>
+                    <form t-else="" method="post" action="/my/mistakes/grid">
+                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                        <!-- 存完要回到同一屏：lab/范围/筛选/排序都跟着表单走 -->
+                        <t t-foreach="url_args.items()" t-as="k" t-key="k[0]">
+                            <input type="hidden" t-att-name="k[0]" t-att-value="k[1]"/>
+                        </t>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered align-middle mb-0 o_mistake_grid">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th scope="col">发生日期</th>
+                                        <th scope="col">练习册</th>
+                                        <th scope="col">页</th>
+                                        <th scope="col">题号</th>
+                                        <th scope="col">难度</th>
+                                        <th scope="col">错因</th>
+                                        <th scope="col">知识点</th>
+                                        <th scope="col" class="o_mistake_grid_note">补充说明</th>
+                                        <th scope="col" class="text-center">打开</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr t-foreach="mistakes" t-as="m" t-key="m.id"
+                                        t-attf-class="o_mistake_heat_row_#{m.portal_heat or 'cool'}">
+                                        <td>
+                                            <input type="hidden" t-att-name="'row_%d' % m.id" value="1"/>
+                                            <input type="date" class="form-control form-control-sm"
+                                                   t-att-name="'date_%d' % m.id" t-att-value="m.date"/>
+                                        </td>
+                                        <td class="small text-nowrap">
+                                            <t t-out="m.workbook_id.name or '没填出处'"/>
+                                            <span t-if="show_student" class="badge text-bg-light border ms-1"
+                                                  t-out="m.student_id.name"/>
+                                        </td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm o_mistake_grid_narrow"
+                                                   t-att-name="'page_%d' % m.id" t-att-value="m.page or ''"
+                                                   placeholder="13" aria-label="页码"/>
+                                        </td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm o_mistake_grid_narrow"
+                                                   t-att-name="'question_no_%d' % m.id" t-att-value="m.question_no or ''"
+                                                   placeholder="5" aria-label="题号"/>
+                                        </td>
+                                        <td>
+                                            <select class="form-select form-select-sm"
+                                                    t-att-name="'difficulty_%d' % m.id" aria-label="难度">
+                                                <t t-foreach="difficulties" t-as="d" t-key="d[0]">
+                                                    <option t-att-value="d[0]" t-att-selected="d[0] == m.difficulty"
+                                                            t-out="d[1]"/>
+                                                </t>
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <!-- 现值不在当前档案的可选项里就只给看：
+                                                 一保存就把别人的知识点清空是数据事故 -->
+                                            <select t-if="not m.cause_id or m.cause_id.id in grid_cause_ids"
+                                                    class="form-select form-select-sm"
+                                                    t-att-name="'cause_id_%d' % m.id" aria-label="错因">
+                                                <option value="">（不选）</option>
+                                                <t t-foreach="causes" t-as="cz" t-key="cz.id">
+                                                    <option t-att-value="cz.id" t-att-selected="cz.id == (m.cause_id.id or 0)"
+                                                            t-out="cz.name"/>
+                                                </t>
+                                            </select>
+                                            <span t-else="" class="small text-muted" t-out="m.cause_id.name"/>
+                                        </td>
+                                        <td>
+                                            <select t-if="not m.point_id or m.point_id.id in grid_point_ids"
+                                                    class="form-select form-select-sm"
+                                                    t-att-name="'point_id_%d' % m.id" aria-label="知识点">
+                                                <option value="">（不选）</option>
+                                                <t t-foreach="point_groups" t-as="pg" t-key="pg['label']">
+                                                    <optgroup t-att-label="pg['label']">
+                                                        <t t-foreach="pg['points']" t-as="pt" t-key="pt.id">
+                                                            <option t-att-value="pt.id"
+                                                                    t-att-selected="pt.id == (m.point_id.id or 0)"
+                                                                    t-out="pt.name"/>
+                                                        </t>
+                                                    </optgroup>
+                                                </t>
+                                            </select>
+                                            <span t-else="" class="small text-muted" t-out="m.point_id.name"/>
+                                        </td>
+                                        <td class="o_mistake_grid_note">
+                                            <textarea class="form-control form-control-sm" rows="1"
+                                                      t-att-name="'note_%d' % m.id" t-att-aria-label="'补充说明 ' + (m.display_name or '')"
+                                                      placeholder="错在哪、下次从哪儿起手"><t t-out="m.note or ''"/></textarea>
+                                        </td>
+                                        <td class="text-center">
+                                            <a class="btn btn-light btn-sm border"
+                                               t-attf-href="/my/learning/mistakes/#{m.id}"
+                                               title="打开这一道（打开一次它自己就往后排）">
+                                                <i class="fa fa-external-link" role="img"/>
+                                            </a>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                            <button type="submit" class="btn btn-primary btn-sm">保存这一屏</button>
+                            <span class="small text-muted">
+                                只写动了的那几行；新建仍走上面的「+ 记一笔」，表格里不加行。
+                            </span>
+                        </div>
+                    </form>
+                    <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3">
+                        <t t-call="portal.pager"/>
+                    </div>
+                </t>
+
+                <!-- ===== 版本 B：今日队列（该翻的先看到，其余折起来） ===== -->
+                <t t-elif="lab == 'queue'">
+                    <t t-set="heat_note_visible" t-value="True"/>
+                    <div t-if="due" class="card border-0 shadow-sm mb-4 o_mistake_queue">
+                        <div class="card-body">
+                            <div class="d-flex flex-wrap align-items-baseline gap-2 mb-3">
+                                <h5 class="mb-0">今天有 <b t-out="due_total"/> 道要看</h5>
+                                <span class="small text-muted">
+                                    翻开任意一道，它自己就往后挪，不用点任何"标记"。
+                                </span>
+                            </div>
+                            <div class="d-flex flex-column gap-2">
+                                <div t-foreach="due" t-as="m" t-key="m.id"
+                                     class="o_mistake_queue_row">
+                                    <t t-call="tutoring_center.mistake_card"/>
+                                </div>
+                            </div>
+                            <p t-if="due_total > len(due)" class="small text-muted mb-0 mt-2">
+                                一屏先摆 <t t-out="len(due)"/> 道，剩下的在下面的「其余」里。
+                            </p>
+                        </div>
+                    </div>
+                    <div t-else="" class="alert alert-success">
+                        今天没有到期的题。下面「其余」是还没到点的，想翻随时翻。
+                    </div>
+                    <div t-if="mistakes">
+                        <!-- 同速记条：没 JS 时 .collapse 打不开，就让这块常驻 -->
+                        <noscript>
+                            <style>#queue_rest.collapse { display: block !important; }</style>
+                        </noscript>
+                        <a class="btn btn-light border btn-sm mb-2" href="#queue_rest" role="button"
+                           data-bs-toggle="collapse" aria-controls="queue_rest" aria-expanded="false">
+                            其余 <t t-out="result_total - due_total"/> 道（还没到点）
+                        </a>
+                        <div class="collapse" id="queue_rest">
+                            <t t-call="tutoring_center.mistake_wall"/>
+                            <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3">
+                                <t t-call="portal.pager"/>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+
+                <!-- ===== 版本 D：每日回顾（一天**一张**大图：这一天的错题收拢成一张） =====
+                     原来这一条路上占了三版（coverpdf/covercss/coverai，一题一张），
+                     现在收拢成一版：卡片墙答"这道题长什么样"，每日回顾答"这一天合起来是什么" -->
+                <t t-elif="lab == 'daily'">
+                    <t t-set="heat_note_visible" t-value="False"/>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                        <a class="btn btn-light btn-sm border" title="前一天"
+                           t-attf-href="/my/mistakes?{{ keep_query('*', day=daily['prev'], page=None) }}">‹</a>
+                        <h5 class="mb-0">
+                            <t t-out="daily['day']"/>
+                            <span class="badge text-bg-light border ms-1">
+                                这一日 <b t-out="daily['total']"/> 道</span>
+                        </h5>
+                        <a class="btn btn-light btn-sm border" title="后一天"
+                           t-attf-href="/my/mistakes?{{ keep_query('*', day=daily['next'], page=None) }}">›</a>
+                        <span class="small text-muted" t-if="daily['student']">
+                            这张图做的是<b t-out="daily['student'].name"/>那一份档案——
+                            一天一张，重做就是覆盖它
+                        </span>
+                    </div>
+                    <!-- 日子药丸：只列真有题的那些天，点一下整天换一张 -->
+                    <div class="d-flex flex-wrap gap-1 mb-3" t-if="len(daily['days']) > 1">
+                        <a t-foreach="daily['days']" t-as="p" t-key="p['day']"
+                           t-attf-class="badge rounded-pill text-decoration-none {{ 'text-bg-primary' if p['day'] == daily['day_str'] else 'text-bg-light border' }}"
+                           t-attf-href="/my/mistakes?{{ keep_query('*', day=p['day'], page=None) }}">
+                            <t t-out="p['day']"/> · <t t-out="p['count']"/>
+                        </a>
+                    </div>
+
+                    <!-- 那一张大图：底色与图案全部来自服务端那张素材表 -->
+                    <t t-call="tutoring_center.mistake_daily_cover"/>
+
+                    <form method="post" action="/my/mistakes/digest"
+                          class="d-flex flex-wrap align-items-center gap-2 my-3">
+                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                        <!-- 做完回到同一屏、同一天：lab/scope/day/筛选都跟着表单走 -->
+                        <t t-foreach="url_args.items()" t-as="k" t-key="k[0]">
+                            <input type="hidden" t-att-name="k[0]" t-att-value="k[1]"/>
+                        </t>
+                        <button t-if="not daily['ready']" type="submit" class="btn btn-primary btn-sm">
+                            做这一天的回顾</button>
+                        <button t-if="daily['ready']" type="submit" class="btn btn-outline-secondary btn-sm"
+                                name="redo" value="1" title="换一版配色与说法（会覆盖这一天的那一张）">
+                            重做这一天的回顾</button>
+                        <span class="small text-muted">
+                            一次模型往返：把这一天已有的文字都交给它，它只报"用哪几个元素 + 三句短话"，
+                            图由我们渲染，几秒钟就回。AI 不在场就退成上面那张文字回顾，原因写在图上。
+                        </span>
+                    </form>
+
+                    <div t-if="not daily['mistakes']" class="alert alert-warning">
+                        <t t-out="daily['day']"/> 这一天没有错题（按当前的范围与筛选）。
+                        换个日子看看，或者先「+ 记一笔」记两道。
+                    </div>
+                    <div t-else="" class="list-group list-group-flush o_mistake_daily_list">
+                        <a t-foreach="daily['mistakes']" t-as="m" t-key="m.id"
+                           t-attf-class="list-group-item list-group-item-action o_mistake_daily_row o_mistake_heat_#{m.portal_heat or 'cool'}"
+                           t-attf-href="/my/learning/mistakes/#{m.id}"
+                           t-att-title="m.portal_heat_note or ''">
+                            <div class="d-flex w-100 justify-content-between align-items-baseline gap-2">
+                                <span class="fw-bold text-truncate">
+                                    <t t-out="m.point_id.name or '没标知识点'"/>
+                                </span>
+                                <span class="text-nowrap small"
+                                      t-out="difficulty_labels.get(m.difficulty, '')"/>
+                            </div>
+                            <div class="small text-muted">
+                                <t t-out="m.workbook_id.name or '没填出处'"/>
+                                <t t-if="m.page"> · P<t t-out="m.page"/></t><t t-if="m.question_no"> · 第<t t-out="m.question_no"/>题</t>
+                                <t t-if="m.cause_id"> · <t t-out="m.cause_id.name"/></t>
+                            </div>
+                            <p t-if="m.ai_readable_summary or m.note"
+                               class="mb-0 small text-body-secondary o_mistake_daily_clamp"
+                               t-out="m.ai_readable_summary or m.note"/>
+                        </a>
+                        <p t-if="daily['truncated']" class="small text-muted mt-2 mb-0">
+                            这一天一共 <t t-out="daily['total']"/> 道，这里先列
+                            <t t-out="len(daily['mistakes'])"/> 道。
+                        </p>
+                    </div>
+                </t>
+
+                <!-- ===== 版本 G：整屏流（一屏一道，往上滑就是下一道） ===== -->
+                <t t-elif="lab == 'feed'">
+                    <t t-set="heat_note_visible" t-value="False"/>
+                    <t t-set="cover_mode" t-value="'auto'"/>
+                    <div t-if="not mistakes" class="alert alert-warning">
+                        这一屏没有可翻的错题，先「+ 记一笔」记两道。
+                    </div>
+                    <div t-else="" class="o_mistake_feed" data-mistake-covers="1">
+                        <section t-foreach="mistakes" t-as="m" t-key="m.id"
+                                 t-attf-class="o_mistake_feed_slide o_mistake_heat_#{m.portal_heat or 'cool'}"
+                                 data-mistake-cover="1">
+                            <t t-call="tutoring_center.mistake_cover_shot"/>
+                            <div class="o_mistake_feed_bar">
+                                <div class="o_mistake_feed_what text-truncate">
+                                    <b t-out="m.point_id.name or '没标知识点'"/>
+                                    <span class="text-muted">
+                                        · 《<t t-out="m.workbook_id.name"/>》
+                                        <t t-if="m.page"> P<t t-out="m.page"/></t><t t-if="m.question_no"> 第<t t-out="m.question_no"/>题</t>
+                                    </span>
+                                </div>
+                                <a class="btn btn-sm btn-light border text-nowrap"
+                                   t-attf-href="/my/learning/mistakes/#{m.id}">打开</a>
+                                <form method="post" t-attf-action="/my/learning/mistakes/#{m.id}/snooze"
+                                      class="d-inline">
+                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                    <t t-foreach="url_args.items()" t-as="k" t-key="k[0]">
+                                        <input type="hidden" t-att-name="k[0]" t-att-value="k[1]"/>
+                                    </t>
+                                    <button type="submit" class="btn btn-sm btn-secondary text-nowrap"
+                                            title="先放过：它自己会往后排，不用你记任何状态">放过</button>
+                                </form>
+                                <form method="post" class="d-inline"
+                                      t-attf-action="/my/learning/mistakes/#{m.id}/archive">
+                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                    <t t-foreach="url_args.items()" t-as="k" t-key="k[0]">
+                                        <input type="hidden" t-att-name="k[0]" t-att-value="k[1]"/>
+                                    </t>
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary text-nowrap"
+                                            title="复习到位了、不再重要：收起来，随时能在「已归档」里翻回来">够了</button>
+                                </form>
+                            </div>
+                        </section>
+                    </div>
+                    <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3">
+                        <t t-call="portal.pager"/>
+                    </div>
+                </t>
+
+                <!-- ===== 版本 A：卡片墙（原来那一版） ===== -->
+                <t t-else="">
+                    <t t-set="heat_note_visible" t-value="False"/>
+                    <!-- 空态 -->
+                    <div t-if="not mistakes and not groups" class="alert alert-warning">
                         <span t-if="search">没有匹配「<t t-out="search"/>」的错题。</span>
                         <span t-elif="filterby == 'all' and not drilldowns">还没有错题记录，继续保持！做错了题点右上角「+ 记一笔」。</span>
                         <span t-else="">这个筛选下没有错题。</span>
                     </div>
-                </t>
 
-                <!-- 分组视图：标题就是下钻入口，一组里先给几张卡 -->
-                <div t-if="groups" class="d-flex flex-column gap-4">
-                    <section t-foreach="groups" t-as="grp" t-key="grp['label']">
-                        <div class="d-flex flex-wrap align-items-baseline gap-2 mb-2 pb-1 border-bottom">
-                            <a class="h6 mb-0 text-decoration-none" t-att-href="grp['url']" t-out="grp['label']"/>
-                            <span class="badge text-bg-light border" t-out="grp['total']"/>
-                            <span t-if="grp['hidden']" class="small text-muted">
-                                先显示 <t t-out="group_preview"/> 条，点标题看全部
-                            </span>
-                        </div>
-                        <div class="row row-cols-1 row-cols-md-2 g-3">
-                            <div class="col" t-foreach="grp['records']" t-as="m" t-key="m.id">
-                                <t t-call="tutoring_center.mistake_card"/>
+                    <!-- 分组视图：标题就是下钻入口，一组里先给几张卡 -->
+                    <div t-if="groups" class="d-flex flex-column gap-4">
+                        <section t-foreach="groups" t-as="grp" t-key="grp['label']">
+                            <div class="d-flex flex-wrap align-items-baseline gap-2 mb-2 pb-1 border-bottom">
+                                <a class="h6 mb-0 text-decoration-none" t-att-href="grp['url']" t-out="grp['label']"/>
+                                <span class="badge text-bg-light border" t-out="grp['total']"/>
+                                <span t-if="grp['hidden']" class="small text-muted">
+                                    先显示 <t t-out="group_preview"/> 条，点标题看全部
+                                </span>
                             </div>
-                        </div>
-                    </section>
-                    <p t-if="group_truncated" class="small text-muted mb-0">
-                        分组视图一次最多取 <t t-out="group_limit"/> 条，用搜索或筛选再缩小范围。
-                    </p>
-                </div>
+                            <div class="row row-cols-1 row-cols-md-2 g-3">
+                                <div class="col" t-foreach="grp['records']" t-as="m" t-key="m.id">
+                                    <t t-call="tutoring_center.mistake_card"/>
+                                </div>
+                            </div>
+                        </section>
+                        <p t-if="group_truncated" class="small text-muted mb-0">
+                            分组视图一次最多取 <t t-out="group_limit"/> 条，用搜索或筛选再缩小范围。
+                        </p>
+                    </div>
 
-                <!-- 平铺视图 -->
-                <div class="row row-cols-1 row-cols-md-2 g-3" t-elif="mistakes">
-                    <div class="col" t-foreach="mistakes" t-as="m" t-key="m.id">
-                        <t t-call="tutoring_center.mistake_card"/>
+                    <t t-else="" t-call="tutoring_center.mistake_wall"/>
+                    <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3">
+                        <t t-call="portal.pager"/>
+                    </div>
+                </t>
+            </t>
+        </template>
+
+        <!-- ===== 卡片墙本体：版本 A 整屏用它，版本 B 用它装"其余" ===== -->
+        <template id="mistake_wall" name="错题卡片墙">
+            <div class="row row-cols-1 row-cols-md-2 g-3" t-if="mistakes">
+                <div class="col" t-foreach="mistakes" t-as="m" t-key="m.id">
+                    <t t-call="tutoring_center.mistake_card"/>
+                </div>
+            </div>
+        </template>
+
+        <!-- ===== 封面块：整屏流（`feed`，cover_mode=auto）用的那一块"图画" =====
+                 底下永远铺着一层封面——逐题 AI 配方渲染出来的那张，或纯排版的文字那张；
+                 教材原页加载成功后淡入盖在最上面。加载失败就留在底层并写明原因，
+                 封面版最怕整屏空白还什么都不说。
+                 cover_mode：auto＝拿能拿到的最好那张（原页 → 逐题配方 → 文字依次退让）。
+                 ⚠️ 逐题配方（`m.cover_recipe`）现在没有生成的入口了——三个"一题一张"的封面版
+                 已收拢成「每日回顾」。字段与这条退让链照旧留着：库里已有的配方、以及
+                 判据 `cover_pdf_ready` 走 sudo / 真取图按本人权限那套不对称都还在用。
+                 教材原页那口（`/my/learning/mistakes/<id>/page.pdf`）也由 auto 这条在用。 -->
+        <template id="mistake_cover_shot" name="错题封面">
+            <t t-set="mode" t-value="cover_mode == 'auto' and m.cover_kind or cover_mode"/>
+            <t t-set="shot_pdf" t-value="mode in ('pdf', 'auto') and m.cover_pdf_ready"/>
+            <t t-set="shot_recipe" t-value="not shot_pdf and mode in ('ai', 'auto') and m.cover_ai_ready"/>
+            <div t-attf-class="o_mistake_cover_shot{{ ' is-loading' if shot_pdf else '' }}">
+                <!-- AI 只报了色板 id 与图案 id，颜色和形状全部来自服务端那张表 -->
+                <div t-if="shot_recipe" class="o_mistake_cover_recipe" t-att-style="m.cover_style">
+                    <t t-out="m.cover_motifs"/>
+                    <div class="o_mistake_cover_where">
+                        <t t-out="m.workbook_id.name or '没填出处'"/>
+                        <t t-if="m.page"> · P<t t-out="m.page"/></t><t t-if="m.question_no"> · 第<t t-out="m.question_no"/>题</t>
+                    </div>
+                    <div class="o_mistake_cover_headline"
+                         t-out="m.cover_headline or m.point_id.name or '没标知识点'"/>
+                    <p class="o_mistake_cover_sub" t-if="m.cover_sub" t-out="m.cover_sub"/>
+                    <div class="o_mistake_cover_meta">
+                        <t t-out="difficulty_labels.get(m.difficulty, '')"/>
+                        <t t-if="m.cause_id"> · <t t-out="m.cause_id.name"/></t>
+                        · <t t-out="m.point_id.name or '没标知识点'"/>
+                    </div>
+                    <span t-if="m.cover_badge" class="o_mistake_cover_badgetext" t-out="m.cover_badge"/>
+                </div>
+                <div t-else="" class="o_mistake_cover_css">
+                    <div class="o_mistake_cover_where">
+                        <t t-out="m.workbook_id.name or '没填出处'"/>
+                        <t t-if="m.page"> · P<t t-out="m.page"/></t><t t-if="m.question_no"> · 第<t t-out="m.question_no"/>题</t>
+                    </div>
+                    <div class="o_mistake_cover_title" t-out="m.point_id.name or '没标知识点'"/>
+                    <p class="o_mistake_cover_body"
+                       t-out="m.ai_readable_summary or m.note or '这道题还没抄回内容——只有出处。在详情页可以发起一次 AI 摘要。'"/>
+                    <div class="o_mistake_cover_meta">
+                        <t t-out="difficulty_labels.get(m.difficulty, '')"/>
+                        <t t-if="m.cause_id"> · <t t-out="m.cause_id.name"/></t>
+                        <t t-else=""> · 未标错因</t>
+                        · <t t-out="m.date"/>
                     </div>
                 </div>
-                <div t-if="pager" class="o_portal_pager d-flex justify-content-center my-3"><t t-call="portal.pager"/></div>
-            </t>
+                <img t-if="shot_pdf" class="o_mistake_cover_img"
+                     t-att-data-cover-pdf="'/my/learning/mistakes/%d/page.pdf' % m.id" alt=""/>
+                <span class="badge o_mistake_cover_kind"
+                      t-out="{'pdf': '教材原页', 'ai': 'AI 配方', 'css': '文字封面', 'auto': '原页优先'}.get(mode, mode)"/>
+                <span t-if="mode == 'pdf' and not m.cover_pdf_ready" class="badge text-bg-light o_mistake_cover_badge">
+                    这道出不了原页图
+                </span>
+                <span t-if="mode == 'ai' and not m.cover_ai_ready" class="badge text-bg-light o_mistake_cover_badge">
+                    还没做封面
+                </span>
+                <span class="o_mistake_cover_note small" data-cover-note=""/>
+            </div>
+        </template>
+
+        <!-- ===== 每日回顾那一张大图：一天一张，不是每题一张 =====
+                 有能用的 AI 配方就按配方渲染（底色与图案全部查服务端的素材表）；
+                 没有就退成一张**照样能看**的文字回顾——用这一天已有的事实排版，
+                 并把"为什么退让"写在图上（没做过 / 接口那趟的原因 / 配方全是废 id）。
+                 两条路共用同一个 DOM，区别只有内容，所以不会一条路炸整屏。 -->
+        <template id="mistake_daily_cover" name="每日回顾大图">
+            <div t-attf-class="o_mistake_daily_cover{{ '' if daily['ready'] else ' is-textual' }}"
+                 t-att-style="daily['style']">
+                <t t-out="daily['motifs']"/>
+                <div class="o_mistake_daily_where">
+                    <t t-out="daily['student'].name or '没选定档案'"/>
+                    · <t t-out="daily['day']"/> · <t t-out="daily['total']"/> 道
+                    <t t-if="daily['hard']"> · 高难度 <t t-out="daily['hard']"/> 道</t>
+                </div>
+                <div class="o_mistake_daily_headline"
+                     t-out="daily['headline'] or '这一天还没定题'"/>
+                <p class="o_mistake_daily_sub" t-if="daily['sub']" t-out="daily['sub']"/>
+                <div class="o_mistake_daily_stats">
+                    <span t-foreach="daily['points']" t-as="pn" t-key="pn"
+                          class="o_mistake_daily_chip" t-out="pn"/>
+                </div>
+                <span class="badge o_mistake_daily_kind"
+                      t-out="'AI 配方' if daily['ready'] else '文字回顾'"/>
+                <span t-if="not daily['ready']" class="o_mistake_daily_why" t-out="daily['reason']"/>
+                <span t-if="daily['badge']" class="o_mistake_daily_badgetext" t-out="daily['badge']"/>
+            </div>
         </template>
 
         <!-- ===== 错题卡片：正面只放"知识点 / 难度 / 错因 / 出处"，其余进详情 ===== -->
         <template id="mistake_card" name="错题卡片">
-            <div class="card h-100 border-0 shadow-sm">
+            <!-- 左边一道色条表轻重（到期越久 × 难度越高越红），颜色只当第二通道：
+                 同一句话在标题属性里，手机上长按和桌面悬停都能读到 -->
+            <div t-attf-class="card h-100 border-0 shadow-sm o_mistake_card o_mistake_heat_#{m.portal_heat or 'cool'}"
+                 t-att-title="m.portal_heat_note or ''">
                 <div class="card-body d-flex flex-column gap-2">
                     <div class="d-flex justify-content-between align-items-start gap-2">
                         <h3 class="h6 mb-0">
@@ -829,9 +1310,12 @@
                         <t t-if="show_student">
                             <span class="badge text-bg-light border me-1" t-out="m.student_id.name"/>
                         </t>
-                        <t t-out="m.workbook_id.name"/>
+                        <t t-out="m.workbook_id.name or '没填出处'"/>
                         <t t-if="m.page"> · P<t t-out="m.page"/></t><t t-if="m.question_no"> · 第<t t-out="m.question_no"/>题</t>
                     </div>
+                    <!-- 队列那一版才把这句话说在明面上（卡片墙只挂在悬停标题里） -->
+                    <p class="mb-0 small o_mistake_heat_note" t-if="heat_note_visible"
+                       t-out="m.portal_heat_note"/>
                     <!-- AI 抄回来的一句话摘要：不点开就知道这道题在问什么 -->
                     <p class="mb-0 small text-body-secondary" t-if="m.ai_readable_summary"
                        style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;"
@@ -859,11 +1343,14 @@
         <template id="portal_my_learning_mistake_detail" name="错题详情">
             <t t-call="portal.portal_layout">
                 <div t-if="just_saved" class="alert alert-success mt-3">已保存。</div>
+                <div t-if="not mistake.active" class="alert alert-secondary mt-3">
+                    这道已经<b>归档</b>了：默认列表里看不到它，随时可以放回。
+                </div>
                 <div class="card">
                     <div class="card-body">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <h4 class="mb-0">
-                                <t t-out="mistake.workbook_id.name"/>
+                                <t t-out="mistake.workbook_id.name or '没填出处'"/>
                                 <span class="text-muted" t-if="mistake.page or mistake.question_no">
                                     <t t-if="mistake.page">P<t t-out="mistake.page"/></t><t t-if="mistake.question_no"> · 第<t t-out="mistake.question_no"/>题</t>
                                 </span>
@@ -880,6 +1367,29 @@
                                             title="把出错那一页交给 AI，抄回题目、生成一句摘要、比对知识点">
                                         <i class="fa fa-magic me-1"/>生成摘要
                                     </button>
+                                </form>
+                                <!-- 归档＝软删（"复习到位了、不再重要"是降级不是销毁）；
+                                     删除＝真删，勾了才连题目照片一起走。
+                                     删除点下去撤不回来，所以用原生 confirm 兜一道（不依赖我们那包 JS） -->
+                                <form t-if="can_edit and mistake.active" method="post"
+                                      t-attf-action="/my/learning/mistakes/#{mistake.id}/archive">
+                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                    <button type="submit" class="btn btn-outline-secondary"
+                                            title="从默认视野里收走，随时能翻回来">够了，归档</button>
+                                </form>
+                                <form t-if="can_edit and not mistake.active" method="post"
+                                      t-attf-action="/my/learning/mistakes/#{mistake.id}/unarchive">
+                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                    <button type="submit" class="btn btn-outline-secondary">放回在用</button>
+                                </form>
+                                <form t-if="can_delete" method="post" class="d-flex align-items-center gap-2"
+                                      t-attf-action="/my/learning/mistakes/#{mistake.id}/delete"
+                                      onsubmit="return confirm('这道错题的记录会被删掉，撤不回来。\n题目照片默认留在知识库里，要一起删请勾上左边那格。');">
+                                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                                    <label class="small text-muted mb-0">
+                                        <input type="checkbox" name="also_files" value="1"/> 连照片一起删
+                                    </label>
+                                    <button type="submit" class="btn btn-outline-danger">删除</button>
                                 </form>
                             </div>
                         </div>
@@ -1029,7 +1539,7 @@
                             <div class="mb-3">
                                 <label class="form-label" for="workbook_id">练习册 <span class="text-danger">*</span></label>
                                 <select class="form-select" name="workbook_id" id="workbook_id" required="required">
-                                    <option value="">请选择…</option>
+                                    <option value="">（不填出处也可以）</option>
                                     <t t-foreach="workbooks" t-as="wb" t-key="wb.id">
                                         <option t-att-value="wb.id" t-att-selected="wb.id == form['workbook_id']">
                                             <t t-out="wb.name"/>

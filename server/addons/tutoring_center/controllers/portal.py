@@ -1,5 +1,7 @@
 import base64
 import json
+from collections import Counter
+from datetime import timedelta
 from urllib.parse import quote, urlencode
 
 from odoo import _, fields, http
@@ -10,6 +12,7 @@ from odoo.http import request
 from odoo.addons.portal.controllers.portal import CustomerPortal
 from odoo.addons.portal.controllers.portal import pager as portal_pager
 
+from ..models import mistake_cover
 from ..models.tutoring_knowledge import GRADE_LABEL
 from ..models.tutoring_mistake import split_question_numbers
 from .library import SAFE_FILENAME
@@ -266,6 +269,50 @@ class TutoringPortal(CustomerPortal):
     # 但不封顶就又回到以前那种"全量捞进内存"，所以给个上限并如实告诉用户被截断了。
     MISTAKE_GROUP_LIMIT = 400
     MISTAKE_GROUP_PREVIEW = 8
+    # 试用版本：同一份取数、同一套筛选，只有首屏怎么排不一样，用 `?lab=` 切。
+    # 今日队列首屏最多摆几道：摆满一屏就够看了，剩下的一句话交代，
+    # 别把首屏又变回一堵墙。
+    MISTAKE_DUE_LIMIT = 12
+    MISTAKE_GRID_DEFAULT_SIZE = 20
+    # 一次保存处理的行数上限：提交里能塞多少个 row_ 键不由我们决定
+    MISTAKE_GRID_MAX_ROWS = 200
+    # 每日回顾：一天一张大图，下面那串清单封顶（一天真记得下多少道另说，
+    # 但封顶才不会把"回顾"又变成一堵墙），上面那排日子药丸最多几颗
+    MISTAKE_DAY_LIMIT = 50
+    MISTAKE_DAY_PILLS = 14
+
+    def _mistake_flashes(self):
+        """归档/删除/做回顾之后回落到列表页的那句回执（走 URL 参数，不做 session 存储）。"""
+        return {
+            'archived': _('已归档这一道：默认视野里不再出现，在「已归档」那颗药丸里能翻回来。'),
+            'restored': _('已放回在用。'),
+            'deleted': _('已删除这一道错题。'),
+            'no_photo': _('没有收到图片，再拖一次试试。'),
+            'digest': _('已经给这一天做好回顾那张图了。'),
+            'digest_kept': _('这一天本来就有回顾那张图，没动它——要换一版点「重做」。'),
+            'digest_empty': _('这一天没有错题，回顾就不用做了。'),
+            'digest_denied': _('还没有可回顾的学习档案，请先在后台建一条。'),
+        }
+
+    def _mistake_labs(self):
+        """试用版本的开关表。标签刻意中性（不写"推荐""新版"），
+        否则测出来的就是标签自己的说服力。
+
+        封面那条路原来占了三版（`coverpdf`/`covercss`/`coverai`，一题一张），
+        2026-10-12 收拢成这**一版**「每日回顾」：一天一张大图，统一走"AI 出配方、我们渲染"，
+        AI 不在场才退到文字回顾并把原因写在图上。卡片墙与每日回顾是两件事——
+        前者答"这道题长什么样"，后者答"我今天要回看的东西合起来是什么"。
+        """
+        return {
+            'wall': {'label': _('卡片墙'),
+                     'hint': _('现在这一版：平铺卡片，按"该看的先看到"排')},
+            'queue': {'label': _('今日队列'), 'hint': _('该翻出来的置顶，其余折起来')},
+            'grid': {'label': _('表格'), 'hint': _('一行一道题，就地改了再一起存')},
+            'daily': {'label': _('每日回顾'),
+                      'hint': _('一天一张大图：这一天的错题收拢成一张回顾，AI 出配方、我们渲染')},
+            'feed': {'label': _('整屏流'),
+                     'hint': _('一屏一道，往上滑就是下一道')},
+        }
 
     def _mistake_sortings(self):
         return {
@@ -285,6 +332,9 @@ class TutoringPortal(CustomerPortal):
             'hard': {'label': _('高难度'), 'domain': [('difficulty', 'in', ['4', '5'])]},
             'no_cause': {'label': _('未标错因'), 'domain': [('cause_id', '=', False)]},
             'no_point': {'label': _('未选知识点'), 'domain': [('point_id', '=', False)]},
+            # 域里显式写了 active，ORM 就不再自动加"只看在用"那条隐含过滤（models.py 的
+            # _search 判据是"域里没提到 active 才补"），所以这一颗药丸不需要动 context
+            'archived': {'label': _('已归档'), 'domain': [('active', '=', False)]},
         }
 
     def _mistake_groupbys(self):
@@ -323,6 +373,8 @@ class TutoringPortal(CustomerPortal):
         counts = {
             'all': 0, 'hard': 0, 'no_cause': 0, 'no_point': 0,
             'month': Mistake.search_count(base_domain + [('date', '>=', month_start)]),
+            # 归档的那一份要单独数：其余药丸的计数都只算在用的
+            'archived': Mistake.search_count(base_domain + [('active', '=', False)]),
         }
         for difficulty, count in Mistake._read_group(base_domain, ['difficulty'], ['__count']):
             counts['all'] += count
@@ -503,6 +555,104 @@ class TutoringPortal(CustomerPortal):
         # 别把页面卡在一个空范围上
         return [], Student.browse(), 'all', readable
 
+    @staticmethod
+    def _mistake_day_from_param(raw):
+        """`?day=2026-10-12` → date；乱写的、空的都回 False，由调用方挑默认那一天。
+
+        日期是前端来的不可信输入，而这一版整页都围着它转：解析失败绝不能炸页面。
+        """
+        try:
+            return fields.Date.from_string(raw) if raw else False
+        except (ValueError, TypeError):
+            return False
+
+    def _mistake_daily(self, domain, student, readable, order, day_param, today):
+        """「每日回顾」的首屏：一张大图 + 这一天到底有哪些题。
+
+        回顾属于"某一天 + 某一份档案"，所以范围选「全部」时也得落到一份档案上
+        （自己的那份 > 可读的第一份），页面上会写清楚做的是哪一份——
+        "一天一张"的意义就是合起来看，跨几份档案合不成一张。
+
+        封面走两条路之一：那一天有能用的 AI 配方就按配方渲染；没有就退到文字回顾，
+        并用 `reason` 把为什么退让说在明面上（没做过 / 接口那趟的原因 / 配方全是废 id）。
+        """
+        Mistake = request.env['tutoring.mistake']
+        Digest = request.env['tutoring.mistake.digest']
+        picked = student or self._tutoring_student() or readable[:1]
+        # 范围换成 picked，其余筛选 / 搜索 / 下钻条件原样跟着走
+        day_domain = ([('student_id', '=', picked.id)] if picked else []) + [
+            leaf for leaf in domain if not isinstance(leaf, str) and leaf[0] != 'student_id']
+        day = self._mistake_day_from_param(day_param)
+        if not day:
+            # 没点日子就看"最近有题的那一天"：默认落在一眼有内容的屏幕上
+            day = Mistake.search(day_domain, order='date desc, id desc', limit=1).date or today
+        full = day_domain + [('date', '=', day)]
+        total = Mistake.search_count(full)
+        records = Mistake.search(full, order=order, limit=self.MISTAKE_DAY_LIMIT)
+        digest = Digest.for_day(picked, day)
+        ready = bool(digest) and digest.ready
+        plan = digest._plan() if ready else Digest.fallback_plan(picked, day, records)
+        days = [
+            # 药丸上的日子一律转成字符串：模板里要拿去拼 URL 和比"是不是当前这天"，
+            # 让 date 对象直接进 urlencode 是给自己埋编码坑。
+            # `date:day` 那个粒度不是可选的——Odoo 19 的 _read_group 对日期字段
+            # 没写粒度会直接 `ValueError: Granularity not set on a date(time) field`；
+            # 排序里也必须原样写这个分组项的名字，`order='date desc'` 会被当成
+            # 一个不存在的聚合/分组项（ValueError: Order term ... is not valid）
+            {'day': str(day_value), 'count': count}
+            for day_value, count in Mistake._read_group(
+                day_domain, ['date:day'], ['__count'],
+                order='date:day desc', limit=self.MISTAKE_DAY_PILLS)
+            if day_value
+        ]
+        # 封面上那排知识点小胶囊：按当天出现次数从多到少去重，最多 6 个
+        points = Counter(
+            name for name in records.mapped('point_id.name') if name).most_common(6)
+        return {
+            'student': picked,
+            'day': day,
+            'day_str': str(day),
+            'total': total,
+            'mistakes': records,
+            'days': days,
+            'digest': digest,
+            'ready': ready,
+            # 样式与图案全部来自服务端那张素材表：模型给的东西一个字节都进不来
+            'style': mistake_cover.style_for(plan),
+            'motifs': mistake_cover.motifs_svg(plan),
+            'headline': plan['headline'],
+            'sub': plan['sub'],
+            'badge': plan['badge'] or day.strftime('%m-%d'),
+            # 空记录集也回一句话（那一天根本还没做过回顾）——退让原因不能是空的
+            'reason': digest._fallback_reason(),
+            'points': [name for name, _count in points],
+            'hard': len(records.filtered(lambda m: m.difficulty in ('4', '5'))),
+            'truncated': max(total - len(records), 0),
+            'prev': (day - timedelta(days=1)).strftime('%Y-%m-%d'),
+            'next': (day + timedelta(days=1)).strftime('%Y-%m-%d'),
+        }
+
+    def _mistake_domain(self, base_domain, params, filters):
+        """范围 + 药丸 + 搜索 + 下钻 → `(域, 下钻胶囊, filterby, 搜索词)`。
+
+        列表页和"给这一天做回顾"共用这一份口径：两处各写一遍的话，
+        封面上说的道数和下面列的那一屏会对不上，而这种不一致只在真点的时候才露出来。
+        """
+        filterby = params.get('filterby') if params.get('filterby') in filters else 'all'
+        domain = base_domain + filters[filterby]['domain']
+        term = (params.get('search') or '').strip()
+        if term:
+            domain += self._mistake_search_domain(term)
+        drilldowns = []
+        for field, model, label in (('point_id', 'tutoring.knowledge.point', _('知识点')),
+                                    ('cause_id', 'tutoring.mistake.cause', _('错因'))):
+            rec = self._browse_allowed(model, params.get(field))
+            if rec:
+                domain.append((field, '=', rec.id))
+                drilldowns.append({'field': field, 'label': label,
+                                   'value': rec.name, 'id': rec.id})
+        return domain, drilldowns, filterby, term
+
     def _mistake_page_values(self, kwargs=None, form=None, error=None):
         """/my/mistakes 取数：域内分页 + 白名单排序；速记条校验失败时带 form/error 复用同一页。"""
         kwargs = kwargs or {}
@@ -514,33 +664,37 @@ class TutoringPortal(CustomerPortal):
         month_start = today.replace(day=1)
 
         filters = self._mistake_filters(month_start)
-        filterby = kwargs.get('filterby') if kwargs.get('filterby') in filters else 'all'
         sortings = self._mistake_sortings()
         sortby = kwargs.get('sortby') if kwargs.get('sortby') in sortings else 'review'
         groupbys = self._mistake_groupbys()
         groupby = kwargs.get('groupby') if kwargs.get('groupby') in groupbys else ''
+        labs = self._mistake_labs()
+        lab = kwargs.get('lab') if kwargs.get('lab') in labs else 'wall'
+        # 除了卡片墙，其它版本都跟"分组"打架（分组要跨页看，其余几版各有自己的首屏逻辑）
+        if lab != 'wall':
+            groupby = ''
         page_sizes = self.MISTAKE_PAGE_SIZES
-        page_size = next((n for n in page_sizes if str(n) == str(kwargs.get('limit'))), 10)
+        default_size = (self.MISTAKE_GRID_DEFAULT_SIZE if lab == 'grid'
+                        else page_sizes[0])
+        page_size = next((n for n in page_sizes if str(n) == str(kwargs.get('limit'))),
+                         default_size)
         try:
             page = max(int(kwargs.get('page') or 1), 1)
         except (TypeError, ValueError):
             page = 1
 
-        domain = base_domain + filters[filterby]['domain']
-        term = (kwargs.get('search') or '').strip()
-        if term:
-            domain += self._mistake_search_domain(term)
-        drilldowns = []
-        for field, model, label in (('point_id', 'tutoring.knowledge.point', _('知识点')),
-                                    ('cause_id', 'tutoring.mistake.cause', _('错因'))):
-            rec = self._browse_allowed(model, kwargs.get(field))
-            if rec:
-                domain.append((field, '=', rec.id))
-                drilldowns.append({'field': field, 'label': label,
-                                   'value': rec.name, 'id': rec.id})
+        domain, drilldowns, filterby, term = self._mistake_domain(base_domain, kwargs, filters)
+
+        order = sortings[sortby]['order']
+        # 每日回顾那一版要先定"看哪一天"，而那一天得进 url_args（切版、筛选、下钻都跟着它走）
+        daily = (self._mistake_daily(domain, student, readable, order,
+                                     kwargs.get('day'), today)
+                 if lab == 'daily' else None)
 
         url_args = {'sortby': sortby, 'filterby': filterby, 'limit': page_size,
-                    'scope': scope_key}
+                    'scope': scope_key, 'lab': lab}
+        if daily:
+            url_args['day'] = str(daily['day'])
         if groupby:
             url_args['groupby'] = groupby
         if term:
@@ -550,8 +704,9 @@ class TutoringPortal(CustomerPortal):
             drill['remove_url'] = '/my/mistakes?%s' % urlencode(
                 {k: v for k, v in url_args.items() if k != drill['field']})
 
-        order = sortings[sortby]['order']
         groups = []
+        due = Mistake.browse()
+        due_total = 0
         if groupby:
             # 分组看的是"这一类一共有哪些"，分页会把一组拆两页，所以改成封顶取一次
             records = Mistake.search(domain, order=order, limit=self.MISTAKE_GROUP_LIMIT)
@@ -559,28 +714,63 @@ class TutoringPortal(CustomerPortal):
             groups = self._mistake_groups(records, groupby, base_args)
             pager = None
             total = len(records)
+        elif daily:
+            # 一天一张大图 + 这一天的清单：清单自己封顶，所以这一版不出分页器
+            records = daily['mistakes']
+            total = daily['total']
+            pager = None
         else:
-            total = Mistake.search_count(domain)
+            list_domain = domain
+            if lab == 'queue':
+                # 队列首屏与下面的"其余"按同一个条件对半分，两边不会重复也不会漏：
+                # 到期的进首屏（封顶若干道），还没到期的走原来的分页
+                now = fields.Datetime.now()
+                due_domain = domain + Mistake._due_domain(now)
+                due_total = Mistake.search_count(due_domain)
+                due = Mistake.search(
+                    due_domain, order='next_review_at asc, id asc',
+                    limit=self.MISTAKE_DUE_LIMIT)
+                list_domain = domain + [('next_review_at', '>', now)]
+            total = Mistake.search_count(list_domain)
             pager = portal_pager(
                 url='/my/mistakes', url_args=url_args,
                 total=total, page=page, step=page_size)
             records = Mistake.search(
-                domain, order=order, limit=page_size, offset=(page - 1) * page_size)
+                list_domain, order=order, limit=page_size, offset=(page - 1) * page_size)
 
         last_mistake = Mistake.search(base_domain, limit=1, order='create_date desc, id desc')
         try:
             created_count = int(kwargs.get('created') or 0)
         except (TypeError, ValueError):
             created_count = 0
+        try:
+            saved_count = int(kwargs.get('saved') or 0)
+        except (TypeError, ValueError):
+            saved_count = 0
+        causes = request.env['tutoring.mistake.cause'].search([])
+        # 回执一律走 `_mistake_flashes()` 那把表 + URL 参数（`error=` 也回落到 URL，
+        # 见批次③那条：任何"处理完回到列表页并带原因"的新路由都沿用这套，不自己发明）
+        flash = self._mistake_flashes().get(kwargs.get('flash'), '')
+        point_groups = self._mistake_point_groups(form_student) if form_student else []
+        # 表格里就地改知识点/错因，前提是这一行的现值在可选项里；跨档案浏览（scope=all）
+        # 时下拉是按"当前范围那份档案"的年级开的，别人的题的知识点可能根本不在名单里，
+        # 那种行只给看、不给改，否则一保存就把人家的值清空了
         return {
             'page_name': 'tutoring_mistakes',
+            'grid_cause_ids': {cause.id for cause in causes},
+            'grid_point_ids': {point.id for pg in point_groups for point in pg['points']},
             'student': form_student,
             'scope_key': scope_key,
             'scope_students': readable,
             # 「我自己」那颗药丸是单独画的那颗（scope=mine），循环里再出现一次就成了两颗
             'other_students': readable - self._tutoring_student(),
             'mistakes': records,
-            'result_total': total,
+            'result_total': total + (due_total if lab == 'queue' else 0),
+            # 试用版本：开关本身 + 队列首屏那一段（其余记录仍走上面的分页）
+            'labs': labs,
+            'lab': lab,
+            'due': due,
+            'due_total': due_total,
             'groups': groups,
             'group_truncated': bool(groupby) and len(records) >= self.MISTAKE_GROUP_LIMIT,
             'group_preview': self.MISTAKE_GROUP_PREVIEW,
@@ -608,17 +798,87 @@ class TutoringPortal(CustomerPortal):
             'default_workbook': last_mistake.workbook_id if last_mistake else False,
             'default_date': today.strftime('%Y-%m-%d'),
             'created_count': created_count,
+            'saved_count': saved_count,
+            'flash': flash,
+            # 每日回顾那一版的首屏（其余版本为 None）：一张大图 + 这一天的清单 + 退让原因
+            'daily': daily,
             'form': form or {},
-            'error': error,
+            'error': error or (kwargs.get('error') if isinstance(kwargs.get('error'), str) else ''),
             'workbooks': request.env['tutoring.workbook'].search([]),
-            'causes': request.env['tutoring.mistake.cause'].search([]),
-            'point_groups': self._mistake_point_groups(form_student) if form_student else [],
+            'causes': causes,
+            'point_groups': point_groups,
         }
 
     @http.route('/my/learning/mistakes', type='http', auth='user', website=True)
     def portal_my_mistakes_redirect(self, **kwargs):
         """旧列表入口并入顶栏错题页。"""
         return request.redirect('/my/mistakes')
+
+    @http.route('/my/mistakes/grid', type='http', auth='user', website=True,
+                methods=['POST'])
+    def portal_my_mistake_grid(self, **kw):
+        """表格版一次存整屏：逐行过记录规则，够不着的行整行忽略，不报错也不写。
+
+        行 id 和每格的值都是前端来的，所以每行都用 `search` 取一次（记录规则会把
+        别人档案名下的题滤掉）；字段只认 `_mistake_grid_vals` 里点到的那几样。
+        """
+        Mistake = request.env['tutoring.mistake']
+        ids = [int(key[4:]) for key in kw
+               if key.startswith('row_') and key[4:].isdigit()]
+        updated = 0
+        for rid in ids[:self.MISTAKE_GRID_MAX_ROWS]:
+            rec = Mistake.search([('id', '=', rid)], limit=1)
+            if not rec or not rec.has_access('write'):
+                continue
+            vals = self._mistake_grid_vals(rec, kw, rid)
+            if vals:
+                rec.write(vals)
+                updated += 1
+        return request.redirect(
+            '/my/mistakes?%s' % urlencode(self._mistake_back_args(kw, updated)))
+
+    def _mistake_grid_vals(self, mistake, kw, rid):
+        """把表格里这一行的输入洗成能写的 vals：认不出的值跳过那一格，不是清空它。"""
+        vals = {}
+        raw = kw.get('difficulty_%d' % rid)
+        if raw is not None and raw != (mistake.difficulty or ''):
+            if raw in dict(mistake._fields['difficulty'].selection):
+                vals['difficulty'] = raw
+        for field, model in (('cause_id', 'tutoring.mistake.cause'),
+                             ('point_id', 'tutoring.knowledge.point')):
+            raw = kw.get('%s_%d' % (field, rid))
+            if raw is None:
+                # 模板没给这格下拉（现值不在当前档案的可选项里）：这一格不动
+                continue
+            picked = self._browse_allowed(model, raw)
+            if picked.id != (mistake[field].id or 0):
+                vals[field] = picked.id or False
+        for field in ('page', 'question_no', 'note'):
+            raw = kw.get('%s_%d' % (field, rid))
+            if raw is None:
+                continue
+            cleaned = raw.strip() or False
+            if cleaned != (mistake[field] or False):
+                vals[field] = cleaned
+        raw = (kw.get('date_%d' % rid) or '').strip()
+        if raw:
+            try:
+                picked = fields.Date.from_string(raw)
+            except (ValueError, TypeError):
+                picked = False
+            if picked and picked != mistake.date:
+                vals['date'] = picked
+        return vals
+
+    def _mistake_back_args(self, kw, saved=None):
+        """存完回到原来那一屏。这些值到 GET 那边各自还要再过一遍白名单，这里不重复判。"""
+        args = {key: kw[key] for key in
+                ('lab', 'scope', 'filterby', 'sortby', 'groupby', 'limit', 'page',
+                 'search', 'point_id', 'cause_id', 'day')
+                if kw.get(key)}
+        if saved is not None:
+            args['saved'] = saved
+        return args
 
     @http.route('/my/learning/mistakes/<int:mistake_id>', type='http', auth='user', website=True)
     def portal_my_mistake_detail(self, mistake_id, **kwargs):
@@ -633,6 +893,7 @@ class TutoringPortal(CustomerPortal):
             'mistake': mistake,
             'difficulty_labels': dict(request.env['tutoring.mistake']._fields['difficulty'].selection),
             'can_edit': mistake.has_access('write'),
+            'can_delete': mistake.has_access('unlink'),
             # 错题的固有属性之一：题目照片/说明就挂在知识库上，这一页要能看能加
             'library_items': mistake.library_item_ids.sorted('upload_date desc'),
             'quota': request.env['tutoring.library.item'].quota_state(),
@@ -703,6 +964,194 @@ class TutoringPortal(CustomerPortal):
             return request.not_found()
         mistake.write({'note': (kw.get('note') or '').strip() or False})
         return request.redirect('/my/learning/mistakes/%d?saved=1' % mistake.id)
+
+    def _mistake_file_response(self, data, mime, name):
+        """封面那两口共用的响应头：同源内联但禁止改嗅类型。
+
+        `nosniff` 这条不能省——知识库那轮就是栽在"服务端把用户上传的东西当可内联类型吐回去"，
+        位图/PDF 也不例外，别让今天这一口变成明天的存储型 XSS。
+        """
+        return request.make_response(data, [
+            ('Content-Type', mime),
+            ('Content-Disposition', 'inline; filename="%s"' % name),
+            ('Cache-Control', 'private, max-age=300'),
+            ('X-Content-Type-Options', 'nosniff'),
+        ])
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>/page.pdf', type='http',
+                auth='user', website=True)
+    def portal_my_mistake_page_pdf(self, mistake_id, **kw):
+        """把这道题"出处那一页"的单页 PDF 吐给前端，浏览器里的 pdf.js 把它画成封面。
+
+        为什么在客户端画而不是服务端转成图片：这台机器的 Python 里没有任何 PDF 光栅化能力
+        （只有 PyPDF2 / pdfminer / Pillow，没有 pypdfium2、poppler、ghostscript），
+        而 Odoo 自带 pdf.js，`web.assets_frontend` 又打包了 `web/static/src/core/**`，
+        门户页能直接 import `loadPDFJSAssets` —— 零新依赖、零 token、不装任何东西。
+        """
+        mistake = request.env['tutoring.mistake'].browse(mistake_id).exists()
+        if not mistake or not mistake.has_access('read'):
+            return request.not_found()
+        data = base64.b64decode(mistake.page_pdf) if mistake.page_pdf else None
+        if not data:
+            return request.not_found()
+        return self._mistake_file_response(data, 'application/pdf', 'page-%d.pdf' % mistake.id)
+
+    @http.route('/my/mistakes/digest', type='http', auth='user', website=True,
+                methods=['POST'])
+    def portal_my_mistake_digest(self, **kw):
+        """给某一天做那张回顾大图：一次模型往返，只回**一个**配方（一天一张，不是每题一张）。
+
+        同步做而不排队：输入是纯文字、输出是一小段 JSON，几秒就回；
+        排队等 cron 反而让"看一眼不满意再来一版"这种实验节奏跑不动。
+        那一天已有配方的默认不重做，点「重做这一天的回顾」（`redo=1`）才覆盖。
+
+        回执沿用列表页那套现成机制（`flash=` 查 `_mistake_flashes()`、失败回落 `error=`），
+        不自己发明第三套。接口那趟的失败由模型咽下去并写在封面上，这里只兜真正的意外。
+        """
+        Mistake = request.env['tutoring.mistake']
+        Digest = request.env['tutoring.mistake.digest']
+        base_domain, student, _scope, readable = self._mistake_scope(kw)
+        # 回顾属于一份档案：范围是「全部」时也先落到一份上（自己的那份 > 可读的第一份）
+        picked = student or self._tutoring_student() or readable[:1]
+        filters = self._mistake_filters(
+            fields.Date.context_today(request.env.user).replace(day=1))
+        domain, _drills, _filterby, _term = self._mistake_domain(base_domain, kw, filters)
+        # 一张回顾只属于一份档案：范围是「全部」时也先落到 picked 上，
+        # 否则"喂给模型的题"和"页面上那天的清单"就不是同一批
+        if picked:
+            domain = [('student_id', '=', picked.id)] + [
+                leaf for leaf in domain
+                if not isinstance(leaf, str) and leaf[0] != 'student_id']
+        day = self._mistake_day_from_param(kw.get('day'))
+        if not day and picked:
+            day = Mistake.search(domain, order='date desc, id desc', limit=1).date
+        if not day:
+            day = fields.Date.context_today(request.env.user)
+        args = dict(self._mistake_back_args(kw), lab='daily', day=str(day))
+        if not picked:
+            return request.redirect('/my/mistakes?%s' % urlencode(
+                dict(args, flash='digest_denied')))
+        day_mistakes = Mistake.search(domain + [('date', '=', day)],
+                                      order='date desc, id desc')
+        try:
+            _digest, state, message = Digest.generate(
+                picked, day, mistakes=day_mistakes, force=bool(kw.get('redo')))
+        except UserError as err:
+            # 正常情况下模型已经把接口失败转成退让原因了；走到这儿就是我们自己的口径
+            # 之外的错（比如写不动那张回顾记录），照样回列表页把话说清楚而不是 500
+            return request.redirect('/my/mistakes?%s' % urlencode(
+                dict(args, error=str(err)[:200])))
+        if state == 'failed':
+            return request.redirect('/my/mistakes?%s' % urlencode(dict(args, error=message)))
+        return request.redirect('/my/mistakes?%s' % urlencode(
+            dict(args, flash='digest' if state == 'done' else 'digest_%s' % state)))
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>/snooze', type='http', auth='user',
+                website=True, methods=['POST'])
+    def portal_my_mistake_snooze(self, mistake_id, **kw):
+        """整屏流里"这道先放过"：走的就是"打开一次详情"那套排期，不另造一个状态字段。
+
+        刻意不做成"会了/不会"两枚按钮——那等于把当年否掉的「不设订正状态」又请回来，
+        要学生替系统维护一个他自己也不会回头改的东西。
+        """
+        mistake = request.env['tutoring.mistake'].search([('id', '=', mistake_id)], limit=1)
+        if not mistake or not mistake.has_access('write'):
+            return request.not_found()
+        mistake.touch_review()
+        return request.redirect('/my/mistakes?%s' % urlencode(self._mistake_back_args(kw)))
+
+    def _mistake_for_write(self, mistake_id, mode):
+        """按 id 取一条要改的错题：归档掉的行用普通 search 是捞不到的（active 默认被过滤掉），
+        所以这里显式带 `active_test=False`，权限仍然由 `has_access` 与记录规则说话。"""
+        rec = request.env['tutoring.mistake'].with_context(active_test=False).search(
+            [('id', '=', mistake_id)], limit=1)
+        if not rec or not rec.has_access(mode):
+            return request.env['tutoring.mistake'].browse()
+        return rec
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>/archive', type='http', auth='user',
+                website=True, methods=['POST'])
+    def portal_my_mistake_archive(self, mistake_id, **kw):
+        """归档（软删）：复习到位了、不再重要，就从默认视野里收走，随时翻得回来。"""
+        mistake = self._mistake_for_write(mistake_id, 'write')
+        if not mistake:
+            return request.not_found()
+        mistake.write({'active': False})
+        return request.redirect('/my/mistakes?%s' % urlencode(
+            dict(self._mistake_back_args(kw), flash='archived')))
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>/unarchive', type='http', auth='user',
+                website=True, methods=['POST'])
+    def portal_my_mistake_unarchive(self, mistake_id, **kw):
+        """放回在用：归档不是判决，翻错了要能收回。"""
+        mistake = self._mistake_for_write(mistake_id, 'write')
+        if not mistake:
+            return request.not_found()
+        mistake.write({'active': True})
+        return request.redirect('/my/mistakes?%s' % urlencode(
+            dict(self._mistake_back_args(kw), flash='restored')))
+
+    @http.route('/my/learning/mistakes/<int:mistake_id>/delete', type='http', auth='user',
+                website=True, methods=['POST'])
+    def portal_my_mistake_delete(self, mistake_id, **kw):
+        """真删这一条。勾了「连题目照片一起删」才动知识库；没勾就只走现成的
+        `ondelete='set null'`，照片留在知识库里当一份独立资料。
+
+        照片里别人传的那些（比如老师给这个学生传的）按记录规则本来就删不动，
+        所以这里用 search 再过一遍，只删这个账号真能删的那几件。
+        """
+        mistake = self._mistake_for_write(mistake_id, 'unlink')
+        if not mistake:
+            return request.not_found()
+        items = mistake.library_item_ids if kw.get('also_files') else request.env[
+            'tutoring.library.item'].browse()
+        mistake.unlink()
+        if items:
+            request.env['tutoring.library.item'].search(
+                [('id', 'in', items.ids)]).unlink()
+        return request.redirect('/my/mistakes?%s' % urlencode(
+            dict(self._mistake_back_args(kw), flash='deleted')))
+
+    @http.route('/my/mistakes/photos', type='http', auth='user', website=True,
+                methods=['POST'])
+    def portal_my_mistake_photos(self, **kw):
+        """错题页的拖拽区：一次几张图就记几道题，图落进知识库"错题"分类并各自绑一条。
+
+        这条口存在的理由就是拆掉"必须先有练习册才能记错题"——很多题是卷子上、黑板上、
+        别人手机里拍的，根本没有对应的书。出处（练习册/页码）填了更好，能定位到那一页
+        才有原页封面与 AI 摘要；不填也记下来。
+        """
+        student = self._mistake_target_student(kw)
+        Mistake = request.env['tutoring.mistake']
+        if not student or not Mistake.has_access('create'):
+            return request.not_found()
+        uploads = request.httprequest.files.getlist('file')[:10]
+        if not uploads:
+            return request.redirect('/my/mistakes?%s' % urlencode(
+                dict(self._mistake_back_args(kw), flash='no_photo')))
+        vals = self._mistake_vals_from_post(student, kw)
+        Item = request.env['tutoring.library.item']
+        made, errors = 0, []
+        for upload in uploads:
+            filename = upload.filename or ''
+            try:
+                mistake = Mistake.create(dict(vals, note=vals.get('note') or False))
+                Item.create({
+                    'name': filename.rpartition('.')[0] or _('错题照片'),
+                    'filename': filename,
+                    'content': base64.b64encode(upload.read()).decode(),
+                    'category': 'mistake',
+                    'mistake_id': mistake.id,
+                })
+                request.env.cr.commit()
+                made += 1
+            except (UserError, ValidationError) as err:
+                request.env.cr.rollback()
+                errors.append(str(err))
+        args = dict(self._mistake_back_args(kw), created=made)
+        if errors:
+            args['error'] = ' '.join(errors)[:200]
+        return request.redirect('/my/mistakes?%s' % urlencode(args))
 
     def _mistake_target_student(self, kw):
         """速记条/编辑条要写到的那份档案：优先用表单选的，其次自己的，再其次第一个可读的。

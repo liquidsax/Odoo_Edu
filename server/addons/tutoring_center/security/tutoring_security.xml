@@ -116,14 +116,14 @@
         </record>
 
         <record id="rule_mistake_portal" model="ir.rule">
-            <field name="name">错题记录：仅门户本人学生（可新增/编辑自己的）</field>
+            <field name="name">错题记录：仅门户本人学生（可新增/编辑/删除/归档自己的）</field>
             <field name="model_id" ref="model_tutoring_mistake"/>
             <field name="domain_force">[('student_id.partner_id', '=', user.partner_id.id)]</field>
             <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
             <field name="perm_read" eval="True"/>
             <field name="perm_write" eval="True"/>
             <field name="perm_create" eval="True"/>
-            <field name="perm_unlink" eval="False"/>
+            <field name="perm_unlink" eval="True"/>
         </record>
 
         <!-- 档案收口了，档案名下的错题也要跟着收：否则同事在错题列表里仍然读得到
@@ -141,6 +141,33 @@
         </record>
 
         <!-- 智能画图的额度流水：只看得到自己发起的那些 -->
+        <!-- 每日回顾那张大图属于"某一天 + 某一份档案"：判据跟错题一模一样，
+             本人收口靠记录规则，不靠页面藏起来。门户能读能改能建（做回顾就是写这一行），
+             但不给 unlink——归档错题会连带删掉它的回顾行由 cascade 说话，这里不留第二个删口。 -->
+        <record id="rule_mistake_digest_portal" model="ir.rule">
+            <field name="name">每日回顾：仅门户本人学生</field>
+            <field name="model_id" ref="model_tutoring_mistake_digest"/>
+            <field name="domain_force">[('student_id.partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <!-- 老师之间互不见别人给自己建的那份档案，档案名下的回顾也一起收口（跟错题同一条） -->
+        <record id="rule_mistake_digest_internal" model="ir.rule">
+            <field name="name">每日回顾：别人本人档案下的不可见</field>
+            <field name="model_id" ref="model_tutoring_mistake_digest"/>
+            <field name="domain_force">['|', ('student_id.is_self_profile', '=', False),
+                                         ('student_id.partner_id', '=', user.partner_id.id)]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
         <record id="rule_plot_ai_call_own" model="ir.rule">
             <field name="name">智能画图：仅发起人</field>
             <field name="model_id" ref="model_tutoring_plot_ai_call"/>
