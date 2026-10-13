@@ -1412,6 +1412,14 @@
                         <div t-if="request.params.get('ai_queued')" class="alert alert-success py-2 small">
                             已排进队列，正在生成中，大约需要 2 分钟。
                         </div>
+                        <!-- 素材取不到而中止（没扣额度、也没算生成过）：状态照旧是"未生成"，
+                             但原因必须印在题上。抹成空的话，这一页就是"按钮亮着、点下去
+                             转一圈什么都没发生"——维护者据此判断成"DeepSeek 没响应"（34.3） -->
+                        <div t-if="mistake.ai_state == 'none' and mistake.ai_hint"
+                             class="alert alert-warning py-2 small">
+                            <b>这道题还没生成出来，可以再点一次。</b>
+                            <span t-out="mistake.ai_hint"/>
+                        </div>
                         <div t-if="mistake.ai_state == 'failed'" class="alert alert-warning py-2 small">
                             <b>上一次没生成出来，可以再点一次。</b>
                             <span t-out="mistake.ai_hint"/>

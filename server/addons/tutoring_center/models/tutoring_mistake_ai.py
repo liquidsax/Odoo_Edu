@@ -25,6 +25,7 @@ from odoo.tools import file_open
 from .deepseek_config import deepseek_settings
 from .math_text import to_plain_math
 from .tutoring_knowledge import GRADE_LABEL
+from .tutoring_library_item import b64_to_bytes
 
 _logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ class TutoringMistakeAiJob(models.Model):
         for item in items:
             try:
                 images.append(self._to_jpeg(Image.open(io.BytesIO(
-                    base64.b64decode(item.content)))))
+                    b64_to_bytes(item.content)))))
             except Exception:  # noqa: BLE001 截断/伪扩展名/格式不支持，都只是这一张用不了
                 _logger.warning('错题 %s 的附件「%s」读不出图片，跳过', mistake.id, item.name)
         return images
@@ -209,7 +210,10 @@ class TutoringMistakeAiJob(models.Model):
             raise AiSourceError(_('抽出来的那一页是空的。'))
         images = list(pages[0].images)
         if not images:
-            raise AiSourceError(_('这一页里没有位图（可能是纯文字排版的页），无法交给视觉模型。'))
+            raise AiSourceError(_(
+                '《%(book)s》第 %(page)s 页里没有位图（多半是纯文字排版的那一页），'
+                '交不给视觉模型——传一张题目照片再点一次就行。') % {
+                'book': mistake.workbook_id.name, 'page': mistake.page})
         return self._to_jpeg(Image.open(io.BytesIO(images[0].data)))
 
     @api.model
@@ -400,7 +404,15 @@ class TutoringMistakeAiJob(models.Model):
         })
 
     def _abort(self, reason):
-        """我们这边出错（还没花钱）：记一行审计，但不扣额度，这道题退回未生成。"""
+        """我们这边出错（还没花钱）：记一行审计，不扣额度，这道题退回未生成。
+
+        原因必须写回题上（2026-10-13）：以前这里把 `ai_hint` 一起抹成空，于是
+        「素材取不到」在门户上表现为——按钮亮着、点下去转一圈、什么都没发生，
+        维护者据此判断成"DeepSeek 没响应"。留痕不等于状态：`ai_state` 照旧回 `none`。
+        """
         self.ensure_one()
         self.sudo().write({'state': 'error', 'error': str(reason)[:400]})
-        self.mistake_id.sudo().write({'ai_state': 'none', 'ai_hint': False})
+        self.mistake_id.sudo().write({
+            'ai_state': 'none',
+            'ai_hint': _('%s 这次没扣额度。') % reason,
+        })
