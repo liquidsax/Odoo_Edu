@@ -1,6 +1,6 @@
 {
     'name': 'R3ynA 学习平台',
-    'version': '19.0.1.34.3',
+    'version': '19.0.1.35.0',
     'category': 'Services',
     'summary': '个人学习数据平台：学生档案、课次、考试、错题与知识点，含学生/家长门户',
     'description': """
