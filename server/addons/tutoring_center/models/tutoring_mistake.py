@@ -137,8 +137,9 @@ class TutoringMistake(models.Model):
     library_item_ids = fields.One2many(
         'tutoring.library.item', 'mistake_id', string='题目文件')
     library_count = fields.Integer('题目文件数', compute='_compute_library_count')
-    # AI 取料与"按钮该不该出现"都按扩展名挑图片类附件，一次 read 就够，
+    # AI 取料与"按钮该不该出现"都按 `kind` 挑图片类附件，一次 read 就够，
     # 不读正文（正文是 bytea，读一条就把整张图拉进内存，见陷阱 15）。
+    # `kind` 从 34.3 起在扩展名认不出来时改认文件头，所以没后缀的手机照片也算得进来。
     library_photo_count = fields.Integer(
         '题目照片数', compute='_compute_library_photo_count', store=True)
 
@@ -218,7 +219,7 @@ class TutoringMistake(models.Model):
 
     @api.depends('library_item_ids.kind')
     def _compute_library_photo_count(self):
-        # 按扩展名分一次组拿图片类条数：kind 是 store 的，所以这趟只走 SQL，不碰正文。
+        # 按 `kind` 分一次组拿图片类条数：kind 是 store 的，所以这趟只走 SQL，不碰正文。
         # sudo 是因为这个数要喂"按钮该不该出现"，而条目归上传人自己（理由同 _locate_page）；
         # 它是存算字段，升级时给存量行补值也是 superuser 跑的，这里保持同一口径。
         rows = self.env['tutoring.library.item'].sudo()._read_group(

@@ -250,7 +250,11 @@ job_j = Job.create({'mistake_id': m_junkonly.id})
 job_j._run()
 check('照片全坏、又没出处 → 也是素材取不到，不扣',
       job_j.state == 'error' and m_junkonly.ai_state == 'none')
-check('  错题上不留任何"锁死"提示', not m_junkonly.ai_hint)
+# 34.3 起的口径：中止不留"锁死"话（那句"不再重复生成"不能回来），但要留原因——
+# 抹成空的话门户上就是"按钮亮着、点下去什么都没发生"。
+check('  题上不锁死、但写着这次为什么没生成',
+      '不再重复生成' not in (m_junkonly.ai_hint or '') and bool(m_junkonly.ai_hint),
+      (m_junkonly.ai_hint or '')[:60])
 
 print('\n== 真花了钱的失败：扣一条额度，但不焊死 ==')
 m_fail = Mistake.create({'student_id': student.id, 'difficulty': '3'})

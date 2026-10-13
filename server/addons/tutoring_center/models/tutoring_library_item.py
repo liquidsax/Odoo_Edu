@@ -96,6 +96,44 @@ def b64_to_bytes(value):
     return base64.b64decode(value)
 
 
+def b64_head(value, num=16):
+    """只解出正文最前面若干字节，用来认文件头。
+
+    整份解码会把几十 MB 的教材拉进内存，而 `_compute_file_meta` 是列表页每行都要跑的
+    （同 `bytes_from_base64` 的理由，见陷阱 15），所以按 base64 的分块取够用的字数就行。
+    """
+    if isinstance(value, memoryview):
+        value = bytes(value)
+    if isinstance(value, bytes):
+        value = value.decode('ascii', 'ignore')
+    text = (value or '').strip()
+    chars = (num + 2) // 3 * 4
+    take = min(chars, len(text) // 4 * 4)
+    return base64.b64decode(text[:take]) if take else b''
+
+
+# 只认 IMAGE_EXTS 里那几种：判成 image 就意味着门户要把它当图内联显示，
+# TIFF 这类浏览器画不出来，宁可留在「其它文件」里给下载链接。
+IMAGE_SNIFF = (
+    (b'\xff\xd8\xff', 'image/jpeg'),
+    (b'\x89PNG\r\n\x1a\n', 'image/png'),
+    (b'GIF87a', 'image/gif'),
+    (b'GIF89a', 'image/gif'),
+    (b'BM', 'image/bmp'),
+    (b'RIFF', 'image/webp'),      # 还要看第 9-12 字节是不是 WEBP
+)
+
+
+def sniff_image_mimetype(head):
+    """文件头 → mimetype；认不出来给 False。"""
+    for magic, mimetype in IMAGE_SNIFF:
+        if head.startswith(magic):
+            if mimetype == 'image/webp' and head[8:12] != b'WEBP':
+                continue        # RIFF 还有 wav/avi，只有 WEBP 是图
+            return mimetype
+    return False
+
+
 def fmt_bytes(num):
     """1024 进位的易读体积；配额提示都走它，避免各处口径不一。
 
@@ -312,6 +350,13 @@ class TutoringLibraryItem(models.Model):
                 item.kind = 'text'
             else:
                 item.kind = 'other'
+                # 扩展名什么都没说出来的时候再认一次文件头：手机照片经常没后缀或被改名
+                # （`IMG_1234`、微信另存），判成「其它文件」就既进不了错题的 AI 取料、
+                # 也在门户画不出缩略图。
+                sniffed = sniff_image_mimetype(b64_head(item.content))
+                if sniffed:
+                    item.kind = 'image'
+                    item.mimetype = sniffed
 
     @api.depends('file_size')
     def _compute_size_text(self):
