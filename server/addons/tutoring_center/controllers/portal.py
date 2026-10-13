@@ -942,7 +942,8 @@ class TutoringPortal(CustomerPortal):
     def portal_my_mistake_ai_summary(self, mistake_id, **kw):
         """发起一次 AI 摘要：只建任务，真正调用交给 ir.cron。
 
-        一题一次、每人每天五条，都由 `tutoring.mistake.ai.job.create()` 说话；
+        能不能发起（有料可分析、这道题还没生成成功过）、每人每天几条，都由
+        `tutoring.mistake.ai.job.create()` 与 `can_ai_summary` 说话；
         这里只负责把它的报错原样带回那一页显示。
         """
         mistake = request.env['tutoring.mistake'].search([('id', '=', mistake_id)], limit=1)

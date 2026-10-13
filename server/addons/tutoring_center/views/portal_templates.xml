@@ -1241,7 +1241,7 @@
                     </div>
                     <div class="o_mistake_cover_title" t-out="m.point_id.name or '没标知识点'"/>
                     <p class="o_mistake_cover_body"
-                       t-out="m.ai_readable_summary or m.note or '这道题还没抄回内容——只有出处。在详情页可以发起一次 AI 摘要。'"/>
+                       t-out="m.ai_readable_summary or m.note or '这道题还没抄回内容——只有出处。在详情页可以发起 AI 摘要。'"/>
                     <div class="o_mistake_cover_meta">
                         <t t-out="difficulty_labels.get(m.difficulty, '')"/>
                         <t t-if="m.cause_id"> · <t t-out="m.cause_id.name"/></t>
@@ -1358,16 +1358,22 @@
                             <div class="d-flex align-items-center gap-2">
                                 <a t-if="can_edit" class="btn btn-secondary"
                                    t-attf-href="/my/learning/mistakes/#{mistake.id}/edit">编辑</a>
-                                <!-- 只有"能定位到那一页、而且从没生成过"的题才给这个按钮：
-                                     没有资料就没得分析，生成过一次就不许再来（额度是人的、不是题的） -->
+                                <!-- 按钮出现的条件（can_ai_summary）：这道题有料可分析——
+                                     要么挂了题目照片，要么能定位到教辅那一页；
+                                     且这道题没生成成功过（没成功允许再来一次，闸是当日额度） -->
                                 <form t-if="mistake.can_ai_summary" method="post"
                                       t-attf-action="/my/learning/mistakes/#{mistake.id}/ai_summary">
                                     <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
                                     <button type="submit" class="btn btn-primary"
-                                            title="把出错那一页交给 AI，抄回题目、生成一句摘要、比对知识点">
+                                            title="把这道题的题目照片交给 AI（没传照片时用它定位到的教辅那一页）：抄回题目、生成一句摘要、比对知识点">
                                         <i class="fa fa-magic me-1"/>生成摘要
                                     </button>
                                 </form>
+                                <div t-if="mistake.ai_state == 'none' and not mistake.can_ai_summary"
+                                     class="small text-muted" role="note">
+                                    这道题还没有能交给 AI 的素材——
+                                    <span t-out="mistake.page_pdf_hint or '下面传一张题目照片就行'"/>。
+                                </div>
                                 <!-- 归档＝软删（"复习到位了、不再重要"是降级不是销毁）；
                                      删除＝真删，勾了才连题目照片一起走。
                                      删除点下去撤不回来，所以用原生 confirm 兜一道（不依赖我们那包 JS） -->
@@ -1396,7 +1402,7 @@
                         <div t-if="mistake.can_ai_summary and quota_left is not None"
                              class="small text-muted mb-2">
                             今天还能生成 <b t-out="quota_left"/> 条；
-                            一道题只许生成一次，成败都算一条。
+                            生成成功就定这一版，没成功可以再点一次，每次真发起都算一条。
                         </div>
                         <!-- 排队中：这一页刷新就会变，不需要用户盯着转圈 -->
                         <div t-if="mistake.ai_state == 'pending'" class="alert alert-info py-2">
@@ -1407,7 +1413,7 @@
                             已排进队列，正在生成中，大约需要 2 分钟。
                         </div>
                         <div t-if="mistake.ai_state == 'failed'" class="alert alert-warning py-2 small">
-                            <b>这道题不再自动生成了。</b>
+                            <b>上一次没生成出来，可以再点一次。</b>
                             <span t-out="mistake.ai_hint"/>
                         </div>
                         <table class="table table-sm">

@@ -1,9 +1,14 @@
-"""错题的 AI 摘要任务：把出错那一页交给视觉模型，抄回题目、生成一句摘要、比对知识点。
+"""错题的 AI 摘要任务：把题目照片（没有照片时是教辅那一页）交给视觉模型，抄回题目、生成一句摘要、比对知识点。
 
 设计口径（维护者定的，别改）：
-* 一题一次——成功也好、失败也好，都只允许发起一次，失败后这道题只能手工填；
-* 额度按**发起人**按自然日算，一天几条由 `DAILY_QUOTA` 说话（页面文案读 `quota_left()`），成败都扣；
-* AI 不解题、不讲思路；页码/资料对不上时它该立刻回 `{"found": false}` 而不是硬猜；
+* 生成成功就定这一版，不再自动重生成；**没成功允许再点**——2026-10-13 他推翻了自己当初
+  "一题一次、失败也永久锁死"那条：锁死的本意是防烧钱，可那道题压根没生成出摘要时锁住没道理，
+  防烧钱交给当日额度管；
+* 额度按**发起人**按自然日算，一天几条由 `DAILY_QUOTA` 说话（页面文案读 `quota_left()`），
+  真发起过就扣，不管最后有没有生成出来；
+* 素材取不到（没照片又定位不到页、那一页里没有位图、照片读不出来）走 `_abort()`——
+  token 还没花出去，不扣额度、这道题退回未生成；
+* AI 不解题、不讲思路；题不在给它的素材里时它该立刻回 `{"found": false}` 而不是硬猜；
 * 知识点**只在为空时**由 AI 填，且只能从候选列表里逐字选一个，选不出就留空。
 """
 import base64
@@ -33,18 +38,24 @@ CANDIDATE_LIMIT = 200     # 候选知识点条数，控输入 token
 
 # 提示词存在模块里的独立文件，改文案不必碰代码（维护者要求的）。
 # 措辞会直接影响 token 数与"找不到题时是否快速回绝"，改之前先看一眼实测记录。
+# 两套话术按素材分开：教辅那一页上往往好几道题，要给它出处去定位；
+# 题目照片里就是这道题本身，硬塞"第几页"反而让它去找不存在的东西。
 PROMPT_FILES = {
     'system': 'tutoring_center/prompts/summary_system.txt',
     'user': 'tutoring_center/prompts/summary_user.txt',
+    'system_photo': 'tutoring_center/prompts/summary_system_photo.txt',
+    'user_photo': 'tutoring_center/prompts/summary_user_photo.txt',
 }
 
-# 失败时写在题上的那句话：告诉人要手工补，而不是再点一次
+# 失败时写在题上的那句话：现在说得清"还能再来一次"，也说得清额度是人的
 FAIL_HINT = _(
-    '自动生成没有成功，这道题不再重复生成。请手工填写知识点与一句话摘要。')
+    '这次自动生成没成功，可以再点一次「生成摘要」（每次发起都算一条当日额度）；'
+    '也可以先手工填知识点与一句话摘要。')
 
 
-class AiPageError(UserError):
-    """资料侧的问题（定位不到页、页里没有位图）——不去调 API，直接算失败。"""
+class AiSourceError(UserError):
+    """素材侧的问题（定位不到页、页里没有位图、照片读不出来）——
+    token 还没花出去，所以不扣额度、这道题退回未生成。"""
 
 
 class TutoringMistakeAiJob(models.Model):
@@ -69,9 +80,10 @@ class TutoringMistakeAiJob(models.Model):
     completion_tokens = fields.Integer('输出 token')
     response_raw = fields.Text('响应原文')
 
-    # 刻意不加 unique(mistake_id)：系统出错的那次要能重来，同一题就会留下多行历史。
-    # "一题一次"由错题上的 ai_state 与下面的 create() 把关，比数据库约束更贴合语义。
-    CHARGED = ('pending', 'done', 'failed')   # 算进当日额度的三种；error 是我们自己的锅
+    # 刻意不加 unique(mistake_id)：没生成出来的那道题要能重来，同一题就会留下多行历史。
+    # "成功就定稿"由错题上的 ai_state 与下面的 create() 把关，比数据库约束更贴合语义。
+    CHARGED = ('pending', 'done', 'failed')   # 算进当日额度的三种
+    # error 不算：那一档全是"钱还没花出去"——没密钥、素材取不到、我们自己的代码出错
 
     # ---- 发起 ----
 
@@ -95,15 +107,15 @@ class TutoringMistakeAiJob(models.Model):
             # 只有 search 会拼记录规则：browse().exists() 挡不住越权引用
             if not self.env['tutoring.mistake'].search_count([('id', '=', mistake.id)]):
                 raise ValidationError(_('你选不到这条错题记录。'))
-            if mistake.ai_state and mistake.ai_state != 'none':
-                raise ValidationError(_(
-                    '这道题已经%s过，一道题只能生成一次。' % (
-                        {'pending': '排进队列', 'done': '生成过摘要',
-                         'failed': '尝试过生成'}.get(mistake.ai_state), )))
-            # 约束之外再兜一层：同一题不允许有第二条排队中或已生成的任务
+            if mistake.ai_state == 'pending':
+                raise ValidationError(_('这道题已经排进队列，正在生成中。'))
+            if mistake.ai_state == 'done':
+                raise ValidationError(_('这道题已经生成过摘要，不再重复生成。'))
+            # 兜一层：同一题不许有第二条"排队中/已生成"的任务。这里刻意不管 failed 与 error，
+            # 否则这道题就被上一次失败焊死了——额度才是防烧钱的那道闸。
             if self.sudo().search_count([
-                    ('mistake_id', '=', mistake.id), ('state', 'in', self.CHARGED)]):
-                raise ValidationError(_('这道题已经生成过一次，不能再生成摘要。'))
+                    ('mistake_id', '=', mistake.id), ('state', 'in', ('pending', 'done'))]):
+                raise ValidationError(_('这道题正在生成或已经生成过，不能再生成摘要。'))
             uid = vals.get('user_id') or self.env.uid
             if uid not in used:
                 used[uid] = self.sudo().search_count([
@@ -140,6 +152,38 @@ class TutoringMistakeAiJob(models.Model):
     # ---- 取料 ----
 
     @api.model
+    def _images(self, mistake):
+        """这道题能发给视觉模型的素材：返回 (JPEG base64 列表, 种类)。
+
+        种类是 `photo` 或 `page`，决定用哪套话术。**照片优先**（2026-10-13 维护者拍的）：
+        他自己拍的那张往往正是不会的那道题，而教辅那一页上还印着别的题。
+        """
+        photos = self._photo_images(mistake)
+        if photos:
+            return photos, 'photo'
+        return [self._page_image(mistake)], 'page'
+
+    @api.model
+    def _photo_images(self, mistake):
+        """挂在错题上的题目照片，全部发，按上传先后排（一张题被拍成两张时要有顺序）。
+
+        读正文走 sudo：条目归上传人自己，而"这道题该不该分析"不该由权限决定。
+        坏掉的那张跳过而不是报错——连拍三张有一张没存全，不该挡住另外两张。
+        """
+        from PIL import Image
+
+        items = mistake.sudo().library_item_ids.filtered(
+            lambda item: item.kind == 'image' and item.file_size).sorted('id')
+        images = []
+        for item in items:
+            try:
+                images.append(self._to_jpeg(Image.open(io.BytesIO(
+                    base64.b64decode(item.content)))))
+            except Exception:  # noqa: BLE001 截断/伪扩展名/格式不支持，都只是这一张用不了
+                _logger.warning('错题 %s 的附件「%s」读不出图片，跳过', mistake.id, item.name)
+        return images
+
+    @api.model
     def _page_image(self, mistake):
         """把"出错那一页"变成可发送的 JPEG base64。
 
@@ -151,22 +195,29 @@ class TutoringMistakeAiJob(models.Model):
 
         file, local, hint = mistake.sudo().workbook_id._locate_page(mistake.page)
         if not file:
-            raise AiPageError(hint or _('定位不到这一页。'))
+            raise AiSourceError(hint or _('定位不到这一页。'))
         # 整条取页都走 sudo：教材正文挂在上传者自己的知识库条目上，门户用户按记录规则
         # 读不到那些行（这是另一条待修的既有 bug），而"能不能分析这一页"不该由他决定。
         data = self.env['tutoring.workbook.page'].sudo()._pdf_for(file, local)
         if not data:
-            raise AiPageError(_('《%s》里抽不出第 %s 页。') % (
+            raise AiSourceError(_('《%s》里抽不出第 %s 页。') % (
                 mistake.workbook_id.name, mistake.page))
         if isinstance(data, bytes):
             data = data.decode('ascii', 'ignore')
         pages = PdfReader(io.BytesIO(base64.b64decode(data))).pages
         if not pages:
-            raise AiPageError(_('抽出来的那一页是空的。'))
+            raise AiSourceError(_('抽出来的那一页是空的。'))
         images = list(pages[0].images)
         if not images:
-            raise AiPageError(_('这一页里没有位图（可能是纯文字排版的页），无法交给视觉模型。'))
-        img = Image.open(io.BytesIO(images[0].data))
+            raise AiSourceError(_('这一页里没有位图（可能是纯文字排版的页），无法交给视觉模型。'))
+        return self._to_jpeg(Image.open(io.BytesIO(images[0].data)))
+
+    @api.model
+    def _to_jpeg(self, img):
+        """两套素材共用那道缩放：长边 1600、JPEG 质量 82（探针实测这样仍能抄对公式），
+        顺便把 png/webp/bmp/gif 收成同一种类型——请求里只会出现 image/jpeg。"""
+        from PIL import Image
+
         ratio = min(1.0, float(LONG_SIDE) / max(img.size))
         if ratio < 1.0:
             img = img.resize(
@@ -195,15 +246,24 @@ class TutoringMistakeAiJob(models.Model):
         except (FileNotFoundError, IsADirectoryError):
             raise UserError(_('找不到提示词文件 %s') % path)
 
-    def _user_text(self, mistake, candidates):
-        return self._prompt('user') % {
-            'book': mistake.workbook_id.name,
-            'page': mistake.page,
+    def _user_text(self, mistake, candidates, kind='page', count=1):
+        points = '\n'.join('- ' + name for name in candidates)
+        facts = {
             'no': mistake.question_no or _('（未填题号）'),
             'grade': GRADE_LABEL.get(mistake.student_id.grade, mistake.student_id.grade or '—'),
             'point': mistake.point_id.name or _('（无）'),
-            'points': '\n'.join('- ' + name for name in candidates),
+            'points': points,
         }
+        if kind == 'photo':
+            # 照片版不写"第几页"——那一页上有别的题，硬给它出处反而让模型去找不存在的东西。
+            # 但出处填了就一并带上，抄回来的题目能跟记录对上是人要看的。
+            facts['n'] = count
+            facts['where'] = (_('《%s》第 %s 页') % (mistake.workbook_id.name, mistake.page)
+                              if mistake.workbook_id and mistake.page else _('没填'))
+            return self._prompt('user_photo') % facts
+        facts['book'] = mistake.workbook_id.name
+        facts['page'] = mistake.page
+        return self._prompt('user') % facts
 
     # ---- 执行 ----
 
@@ -220,10 +280,10 @@ class TutoringMistakeAiJob(models.Model):
     def _run(self):
         """跑一条任务。分界线是"token 花出去了没有"。
 
-        花出去之前崩掉（没密钥、取料/组装时我们自己的代码出错）→ `_abort()`：
-        不扣额度、这道题退回未生成，用户可以重来——我们的错不该让人承担。
-        花出去之后（含这一页里没有这道题）→ `_fail()`：按维护者定的口径
-        扣一条额度并永久锁死这一题，不给无限重试烧钱的机会。
+        花出去之前崩掉（没密钥、素材取不到、取料/组装时我们自己的代码出错）→ `_abort()`：
+        不扣额度、这道题退回未生成，用户可以重来——我们的错与"根本没看图"都不该让人承担。
+        花出去之后（含这道题不在素材里）→ `_fail()`：扣一条额度，但**不锁死**，
+        他要再来一次就再来一条（防烧钱交给当日额度，不是把题焊死）。
         """
         self.ensure_one()
         mistake = self.mistake_id
@@ -234,31 +294,35 @@ class TutoringMistakeAiJob(models.Model):
                 '或给服务配环境变量 DEEPSEEK_API_KEY。'))
         try:
             candidates = self._candidates(mistake)
-            payload = self._payload(
-                mistake, self._page_image(mistake), candidates, conf['model'])
-        except AiPageError as exc:
-            return self._fail(str(exc))
+            images, kind = self._images(mistake)
+            payload = self._payload(mistake, images, candidates, conf['model'], kind)
+        except AiSourceError as exc:
+            return self._abort(str(exc))
         except Exception as exc:  # noqa: BLE001
             _logger.exception('AI 摘要任务 %s 取料或组装出错', self.id)
             return self._abort('%s: %s' % (type(exc).__name__, exc))
         try:
-            return self._call(conf, payload, mistake, candidates)
+            return self._call(conf, payload, mistake, candidates, kind)
         except Exception as exc:  # noqa: BLE001
             _logger.exception('AI 摘要任务 %s 调用或回写出错', self.id)
             return self._fail('%s: %s' % (type(exc).__name__, exc))
 
     @api.model
-    def _payload(self, mistake, img_b64, candidates, model):
+    def _payload(self, mistake, images, candidates, model, kind='page'):
+        """多图就是把照片按上传先后排进同一个 content 列表；一张照片时形状和以前一样。"""
+        content = [{'type': 'text',
+                    'text': self._user_text(mistake, candidates, kind, len(images))}]
+        content += [
+            {'type': 'image_url',
+             'image_url': {'url': 'data:image/jpeg;base64,' + img, 'detail': 'high'}}
+            for img in images
+        ]
         return {
             'model': model,
             'messages': [
-                {'role': 'system', 'content': self._prompt('system')},
-                {'role': 'user', 'content': [
-                    {'type': 'text', 'text': self._user_text(mistake, candidates)},
-                    {'type': 'image_url',
-                     'image_url': {'url': 'data:image/jpeg;base64,' + img_b64,
-                                   'detail': 'high'}},
-                ]},
+                {'role': 'system', 'content': self._prompt(
+                    'system_photo' if kind == 'photo' else 'system')},
+                {'role': 'user', 'content': content},
             ],
             'temperature': 0,
             'max_tokens': MAX_OUTPUT_TOKENS,
@@ -266,7 +330,7 @@ class TutoringMistakeAiJob(models.Model):
             'thinking': {'type': 'disabled'},
         }
 
-    def _call(self, conf, payload, mistake, candidates):
+    def _call(self, conf, payload, mistake, candidates, kind='page'):
         try:
             resp = requests.post(
                 conf['url'], headers={'Authorization': 'Bearer ' + conf['key']},
@@ -292,7 +356,9 @@ class TutoringMistakeAiJob(models.Model):
             return self._fail(_('模型没有按约定的 JSON 回话。'))
         if not data.get('found'):
             return self._fail(_(
-                '这一页里没找到「%s」——多半是页码或教材对不上。') % (mistake.question_no or mistake.page))
+                '%s里没找到「%s」——多半是页码或教材对不上。') % (
+                _('这几张照片') if kind == 'photo' else _('这一页'),
+                mistake.question_no or mistake.page or _('这道题')))
         return self._apply(mistake, data, candidates)
 
     @api.model

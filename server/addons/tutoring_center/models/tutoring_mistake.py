@@ -137,8 +137,13 @@ class TutoringMistake(models.Model):
     library_item_ids = fields.One2many(
         'tutoring.library.item', 'mistake_id', string='题目文件')
     library_count = fields.Integer('题目文件数', compute='_compute_library_count')
+    # AI 取料与"按钮该不该出现"都按扩展名挑图片类附件，一次 read 就够，
+    # 不读正文（正文是 bytea，读一条就把整张图拉进内存，见陷阱 15）。
+    library_photo_count = fields.Integer(
+        '题目照片数', compute='_compute_library_photo_count', store=True)
 
-    # AI 摘要（见 tutoring.mistake.ai.job）：一题只许发起一次，成败都扣发起人的当日额度。
+    # AI 摘要（见 tutoring.mistake.ai.job）：生成成功就定这一版；没成功允许重来，
+    # 每次真发起都扣发起人的当日额度。
     # 之所以长在错题上而不是知识库条目上——"能被 AI 分析"正是错题区别于其它资料的地方。
     ai_state = fields.Selection([
         ('none', '未生成'), ('pending', '生成中'), ('done', '已生成'), ('failed', '没成功'),
@@ -152,7 +157,7 @@ class TutoringMistake(models.Model):
     ai_readable_text = fields.Text('题目原文', compute='_compute_ai_readable')
     ai_hint = fields.Char('AI 提示', copy=False)
     ai_done_at = fields.Datetime('AI 生成时间', copy=False)
-    # 只给表单用：定位不到那一页的题没有资料可分析，按钮就不出现。
+    # 只给表单用：既没有题目照片、又定位不到那一页的题没料可分析，按钮就不出现。
     # 刻意不依赖 page_pdf——那个 compute 会真去抽页，列表页每行算一次就是灾难。
     can_ai_summary = fields.Boolean('可生成摘要', compute='_compute_can_ai_summary')
 
@@ -162,13 +167,22 @@ class TutoringMistake(models.Model):
             mistake.ai_readable_summary = to_plain_math(mistake.ai_summary) or False
             mistake.ai_readable_text = to_plain_math(mistake.ai_question_text) or False
 
-    @api.depends('page', 'workbook_id', 'ai_state')
+    @api.depends('page', 'workbook_id', 'ai_state', 'library_photo_count')
     def _compute_can_ai_summary(self):
         for mistake in self:
-            # sudo 只用来问"这本练习册里有没有这一页"：教材正文挂在上传者自己的知识库
-            # 条目上，学生按记录规则读不到那些行，但按钮对他该不该出现是另一回事。
+            # 生成成功就定稿；正在生成也别让人再点。failed 允许重来是 2026-10-13
+            # 维护者改的口径：那道题压根没生成出摘要时锁住它没有道理，防烧钱交给当日额度。
+            if mistake.ai_state not in ('none', 'failed'):
+                mistake.can_ai_summary = False
+                continue
+            # 素材两条路，照片优先（拍的往往就是那道题本身，教辅那一页上还有别的题）。
+            if mistake.library_photo_count:
+                mistake.can_ai_summary = True
+                continue
+            # sudo 只用来问"这本练习册里到底有没有这一页"：教材正文挂在上传者自己的
+            # 知识库条目上，学生按记录规则读不到那些行，但按钮对他该不该出现是另一回事。
             file, _local, _hint = mistake.sudo().workbook_id._locate_page(mistake.page)
-            mistake.can_ai_summary = bool(file) and mistake.ai_state == 'none'
+            mistake.can_ai_summary = bool(file)
 
     @api.depends('page', 'workbook_id.page_mode', 'workbook_id.page_offset',
                  'workbook_id.file_ids.content')
@@ -201,6 +215,18 @@ class TutoringMistake(models.Model):
         }
         for mistake in self:
             mistake.library_count = counts.get(mistake.id, 0)
+
+    @api.depends('library_item_ids.kind')
+    def _compute_library_photo_count(self):
+        # 按扩展名分一次组拿图片类条数：kind 是 store 的，所以这趟只走 SQL，不碰正文。
+        # sudo 是因为这个数要喂"按钮该不该出现"，而条目归上传人自己（理由同 _locate_page）；
+        # 它是存算字段，升级时给存量行补值也是 superuser 跑的，这里保持同一口径。
+        rows = self.env['tutoring.library.item'].sudo()._read_group(
+            [('mistake_id', 'in', self.ids), ('kind', '=', 'image')],
+            ['mistake_id'], ['__count'])
+        counts = {mistake.id: count for mistake, count in rows}
+        for mistake in self:
+            mistake.library_photo_count = counts.get(mistake.id, 0)
 
     @api.depends('page', 'workbook_id.page_mode', 'workbook_id.page_offset',
                  'workbook_id.file_ids.page_from', 'workbook_id.file_ids.page_to',
@@ -376,7 +402,8 @@ class TutoringMistake(models.Model):
             'params': {
                 'type': 'info',
                 'title': _('正在生成中，大约需要 2 分钟'),
-                'message': _('生成完成后，摘要会出现在这道题上；一道题只能生成一次。'),
+                'message': _('生成完成后，摘要会出现在这道题上；'
+                             '这次没成功的话可以再点一次。'),
                 'sticky': False,
             },
         }
