@@ -47,6 +47,20 @@
             <field name="group_ids" eval="[(4, ref('base.group_user')), (4, ref('base.group_portal'))]"/>
         </record>
 
+        <!-- 页脚右下角那句"由 odoo - 创建 免费的网站 提供支持"。社区版没有开关：署名是
+             `web.brand_promotion` 模板里的一个 div（全源码只定义这一处，调用点只有 web.layout
+             的版权行），website 只是继承它把文案换成"free website"，两者都没有可勾的条件。
+             删的是这个 div 本身——左边那行 `Copyright © R3ynA 学习平台` 是并列元素，不受影响。
+         ⚠️ priority 必须高于 website 那条继承的默认值 16：继承按 priority 升序叠加
+             （`ir_ui_view._get_inheriting_views` 的 docstring 就写着 ordered by priority then by id），
+             所以 website(16) 先跑完换文案、我们后跑删掉外层 div。把这里调小到 16 以下，
+             website 那条就会找不到它的目标元素，升级时报
+             "Element ... cannot be located in parent view" 直接中断。 -->
+        <template id="hide_brand_promotion" name="去掉页脚 Odoo 署名"
+                  inherit_id="web.brand_promotion" priority="99">
+            <xpath expr="//div[hasclass('o_brand_promotion')]" position="replace"/>
+        </template>
+
         <!-- 首页：平台门面（不出现 ERP/CRM 入口） -->
         <template id="homepage_tutoring" name="学习平台首页" inherit_id="website.homepage" priority="20">
             <xpath expr="//div[hasclass('oe_structure','oe_empty')]" position="replace">
