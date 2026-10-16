@@ -3,7 +3,7 @@
 > 本项目通常有**多个 agent 同时加功能**，但共享同一套本机资源：一个 Odoo 服务、一个业务库
 > `OdooForDB`、以及 `E:\Odoo` 这**唯一一份工作树**（它就是仓库主检出，也是服务正在加载的代码，
 > 没有第二份"部署副本"）。这份文件规定"谁在什么时候可以动共享资源、什么才算交付完成"。
-> 动手前先读 [handoff.md](handoff.md) 的协作规则与陷阱清单，本文件只补并发这一块。
+> 动手前先读 [ONBOARDING.md](ONBOARDING.md) 的「开发工作流」一节与本文件；交接档案怎么写见 [handoff.md](handoff.md)。
 
 ---
 
@@ -21,7 +21,7 @@
 3. 出错的时机越晚，能怪的范围越大。刚写完的人知道自己动了什么，隔两天的人只能猜。
 
 **"交付完成"的四件套**：代码进分支 → 本机部署并真机点过 → 文档写清"已验/未验" → 分支已 push。
-缺任何一件，就在 handoff/updates 里明确标注它**还没做完**，别让人以为线上已经是那样。
+缺任何一件，就在你的交接档案（`.agent/local/handoff.md`，不入库）里明确标注它**还没做完**，别让人以为线上已经是那样。
 
 ## 二、共享资源的独占规则
 
@@ -71,11 +71,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File \
 - 服务进程已经加载了新代码但库还没升级时，**不用停服**：用第二个进程跑一次 `-u --stop-after-init`
   补上 schema 即可（本轮就是这么从坏状态里出来的）。
 - 事后必查 `ir_module_module.latest_version` 有没有越过别人挂在中间版本号上的迁移目录
-  （handoff 陷阱 13）。
+  （详见 [updates/2026-10-01.md](updates/2026-10-01.md)）。
 
 ## 四、版本号礼仪
 
-manifest 版本会撞车，而且撞车会**静默吃掉别人的迁移**。改版本号前：
+**默认往最后一位加，别轻易占新号。** manifest 形如 `19.0.1.<批次>.<小步>`：
+
+- 一批功能**第一次上本机业务库**才进第三位（例：`34.0`）；
+- 这批之后接着改、补做、调口径、修 bug，**一律只加第四位**：`34.0 → 34.1 → 34.2 → 34.3`；
+- **只有来了新需求 / 换了新主题**才进第三位（`34.x → 35.0`）；
+- 纯文档、注释、脚本改动**不占号**（`__manifest__.py` 不动）。
+
+第三位是**占号**，不是记日志：每占一个新第三位，别人那条线的号就被往后挤一格。
+本项目吃过一次——`32.0`/`33.0` 连着把"函数图像·不等式着色"那批的号挤掉了。
+
+撞号更糟：manifest 版本会撞，而撞车会**静默吃掉别人的迁移**。改版本号前：
 
 ```bash
 git fetch origin
@@ -86,11 +96,12 @@ ls server/addons/tutoring_center/migrations/
 ```
 
 取**比所有分支和 main 都大**的号；自己没迁移就别建 `migrations/<版本>/` 目录。
+push 前再核一次——别按开工时看到的值定。
 
 ## 五、验收要求
 
 1. **交互控件必须真机点击**。本项目有过"脚本合成 click 把 `preventDefault` 吞事件掩盖掉"、
-   "组件没注册但默认渲染看起来完全正常"两次教训（handoff 陷阱 8、14）。
+   "组件没注册但默认渲染看起来完全正常"两次教训（见 [updates/2026-10-01.md](updates/2026-10-01.md)）。
 2. 前端崩服务端可能全是 200：定位顺序是 `svcctl check` → `odoo.log`（UTC，本地 +8）→
    **浏览器 console**。本轮的 `invalid portal target` 只在 console 里看得见。
 3. 改完前端资产（`static/src/**`）要确认资产包真的重建了；就地升级不触发失效信号。
@@ -98,7 +109,7 @@ ls server/addons/tutoring_center/migrations/
    维护者密码，换不回来。用独立会话打真实路由：
    `POST /web/session/authenticate`（带 `db`/`login`/`password`）拿到自己的 cookie，再 GET
    `/my/learning/...` 与 `/web/content/...`。临时账号验完删干净。
-5. 大文件上传：单个文件 ≈96MB 就到顶（handoff 陷阱 15），且**多份不能攒在一次保存里提交**，
+5. 大文件上传：单个文件 ≈96MB 就到顶（算法与实测见 [updates/2026-10-01.md](updates/2026-10-01.md)），且**多份不能攒在一次保存里提交**，
    否则请求体是几份 base64 之和，必然 413。
 
 ## 六、占用声明（轻量，够用就行）
@@ -116,24 +127,11 @@ ls server/addons/tutoring_center/migrations/
 
 ## 占用记录
 
+**只留最近三条**（2026-10-16 起，维护者定的）。更早的在 `git log -p .agent/MULTI_AGENT.md` 里，
+按日的完整过程在 `.agent/updates/`（已冻结，只当历史读）。
+
 | 时间（本地） | 分支 / agent | 动作 | 状态 |
 |---|---|---|---|
-| 2026-10-01 13:49–17:35 | `feature/workbook-file-reader` | 同步副本 + 两次 `-u`（19.0.1.4.0 → 19.0.1.5.0）+ 真机验收 | 已完成并释放 |
-| 2026-10-01 19:32–19:55 | `feature/mistake-page-detail` | 同步副本 + 停服 `-u`（19.0.1.5.0 → 19.0.1.6.0，新增模型 `tutoring.workbook.page`）+ 真机验收 | 已完成并释放 |
-| 2026-10-01 22:35–22:52 | 云服务器部署线（`fix/docker-pg18-mount-and-cloud-deploy`） | **只动云机，不碰本机 `OdooForDB`**：clone 切 main、`-u tutoring_center`（19.0.1.0.0 → 19.0.1.7.0，跑 `19.0.1.2.0` pre-migrate）、容器内验收后 stop 下线 | 已完成并释放 |
-| 2026-10-01 23:19–23:26 | 部署线（`fix/docker-pg18-mount-and-deploy-notes`） | **共享 `OdooForDB`**：本地 main 快进到 `cdca6cd` 后磁盘代码领先库，走方式一 `-u tutoring_center`（19.0.1.6.0 → 19.0.1.7.0，无迁移区间）、`check` 六层全绿 | 已完成并释放；PR #17 的勾选框**未真机点击验收**（浏览器面板 hidden） |
-| 2026-10-05 00:44–01:25 | `feature/knowledge-library`（知识库，19.0.1.12.0） | 同步到 `E:/Odoo` 主工作树的 `server/addons/tutoring_center/`（原内容已备份到 `E:\Odoo\backup\tutoring_center_deployed_20261005-0114`）→ 不停服跑 `-u tutoring_center --stop-after-init`（19.0.1.10.0 → 19.0.1.12.0，执行 post-migrate 把 3 份教材搬进条目表）；业务库已 dump 备份 198MB | 升级已落库，**服务未重启**（UAC 提权被安全策略拦截，需维护者手动 `Restart-Service`），真机验收未做，**不算交付完成** |
-| — | 同上 | ⚠️ `E:/Odoo` 主工作树当前 checkout 在 `feature/r3yna-brand-and-mistake-review` 且原本有未提交改动，现在它的 `server/addons/tutoring_center/` 已被换成知识库分支的代码（原状在上述备份里）。该分支的 agent 接手前先 `git status` 确认 | 待维护者处置 |
-| 2026-10-05 11:20–14:05 | `feature/library-folders-and-nav`（知识库第二轮：文件夹 + 隐私收口 + 用户端页 + 顶栏入口，`19.0.1.13.0`） | 先只在一次性库上验（安装 + 模型层 + HTTP 56/57）；13:08 拿到窗口后按标准动作部署 `OdooForDB`：备份模块 + 198MB dump → 停服 `-u`（post-migrate 跑过）→ 起服 → `check` 六层全绿 → `latest_version` 核对 = `19.0.1.13.0`；因 SVG 加固再 `restart odoo` 一次；部署后又补删了 6 个历次验收留下的一次性库（先 dump 到 `backup/db_graveyard_2026-10-05/`）。业务库上跑过门户 HTTP 21/21、后台 RPC 14/14 | **业务库已生效**；浏览器里的视觉/真机点击仍挂着，临时账号已删，工作树干净 |
-| 2026-10-05 15:00–15:35 | `feature/library-folders-and-nav`（第三轮：Markdown 渲染 + 纯文本就地编辑 + 错题固有类型，`19.0.1.14.0`） | 一次性库 `zz_md_check` 上验完（安装 + 渲染器 20 项 + 模型 6 组 + HTTP 35 项）→ 业务库：模块备份 + 198MB dump → 停服 `-u`（post-migrate 重算 1 条 `.json` 的 kind）→ 起服 → `check` 全绿；分类默认值那一条 XML 走 `dev/upgrade_via_rpc.py` 就地升级免重启；`zz_md_check` 已删，`qa_check` 已删 | **业务库已生效**（14.0）；浏览器视觉截图仍欠（面板几次都 `visibilityState=hidden`，结构快照可用且已核对布局与默认值） |
-| 2026-10-05 16:05 起（`49a6e07` 提交后随即部署） | `feature/library-folders-and-nav`（第三轮补丁：错题入口，`19.0.1.14.1`） | 业务库上纯 XML/Python 小改：`dev/upgrade_via_rpc.py` 就地升级免重启 + 一次 `restart odoo`（计数器口径改了要重建门户资产）；`qa_check`（教师组、无学生档案）与 `biaodi` 各跑一遍 HTTP 对照，验完即删 | **业务库已生效**（14.1）；截图那张"点错题只剩知识库卡"的现场已按维护者定位修掉 |
-| 2026-10-05 18:40–18:51 | `feature/library-folders-and-nav`（第四轮：老师也是学习者，`19.0.1.15.0`） | 一次性库 `zz_self_check` 验完（安装 + 档案补齐）后删除 → 业务库：模块备份 → `svcctl stop odoo`（第一次 UAC 被取消，不静默重试；维护者给窗口后重跑）→ `-u tutoring_center`（0 ERROR/CRITICAL，`data/self_profile_data.xml` 给存量老师补「我自己」）→ 起服 → `check` 全绿。业务库上直接跑 HTTP：范围切换/速记条/记到谁/题目照片入库/越权与匿名 5 类共 32 项。⚠️ `odoo_template_c` 是 `db_template`，**不是残留库**（陷阱 38） | **业务库已生效**（15.0），测试数据与 `qa_check` 已清；浏览器四条 JS 项仍欠（面板此刻 `visibilityState=hidden`），工作树留给文档提交 |
-| 2026-10-05 20:03–20:09 | `fix/drop-library-folder-menu`（删后台「知识库文件夹」页 + 别人的本人档案及其错题收口，`19.0.1.15.2`，顺带补上没部署的 `15.1`） | 一次性库 `zz_selfprofile_check` 安装 0 ERROR + 19 项断言 → 业务库：模块备份 `tutoring_center_before_20261005-2005` → `stop odoo` → `-u`（exit 0、0 ERROR）→ `start odoo` → `check`；两次 UAC 都正常通过。业务库真发 HTTP 17 项（`qa_teacher2` 与门户 `biaodi` 各一会话） | **业务库已生效**（15.2）；`qa_teacher2` 与档案 #11、一次性库、口令文件全清，工作树干净；**只剩浏览器里那一眼**（顶栏少一项、学生列表只剩一条「我自己」）等维护者刷新确认 |
-| 2026-10-05 21:10–21:40 | `feature/ai-mistake-summary`（错题 AI 摘要，`19.0.1.16.0`，新模型 + cron + DeepSeek） | 模块备份 `tutoring_center_before_20261005-2110` → `stop odoo` → `-u`（0 ERROR）→ **起服前**把密钥写进 `ir.config_parameter`（运行中的服务缓存系统参数，起了再改它看不见）→ `start odoo` → `restart odoo` 一次加载修好的 Python。一次性库 `zz_ai_check` 安装 0 ERROR + 40 项断言；业务库真调用：门户 22 项、后台与 `_abort` 10 项。⚠️ 期间挖出既有 bug：门户学生读不到教材（陷阱 46），本轮只 sudo 绕过 | **业务库已生效**（16.0）；一次性库已删；错题 30 有真实摘要、31 是真实失败样本（保留着看效果）；**浏览器里那颗按钮没人点过**；教材可见性修根留给下一条分支 |
-| 2026-10-05 22:16–22:20 | `feature/ai-mistake-summary`（同一分支续做：AI 抄回来的 LaTeX 渲染成纯文本可读数学） | 模块备份 `tutoring_center_before_20261005-2216` → `stop odoo` → `-u`（exit 0、0 ERROR）→ `start odoo` → `check` 六层全绿。渲染器 17 项离线断言 + 业务库 16 项（含真发 HTTP 看门户页面），**全程没再花额度**（拿已有的错题 29/30 当样本） | **业务库已生效**；`prompts/` 两份文案 + `models/math_text.py` 上线；仍只剩浏览器那一眼；教材可见性修根（陷阱 46）没做 |
-| 2026-10-07 00:10–01:10 | `feature/do1ng-time-sync`（时间账本批次①，最终 `19.0.1.19.0`：云端五张表 + 三条机器接口 + 门户 `/my/time` + Do1ng 客户端） | **全程没碰共享服务与 `OdooForDB`，`E:\Odoo` 一行没动**（服务仍读它）。另起独立进程 `--http-port=8899 --db-filter=^zz_do1ng_time$ --max-cron-threads=0`，在自己的 PG 上反复 drop/create 一次性库 `zz_do1ng_time` 装模块跑验收；`filestore\zz_do1ng_time` 随库一起清掉。验收：全新库 `-i` 0 ERROR、HTTP 套件 100/100、真实 `tasks.json` 协议预检 15/15、Java 端到端 36/36 | **只到本机一次性库**：共享库未升级、云机未部署、代码未同步到 `E:\Odoo`；门户页两个 Bootstrap 下拉与折叠、以及截图仍欠——浏览器面板 0×0 `hidden`，指针动作被系统拒绝（陷阱 29 的同款现场）；状态药丸是纯 `<a href>` GET 链接，已按真实链接验过 |
-| 2026-10-07 01:30 | 同上（PR #? 合 main 冲突） | 版本号撞车：本分支与 `feature/drop-mistake-topic-field` 都取了 `19.0.1.18.0`，且新陷阱号也被占（50）。merge main 后本分支改 **19.0.1.19.0**、陷阱改 **51~58**，并在一次性库上重装重跑 HTTP 套件复验 | 已解决并 push；**提醒下一个人**：push 前重新核对 `git for-each-ref` 的版本号，别按开工时看到的值定 |
-| 2026-10-08 17:00–17:53 | `feature/library-workbook-link`（知识库「新建资料」＋「练习册/教辅」真的成为一本练习册，`19.0.1.20.0`） | **没碰共享服务与 `OdooForDB`**（服务没重启也没 `-u`，内存里仍是 `19.0.1.18.0` 那份代码）。一次性库 `zz_library_link`：全新库 `-i tutoring_center` 0 ERROR → ORM 37 项（跑完整体 rollback，可反复跑）→ 独立进程 `--http-port=8899 --db-filter=^zz_library_link$` 上 HTTP 20 项 → **真机点击走完**：点「新建资料」→ 填名选分类 → 跳详情页 → 错题页「哪本练习册」下拉里出现这本没附件的书 → 选它记一条 → 页面回「已记录 1 道错题」。⚠️ 工作树已从 `4fcc27b` 切到这个分支（＝`main` ＋本轮改动），**下次谁重启就会连带加载 `main` 上那份从未部署的时间账本批次①**（陷阱 59~60 是这轮挖的） | **只到本机一次性库**：共享库未升级、云机未部署；`zz_library_link` 和它的 filestore 还在，按规矩验完要删（删库等维护者点头）；**未 push、PR 未开** |
-| 2026-10-08 21:28–21:40 | 同上（部署：维护者问"为什么 `localhost:8069` 看不到时间账本"→ 当场答清"批次①从没上过共享库"→ 他给窗口） | 模块备份 `backup/tutoring_center_before_20261008-2132` → `svcctl stop odoo`（未弹 UAC）→ `-u tutoring_center --stop-after-init`（exit 0、**0 ERROR/CRITICAL**）→ `start odoo` → `check` 六层全绿。落库核对 `19.0.1.18.0`→**`19.0.1.20.0`**、`tutoring_time%` 5 张表、`/my/time` 菜单 2 行、练习册 3→4 本、错题 15 条没动；本轮迁移在真库上"5 条已核对／新增教材行 1 条／无权 0 条"，孤儿归 0。**这一升连带把批次①（时间账本）一起落了共享库**——切分支时即已知并接受 | **本机业务库已生效**（20.0），云机仍未部署；`/my/time` 与本轮效果由**维护者本人点验通过**；⚠️ 那次没删的一次性库把 `localhost:8069/` 顶成了 `/web/database/selector`（`db_name` 为空＋两个库），他跑 `DROP DATABASE` 后恢复——**删库这步别拖**（细节与"匿名 404 不算路由没注册"的判据纠正见 `updates/2026-10-08.md` 第四节） |
-| 2026-10-08 22:40–23:55，次日 00:05–00:40 续做 | `feature/plot-param-sliders`（函数图像页参数滑块，`19.0.1.21.0`） | **没碰共享服务与 `OdooForDB`**（没重启也没 `-u`：这轮纯 JS + 网站模板，磁盘改了但不进库、资产包不重建）。一次性库 `zz_plot_sliders`：全新库 `-i tutoring_center` **0 ERROR** → 离线 **101 项**（`dev/zz_plot_slider_check.mjs`，node 直接跑线上那份 `function_plot.js`：把两行 `@web/` 导入换成桩再 import）→ 独立进程 8899（**必须带 `--limit-time-real`**，否则挂十几分钟被自己判超时打死；**`--dev=assets` 在 19 里不存在**，改了 `static/src` 只能重启进程，见陷阱 64）上**浏览器真机点击**：自己写 `y=3x+b` 长出滑块、点轨道与键盘 `ArrowRight`/`PageUp`/`End` 都能拖、数值框收 `pi/2`、弹层勾「滑块 a」「滑块 b」后预览变字母式且离心率徽标随拖实时重算（`a=5.1` → `e = 0.9806`，手算 `√(1-1/26.01)` 对上）、`a=10` 时画出来的半轴以预置椭圆当尺子量得 **9.95×1.04**、拖到非法值只坏那一条。**同晚按维护者要求改成语义**：参数从"全局同名共用"改成**每条曲线私有 + 点图例行选中才摆它的滑块**（方程那行做成真 `<button>`，纯 span 键盘够不着、browser-use 也点不动），复验：两条各写 `a` 互不相干、切换选中值不丢、删选中条回落最后一条 | **只到本机一次性库**：共享库未升级、云机未部署；`zz_plot_sliders` 与它的 filestore **还在，按规矩该删**（删库要维护者本人跑）；⚠️ 上一轮那条"已删"的 `zz_library_link` **其实也没删掉**，两个残留库把 `localhost:8069/odoo` 与 `/tools/function-plot` 顶成了 303/404（落到 `/web/database/selector`）——**收尾要数 `pg_database`，别信文档**；**截图仍欠**（真机点完之后面板转 `hidden`，rAF 停摆，像素断言那之后一律作废，见陷阱 65）；「删除回落／非法值／齿轮／清空」这几组是用脚本派发真实 DOM 事件跑的，**不是真人点的**；未 push、PR 未开；新陷阱 61~65 |
-| 2026-10-09 13:33–13:45 / 15:45–15:50 / 17:46–17:50 | 部署线（`main` `4e72112`→`ffad8be`，再 `fix/plot-ai-quota-25`） | 三次标准部署共享库 `OdooForDB`：每次都是 模块备份 + `pg_dump -Fc` 191MB → `stop odoo` → `-u tutoring_center --stop-after-init` → `start odoo` → `check` 六层全绿、**0 ERROR/CRITICAL**。版本 `20.0`→`22.0`→`26.0`→**`28.0`**；核对过每格区间都没有 `migrations/` 目录（不会静默吃掉别人的迁移），错题 16／练习册 4／学生 4 行数未动 | **本机业务库已生效**（28.0，＝磁盘同一条线），**云机一次都没部署**；函数图像两轮由维护者本人点验通过；本轮用完的一次性库 `zz_library_share`／`zz_quota25` 已 `DROP` 且 filestore 一并清掉 |
+| 2026-10-08 22:40–次日 00:40 | `feature/plot-param-sliders`（参数滑块 `19.0.1.21.0`） | 一次性库 `zz_plot_sliders` 全新装 0 ERROR + 离线 101 项（`dev/zz_plot_slider_check.mjs` 直接跑线上那份 `function_plot.js`）+ 8899 独立进程真机点击；同晚按维护者要求把参数改成"每条曲线私有 + 点图例行选中才摆它的旋钮"并复验 | **已解决**：`21.0` 已随 10-09 那次 `-u` 上本机库、分支已并入 main；当时欠的截图就是 `docs/screenshots/plot-param-sliders.png`；`zz_plot_sliders` 与 `zz_library_link` 两个残留库现在都不在 `pg_database` 里了。**但数库时新发现一条没记过的残留**：`zz_wxapi_wb` |
+| 2026-10-09 13:33–13:45 / 15:45–15:50 / 17:46–17:50 | 部署线（`main` `4e72112`→`ffad8be`，再 `fix/plot-ai-quota-25`） | 三次标准部署共享库：每次模块备份 + `pg_dump -Fc` 191MB → `stop odoo` → `-u` → `start odoo` → `check` 六层全绿、0 ERROR/CRITICAL；版本 `20.0`→`22.0`→`26.0`→**`28.0`**；逐格核对过每段区间都没有 `migrations/` 目录（不会静默吃掉别人的迁移），错题 16／练习册 4／学生 4 行数未动 | **已解决**：`28.0` 已被后续批次覆盖（现库 `36.0`）；当时说已 `DROP` 的 `zz_library_share`／`zz_quota25` 今天数过 `pg_database` 确认真不在了；函数图像两轮由维护者本人点验通过；那句"云机一次都没部署"已过时——云机现 `35.0` |
+| 2026-10-16 12:17–12:19 | 本会话（移动端接口层部署） | 停服 `-u`：库 `19.0.1.35.0`→**`19.0.1.36.0`**，exit 0、日志 0 ERROR/CRITICAL；起服后 `check` 六层全绿；真发 HTTP 验接口层：`ping` 200、缺 `X-R3ynA-Client` 400、无 key 401 且**不 302**；`/`、`/tools/function-plot`、`/web/login` 全 200 | **未完全解决**：① 带真 API Key 的 8 个端点仍未验（要往业务库写一行 `res.users.apikeys`，等维护者点头）；② **`zz_wxapi_wb`（52MB）还在**，名字像小程序接口层那批留下的、无人记过，filestore 在 `%LOCALAPPDATA%\OpenERP S.A\Odoo\filestore\`，删它要维护者本人跑；③ 云机仍停在 `35.0`，36.0 没上 |

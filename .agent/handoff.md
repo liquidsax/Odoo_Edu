@@ -1,424 +1,74 @@
-# 工作交接（handoff）
+# 交接文档怎么写（HANDOFF）
 
-> 记录开始：2026-09-29。本文件只保留**最新且最重要**的信息；
-> 完整演进详情按日期记录在 [updates/](updates/) 目录，安装配置见 [ONBOARDING.md](ONBOARDING.md)。
+> 这份文件讲**规则**，不讲项目事实。你 clone 到本仓库、翻开它，是为了知道
+> **你自己的交接档案该写什么、放在哪儿、什么时候更新**。
+> 这里没有开发历史——历史在 `.agent/updates/`（已冻结，只当历史读），现状在代码与
+> [`docs/项目架构说明.md`](../docs/项目架构说明.md)。
 
 ---
 
-## ⚠️ 协作规则（所有协作者 / agent 动手前必读）
+## 一、放在哪儿
 
-1. **开始修改代码之前，先拉取最新代码**：`git checkout main && git pull`；
-2. **禁止直接向 `main` 分支推送**：所有修改在**新建分支**上进行——
-   - 新功能：`feature/<主题>`（如 `feature/exam-chart`）
-   - 问题修复：`fix/<主题>`（如 `fix/portal-403`）
-3. 提交信息用中文，说明"改了什么、为什么"；
-4. 完成后 push 自己的分支并开 **Pull Request**，由**管理员（liquidsax）审查后合并**；
-5. **仓库卫生红线**：不提交真实密码 / 数据库凭据 / `odoo.conf` / 数据库备份 / 学生真实数据 / 截图素材；不硬编码本机绝对路径（用相对路径，文档中用 `%USERPROFILE%` / `%LOCALAPPDATA%` 写法）；
-6. 密码类参数一律走环境变量注入（参考 `dev/seed_data.py` 的 `TUTOR_DEMO_PW_A/B`）；
-7. **多 agent 并发时先读 [MULTI_AGENT.md](MULTI_AGENT.md)**：核心一条——自己写的功能要自己
-   在本机部署 + 真机验完再交出去，不要攒到最后一起测；共享实例（服务、业务库，以及 `E:\Odoo`
-   这**唯一一份**工作树——所有 agent 改的是同一个目录，别人一次重启就会带上你未提交的改动）
-   同一时刻只允许一个 agent 动，别人占用期间只写不部署。
-8. **版本号规矩（2026-10-12 维护者定的，别再猜）**：一批功能第一次上本机业务库才占一个新号
-   （如 `19.0.1.34.0`）；**同一批功能之后接着改、补做、调整口径的，一律往最后一位加**
-   （`34.0 → 34.1 → 34.2`），**不要每轮都占一个新的大号**——`32.0`/`33.0` 连着把
-   "函数图像·不等式着色"那批的号挤掉就是教训。只有换了主题（另一件事）才进第三位。
-   取号前照例 `git for-each-ref` 核对所有分支（见 MULTI_AGENT 第四节）。
-
-## 一、项目定位
-
-本机 Odoo 19 社区版（业务库 `OdooForDB`）已改造为 **R3ynA 学习平台**（个人学习数据平台，2026-10-03 由"数学辅导数据中台"改名，`19.0.1.10.0`；**只改显示口径，数据模型未加"科目"维度**，所以 leetcode、科教书这类内容目前仍记在同一套错题/练习册里）：
-
-- 教师端（`admin` 后台）维护学生、知识点、辅导课次、学校考试成绩、错题记录；
-- 学生/家长端（portal）在 `/my/learning` 查看学习数据，多学生按门户联系人硬隔离；
-- 辅导模式为**纯讲题 120 分钟/节**：不布置作业、不布置在线考试（仅录入在校考试成绩）；作业模型保留但已全面退出界面；
-- 网站首页为教育门面，无 ERP/CRM 入口；**页脚右下角那句"由 odoo - 创建 免费的网站 提供支持"已去掉**
-  （`19.0.1.35.0`）：社区版没有开关——署名是 `web.brand_promotion` 模板里的一个 `div.o_brand_promotion`
-  （全源码只定义这一处，调用点只有 `web.layout` 的版权行），`website.brand_promotion` 只是继承它把文案换成
-  "free website"，两条都没有可勾的条件；所以再加一层继承把那个 div 删掉。
-  **左边那行 `Copyright © R3ynA 学习平台` 是并列元素，没动**。⚠️ 我们这条继承的 `priority` 必须高于
-  website 的默认 16（继承按 priority 升序叠加，见 `updates/2026-10-13.md` 第六节与陷阱 93），调小会让升级当场中断。
-- 网站顶栏第三项「函数图像」（`/tools/function-plot`，公开页面）：按曲线类型填题目里的参数自动成图（椭圆/双曲线有「分母式」与「系数式」两种填法），也能自己写方程；预览与图例按数学写法渲染（`prettyEquation()`，上标/π/去括号）；支持滚轮与手机双指捏合缩放、拖动平移、悬停读数、画布全屏；纯前端计算、零第三方依赖。**双曲线**弹层里可勾选「画出渐近线（虚线）」，三种写法都从 a、b 反推斜率（实轴在 x 轴是 ±b/a，在 y 轴是 ±a/b，系数式先按 N 的符号归一化出实轴）；**三角函数**弹层可勾选「坐标轴与交点用弧度制（π）表示」：勾上后横竖轴刻度、悬停读数、与两轴的交点都写成 `π/2`、`3π/2`、`−π`（`piStep()` 只在 π 的有理分数里挑步长，横竖轴各按自己跨度取；`drawIntercepts()` 用解析解 `x=(nπ−φ)/ω` 求零点，不是采样近似），不勾就是小数；图例挂一枚 `e = √5/3 ≈ 0.7454` 的标签、弹层预览下方同步显示，数值尽量写成课本根式（`radicalText()`，化不出才退回四位小数）。渐近线是画在主画布上的虚线（`strokeAsymptotes()` + `clipLineToView()` 只画视口内一段，避免斜率大时坐标爆掉），**并附带方程**：虚线旁直接标出方程、图例挂 `渐近线 y = ±(3/2)x` 徽标（悬浮给两条完整方程与斜截式）、弹层预览下方同步显示（`asymptoteLineText()` / `asymptoteSummaryText()` / `asymptoteSlopeIntercept()`）。离心率与渐近线都跟着**曲线对象走**（`addCurve(expr, meta)`）：只有「按类型添加」和预置示例会带上，**自己写方程不带**（未做通用二次曲线识别）。
-**参数滑块**（`19.0.1.21.0`，2026-10-08 深夜写完并在一次性库上验完；**2026-10-09 13:35 随那次停服 `-u` 升上本机业务库，云机仍未部署**）：对标 Desmos 把参数变成可拖的旋钮。两条路都通——自己写的方程里出现 `x`、`y`、`pi`、`e` 与函数名之外的单个字母就自动长出一格滑块（解析器过去是直接报「未知符号」的），弹层里每个参数旁多一个「滑块 a」勾选，勾了之后 `compose()` 在方程里写字母而不是烤死的数字（`x²/a²+y²/b²=1`、`y=kx+b`、`y²=mx`），离心率与渐近线跟着滑块**实时重算**，图例那行始终是字母式所以不跳数。参数在编译时绑成常量、滑块一动整条曲线重建一次模型（闭包签名仍是 `(x, y) => number`，见陷阱 62）；**参数是每条曲线自己的**——点图例里那一行（方程做成真按钮，键盘也 Tab 得到）选中哪条，画布上方就只摆哪条的滑块，两条曲线各写各的 `a` 就是两个互不相干的旋钮；没选中的行挂「N 个参数」徽标，选中那条线宽 3。默认区间 `-10~10`、步进 `0.1`（齿轮可改，步进框收 `pi/4` 这种算式），数值框收 `3/2`、`2pi`、`sqrt(5)`；填越界的数是撑开区间而不是夹回去。参数名**保留大小写**（`E` 是参数、`e` 是自然常数，见陷阱 61）。拖动中走粗采样、松手补细描；拖进非法区间只坏那一条曲线（图例挂「这个值画不出来」，其它照画）。明确没做的：滑块动画播放、`f(x)` 函数定义与图像变换、不等式着色、参数方程/极坐标、状态存进 URL。
-
-- **智能画图**（`19.0.1.26.0`；`19.0.1.22.0` 已合并。图片上传与「大题里的方程被拒」在一次性库上验过，**23~26.0 与 28.0 已随 2026-10-09 那四次停服 `-u` 升上本机业务库（现到 `19.0.1.31.0`），云机仍未部署**；智能画图额度从 10 次调到 **25 次**（`DAILY_QUOTA` 一处改，页面文案改读 `plot_ai_max`，不再写死））：`/tools/function-plot` 上的「智能画图」把一句自然语言交给 DeepSeek，只要方程，再走现有的 `addCurve(expr, meta)`。匿名访客只看到登录提示，不给调接口。登录用户每人每天 10 次（自然日，服务端 `tutoring.plot.ai.call`，不靠页面上的数字）；空输入、超长（400 字）、没密钥、超时、连不上、非 200 **不扣**，接口 200（含「画不了」和 JSON 不合约定）才扣。提示词在 `prompts/plot_system.txt`、`prompts/plot_user.txt`。密钥与错题摘要共用一条路：环境变量 `DEEPSEEK_API_KEY`，其次模块目录 `.env`（每次现读），最后系统参数 `tutoring_center.deepseek_api_key`。管理员（`base.group_system`）在本页保存密钥，写入 `.env`（0600，文件名必须是 `.env`，拒绝符号链接）并放进当前进程的环境变量，不必重启；页面只显示末四位。Docker 只挂了模块目录，所以默认文件是 `server/addons/tutoring_center/.env`，仓库根那个给 compose 用的 `.env` 容器读不到。路径可用 `TUTORING_DEEPSEEK_ENV_FILE` 或 `tutoring_center.deepseek_env_file` 改。画图模型号是 `tutoring_center.deepseek_plot_model`，留空就用共用的 `tutoring_center.deepseek_model`。官方文档里 **DeepSeek-V4.1-Flash 的接口名就是 `deepseek-flash`**，没有另造 id。一次最多收下 16 条方程，多出来的丢掉并在页面上说明。模型可以连续返回多个 JSON 对象，服务端合并后再套这 16 条；请求不再带 `response_format=json_object`，否则接口会把回复锁成单个对象。输出 token 上限 2048，接口超时 30 秒。方程在服务端用与前端同一套分词校验，不 `eval`。`19.0.1.23.0` 起可以上传 jpg/png/webp/gif（最大 8MB，服务端看文件头，缩成 JPEG 再走与错题摘要相同的 `image_url`）。整道题里已经写了 `frac{x^{2}}{16}` 这种方程时，即使模型回「不是函数图像」，也按那条方程画，不拿周长这种数去画；这次若已经打过接口，额度照扣。提示词同时要求：题目没写出现成方程，但答案是函数、或必须先求出曲线才能画时，模型要先把题解完再给出方程。页面上仍然只画图，不展示解题过程。
-
-- **数学小键盘**（`19.0.1.31.0`，2026-10-09 20:12 随第四次 `-u` 上本机业务库；**`19.0.1.31.1`** 修了维护者当场试出的两处：函数键插进去的括号少一半（`sin(` → `sin()`，光标留在括号里）、手机上画布不能双指捏合缩放；云机未部署）：
-  「自己输入方程」框旁一个「键盘」开关，点开是**数字·运算·函数·模板**四页签，与系统键盘并存（不抢 `inputmode`）。
-  键面印课本记号（`π × ÷ √ ⁿ√ |x| a/b x² x³`），**插进输入框的是画布收得下的写法**（π→`pi`、×→`*`）；
-  键位表 `KEYPAD_PAGES` 就写在 `function_plot.js` 里，与解析器同源。按光标处插入、有选区就替换、
-  `√`/`|x|`/`a/b` 这类带空括号键插完把光标留在该填的位置，`⌫` 按**整块**删（`lg(`、`^2`、`^(1/)`、`()/()` 一次删掉），
-  另有 `←` `→` `清空`（只清输入框）`绘制`。改写走 `document.execCommand("insertText")` 以保住浏览器撤销栈，
-  它返回 false 时才手动改 `value` 并补发 `input` 事件；点键面时焦点会跳到按钮上，所以在 `blur`/`keyup`/`click`/`select`
-  里先存下光标位置（`keypadCaret`），插入时再恢复。**模板页 16 条课本式方程**（一次/二次/三次/反比例/幂/指数/对数/
-  绝对值/三角/圆/椭圆/双曲线/抛物线/分式/圆的一般式），插进去字母照旧自动变滑块——这是"补指数·对数·幂·绝对值类型按钮"
-  的替代做法（零新增模型）。同批把解析器两端（`function_plot.js` 与 `models/plot_expr.py`）补齐了**绝对值竖线 `|x|`**
-  （含嵌套 `||x|-1|`、`2|x|` 与 `|x||y|` 的隐式乘法，少一条竖线单独报「绝对值少了一条竖线」）、
-  **`lg`＝常用对数**（与 `log` 同值）、**`arcsin/arccos/arctan`** 作反三角别名；Python 侧
-  `normalize_textbook_math` 先把 `\lvert`/`\rvert`/`\vert` 收成竖线，否则会被"丢掉未知命令"那句抹掉。
-  随批修掉两个真 bug：`solveForY` 只在 y 的正侧做线性差分，`x=|y|` 被误判成线性解出 `y=x`、**下半支丢掉**；
-  `deepseek_env.write_env_key` 用了 `os.fchmod`，**Windows 上没这个函数**，本页保存密钥直接 500，
-  并把 `dev/zz_plot_ai_unit.py` 打断在「前后端一致」那节之前（详见陷阱 68~70）。
-  **明确没做**：不等式 `< > ≤ ≥` 与区域着色（下一批，含虚线边界与标出区域顶点）、一条输入里用逗号写多个条件、
-  分段函数、参数方程与极坐标；键盘也没接进「按类型添加」弹层的数值框。
-
-- **错题记录**（学生不会/做错的题）：来源关联**练习册**（可填页码/题号）、**辣椒难度 2~5 🌶**、系统自动的**记录时刻**＋可手填「发生日期」、可选「错因/备注」——**不记题目内容**（不通过平台做题，只记错了哪道题）；**不设订正状态**（这页只用于记录出处，没人会做完一道题再回网站改状态）。**错题带错因与知识点**（`19.0.1.10.0`）：`cause_id` 指向新模型 `tutoring.mistake.cause`（概念/审题/运算/策略/习惯/其它六类、预置 13 条、`noupdate=1` 可自由增改，后台"错因"菜单维护）；`point_id` 指向知识点树，挑选域按学生年级放开（`student_id.knowledge_grades`），门户 POST 里服务端再校一次年级。`note` 降为"补充说明"。另有三个**不进任何视图**的字段 `last_review_at`/`review_count`/`next_review_at`：打开一次详情＝复习过一次，按 1→3→7→15→30→60 天往后推到期日，门户错题页默认顺序就是"到期最早的排最前"——**学生看不到任何"复习"字样，也不需要维护状态**。**后台错题页已改造为教师友好形态（`19.0.1.8.0`，PR #20）**：默认视图是**按学生分栏的卡片看板**（栏头带难度分布进度条，整卡点击开只读详情弹窗，拖拽/改组全禁）；列表和看板顶部有**统计概览条**（共 N 条/本月新增/高难度/未填错因，除总数外可点击直接切换筛选，`summary_stats()` 取数、自定义 `js_class` 控制器挂载）；视图切换器里还有**图表页签**（柱状按月）；列表 4~5🌶 行标红、搜索加了原生发生日期筛选和基础难度过滤器。要改内容（含难度辣椒）仍走详情页「修改」进编辑弹窗；新建走控制栏「快速记录」（题号可写 `1-5`、`1,3,7` 自动拆多条，「保存并继续」沿用学生/练习册）或「新建错题」；**Excel 式逐行连填仍在学生表单的「错题记录」页签**（那里仍是 `editable="bottom"` 网格）。门户 `/my/mistakes` 已重做为卡片页（`19.0.1.10.0`）：卡片网格 + 搜索 + 带计数的筛选药丸 + **按知识点/错因/月份分组**（点分组标题下钻，条件以胶囊可摘）+ 每页 10/20/50；取数改成服务端 `domain`+`order`+`limit/offset`、统计走 `read_group`（原来是全量 `search()` 后 Python 排序 + 4 次 `search_count`，300 条就废了）；详情页可就地补一句补充说明。**学生可自助添加/编辑自己的错题**（记录规则强制只能本人、不可删）。
-**错题不再有「相关教学内容」**（`19.0.1.18.0`）：那是 `19.0.1.10.0` 加 `point_id` 时漏撤的旧字段
-（`topic_id` → `tutoring.topic`，与知识点是同一个意思的两份字典；错题 14 条里只有 1 条在用，
-而且那条的名字在知识点里就有同名的）。删列的迁移先把"只填了教学内容没填知识点"的错题按**同名唯一匹配**
-并入知识点，再 `DROP COLUMN`。**`tutoring.topic` 模型本身保留**——课次的 `topic_ids` 与考试明细行
-`required` 的 `topic_id` 还在用它，它没有后台菜单，词条是在课次表单的多对多里"即输即建"攒出来的。
-判据与"Odoo 删字段不会 DROP 列、但会清 `ir_model_fields`"这两条实测见陷阱 50。
-网站版错题详情页还能给这道题传**题目照片或说明文件**：文件落进知识库（分类＝错题）并挂回这条错题，
-两边都能互相跳（`19.0.1.14.0`）。
-**`/my/mistakes` 对没有学生档案的账号（老师本人、admin）也开放**——看到的是全部可读错题、
-卡片带学生名、速记条收起（新增走后台）；以前它会 `redirect('/my')`，
-配合核心"计数为 0 就隐藏卡片"，效果就是"点错题被丢到只剩一张知识库卡的页面"（`19.0.1.14.1`，见陷阱 35）。kanban 卡片模板必须 `t-name="card"`、进度条是 `<progressbar>` 子元素、卡片模板默认拿不到分组字段（要自定义 KanbanRecord 塞 `groupByField`）——细节与新陷阱 18~21 见 [updates/2026-10-03.md](updates/2026-10-03.md)。
-
-- **错题页做成"同页可切的试用版本"**（批次① `19.0.1.32.0` 已随 2026-10-12 15:03 那次 `-u` 上本机业务库，
-  批次② `19.0.1.33.0`（16:41）、批次③ `19.0.1.34.0`（19:40）、批次④ `19.0.1.34.1`（23:22）都已部署；**云机一次都没部署**；细节与新陷阱 71~90 见 [updates/2026-10-12.md](updates/2026-10-12.md)）：
-  `/my/mistakes` 顶部多一个「试用版本」分段控件，`?lab=wall|queue|grid|daily|feed` **五版并存**，**共用同一份取数、
-  同一套筛选/排序/搜索/下钻**，只有首屏怎么排不一样——目的是让维护者自己轮流用几天、凭手感说哪个
-  让他还想打开这个页面（纯记录式的好处是零重复操作，但没内容就成死记录：题多了分不清主次，
-  下次翻开不知道干什么）。标签刻意中性（不写"推荐/新版"），单人试用所以**没做**记住选择的字段，
-  也没做反馈埋点（他自己收）。
-  - `queue`：首屏只摆"该翻出来的"（`_due_domain(now)` 一个口径同时喂队列与配色，**`next_review_at`
-    为空显式算"该看"**——SQL 里 NULL 参与比较恒为 unknown，不写这条老题会永久不出队列），
-    其余整段 `collapse` 折起来；首屏与"其余"是按同一条件**对半分**不是筛选，所以不重也不漏。
-  - 卡片按**轻重分四档上色**（`hot/due/hard/cool`＝逾期多久 × 难度高低，非存储的计算字段，
-    不进后台视图、不构成"订正状态"）：左边一道色条 + 极浅底色，同一句话同时挂 `title`
-    （桌面悬停/手机长按都能读），**颜色不是唯一通道**。
-  - `grid`：`POST /my/mistakes/grid` 一行一道题就地改。够不着的行**整行忽略**（逐行 `search()`
-    过记录规则，回执 `saved=N` 不计它）；认不出的值**跳过那一格而不是清空**（难度 9、坏日期都不落库）；
-    某行的知识点/错因不在"当前范围那份档案"的可选项里就只给看不给下拉——否则一保存把别人的值抹了。
-    新建仍走速记条，表格里不加行。
-  - 两条实测事实：`fields.Datetime.now()` 与库里列**微秒被抹平成整秒**，所以"两个时间相减换算成天"
-    的文案要 `math.ceil`，`floor+1` 在整倍数那天恰好多一天（写 +5 天曾说成"6 天后再看"）；
-    **带 `tz` 写入/读出 Datetime 不会偏移**，所以 `touch_review()` 那套 UTC 加法是干净的（此前无人证明）。
-  - 批次②（`19.0.1.33.0`，16:41 已部署）把 `?lab=` 扩到**七版**，封面三条路都做了（这三版在批次④收拢成一版，见下）：
-    `coverpdf`＝后端 `/my/learning/mistakes/<id>/page.pdf` 吐"出处那一页"的单页 PDF，
-    前端用 **Odoo 自带的 pdf.js** 在 canvas 上画成 JPEG 盖上去（**零 token 零新依赖**——
-    本机 `python/Lib/site-packages` 里只有 PyPDF2/pdfminer/Pillow，`pdftoppm`/`mutool`/gs 全都没有，
-    而 `web.assets_frontend` 打包了 `web/static/src/core/**`，门户页能 import `loadPDFJSAssets`；
-    `mail` 里的 `generatePdfThumbnail()` 就是同一做法的现成样板）；
-    `covercss`＝不出图，纯 CSS 把出处/知识点/摘要撑成海报；
-    `coverai`＝`models/mistake_cover.py` 用 **Pillow** 把**已有的** `ai_summary`/`ai_question_text`
-    排成 PNG（**一次模型都不调**，按内容哈希缓存在 `ai_cover` 上；位图里不画 emoji，雅黑会出方框）；
-    `feed`＝一屏一道的整屏流，封面走 `auto`（原页 → 位图 → 文字依次退让），
-    "放过"就是现成的 `touch_review()`，**没新造状态字段**；点赞与背景音乐刻意没做
-    （点赞的语义是"我会了"，等于把已否掉的「不设订正状态」请回来）。
-    **文字封面永远垫在底下，图加载失败只坏那一张并写明原因**——封面版最怕整屏空白还什么都不说。
-  - 批次② 抓到一个**潜伏的洞**：`tutoring.workbook.page`（单页缓存表）只给教师组开 ACL，
-    而 `_pdf_for()` 第一件事就是 `search` 它，所以**以学生身份触发抽页必然 `AccessError`**；
-    门户以前从不读 `page_pdf`（只有后台教师弹窗用），所以一直没露头。修法：`_locate_page`
-    按本人权限把关（看不到教材就拿不到封面），把关过了再 `sudo()` 取那张派生缓存页。
-    由此定下一条不对称口径：判据 `cover_pdf_ready` 走 sudo（所以它会对学生说"有原页可画"），
-    真取图按本人权限（可能 404）——所以前端**必须**有退路。
-  - 批次③（`19.0.1.34.0`，19:40 已部署）把当年"不设订正状态"这条**赶工限制解除**：
-    错题加原生 `active`，详情页给「够了，归档 / 放回在用 / 删除（带**连照片一起删**勾选）」，
-    流里也给「够了」；门户对错题放开 `unlink`（记录规则仍限本人）。筛选药丸多一颗「已归档」——
-    域里显式写 `('active','=',False)` 就够了，ORM 的判据是"域里没提到 active 才补隐含过滤"。
-    摘要额度 **5 → 25 条/天**。`workbook_id` 改成**可选**，错题页顶部新增「+ 传照片记题」：
-    拖几张图就记几道题，图落进知识库"错题"分类并各自绑回；前端 JS 只把文件塞进原生
-    `<input type="file">`，提交仍走浏览器 multipart（没 JS 也记得了题）。
-  - 批次③ 封面整条改路：**撤掉 Pillow 位图那张**，改成 **AI 只报"配方"、图由我们渲染**——
-    素材表 `models/mistake_cover.py` 定死 8 个色板 id + 12 个内联 SVG 图案 id，prompt 要求模型
-    只回 `{"bg","motifs","headline","sub","badge"}`，**不许出颜色值/SVG/CSS/图片**；
-    回来全过 `clean()` 白名单（认不出的丢、超长截断），渲染只可能用到表内的色与形状。
-    当时是"一题一张"的批量口 `POST /my/mistakes/covers`（一次最多 8 道、同步做、已有配方默认跳过）。
-  - 批次④（`19.0.1.34.1`，23:22 已部署）把 `coverpdf/covercss/coverai` **收拢成一版「每日回顾」**：
-    大图不是"每题一张"而是**一天一张**——卡片墙答"这道题长什么样"，回顾答"这一天合起来是什么"。
-    新模型 `tutoring.mistake.digest`（`unique(student_id, date)`：一天一条，重做是覆盖而不是再攒一张），
-    入口 `POST /my/mistakes/digest`（`?lab=daily` 上那一个按钮，`force` 才重做），prompt 换成
-    `prompts/digest_{system,user}.txt`。统一走 AI 出配方；接口不通畅（没密钥/连不上/坏 JSON/
-    回的全是认不出的 id）才退到**文字回顾**——退让原因存进 `note` 并写在封面上，重新打开这一页还读得到。
-    `POST /my/mistakes/covers`、`cover.png` 那两条路由与 `ai_cover` 字段一并删掉；逐题那份
-    `cover_recipe` 只剩整屏流 `auto` 在**读**，而现在没有任何入口会**写**它，所以流里的封面实际是
-    原页 PDF → CSS 两档。
-  - 还没真机验的：表格版 9 列窄屏横向滚动、五版首屏的手感，都由维护者本人在 8069 上试；
-    这四批只有机器证据（到 34.1 是模型 110 + HTTP 102 = 212 条断言全过 + 部署 0 ERROR），没动浏览器。
-    **真实的那一次 DeepSeek 往返始终没被验到**——一次性库上没有密钥，在 8069 上点「做这一天的回顾」
-    才是第一次真跑。
-
-- **展示"某一页"而不是整本**（已在本机库升级生效 `19.0.1.6.0` 并完成真机验收；实测数据与细节见 [updates/2026-10-01.md](updates/2026-10-01.md) 末节）：练习册有两个新字段
-——`page_mode`（`direct`＝填的就是 PDF 页号／`offset`＝填书印刷页码）与 `page_offset`（**53 资料实测：印刷页 + 8 ＝ PDF 页号**，故该书设 `offset` / `8`）。`tutoring.workbook._locate_page()` 把页码翻译成"哪份分册的第几页"，`tutoring.workbook.page` 用 `odoo.tools.pdf.PdfReader/PdfWriter` 只抽出那一页存成小 PDF（**同页多题共用一份缓存**；重传正文或改页码范围即作废该文件的缓存）。为什么要抽：核心 `pdf_viewer` 走 `/web/content?model=&field=&id=`，而该路由**不支持 Range 请求**（全库无 `Accept-Ranges`），直接指整本文件等于把几十 MB 全拉进浏览器才显示一页。抽页失败/越界/没传教材一律只显示一句提示，**不抛异常**（它在计算字段里跑，抛错＝弹窗 500）。
-
-- **知识点是树**：`tutoring.knowledge.point.parent_id` 自关联挂上级（年级 → 专题 → 考点），列表页用「完整路径」列读成 `高中 / 集合、常用逻辑用语与不等式 / 不等式的解法`；社区版列表没有树形折叠控件，所以是平铺 + 路径列。**模块自带一套高中知识点**（`data/knowledge_data.xml`，11 专题 / 87 考点，取自 53A 精讲册目录，`noupdate=1` 所以老师改动不会被升级还原），新装的库开箱就有；年级键值多一个 `'13'` 高中（跨高一~高三的一层），高一/高二/高三学生的挑选域连 `'13'` 一起放开。
-
-- **练习册 / 教材**：列表**不再是可编辑网格**——单击整行打开**只读页中页**（原生 `<list type="object" action="…">`
-  把行点击交给 Python 方法），改数值或加行只能走「新建练习册」/「修改」两个明确按钮；一本书可挂**多份 PDF**，
-  `tutoring.workbook.file.content` 用 `Binary(attachment=False)` → **正文本机就是 PostgreSQL 的 bytea 列**。
-  阅读用核心 `widget="pdf_viewer"`（pdf.js 滚轮翻页，自带上传/换文件/清除），门户学生在
-  `/my/learning/workbooks` 只读阅读自己用过的教材。**已在本机库升级生效（`19.0.1.5.0`）并完成真机验收。**
-- **大 PDF 要"物理拆、逻辑不拆"**：Odoo 的上传上限实际卡在 **128MiB 请求体**（见陷阱 15），
-  base64 换算后**单个文件约 96MB** 就到顶。所以一本厚书按页切成几份挂进同一本书，
-  `page_from`/`page_to` 记全书连续页号，阅读台头部「按页码定位」输一个页号 → 自动挑出那份分册
-  并跳到它的局部页号（靠 `content_page` 这个核心钩子字段，见 `updates/2026-10-01.md`）。
-  《五年高考三年模拟》已按 1–55 / 56–110 / 111–164 页存成 3 份，是这套流程的样板。
-
-- **知识库**（2026-10-05 新增，`19.0.1.15.0`；本机业务库现到 `19.0.1.34.2`）：每位用户自己的顶层内容空间，**1GB 配额、单文件 ≤64MB**，
-  分类（`workbook` 练习册 / `mistake` 错题 / `leetcode` / `note` / `doc` / `other`）只是条目上的一个字段，不限制内容类型。
-  **练习册是它的一个分类**：`tutoring.workbook.file` 改为委托继承 `tutoring.library.item`
-  （`_inherits`，正文与文件名归条目表），所以教材同样占同一份配额、可被搜索打标签、删除即释放。
-  后台页面是卡片看板 + 容量条/拖拽上传区（多选、逐条进度）；门户 `/my/library` 用同一个模型。
-  配额统计走 `used_bytes()`（SQL 求和 + 先 flush，见陷阱 23），并发靠 `res_users` 行锁串行化同一用户。
-  - **文件夹**（`19.0.1.13.0`）：`tutoring.library.folder` 是每人自己的一层收纳格（单层、无嵌套），
-    条目 `folder_id` 可空＝未分类，`ondelete='set null'`——删文件夹只让文件退回未分类，绝不动正文。
-    它和 `category` 并存不打架：分类答"这是什么内容"（教材由委托继承写死 workbook），
-    文件夹答"这个人把它放哪儿"。建的地方有两处：门户左栏「+ 新建」（还有改名/删除）、
-    条目弹窗的文件夹下拉里直接敲新名字。**后台不再有「知识库文件夹」这一页**（`19.0.1.15.2`）——
-    顶栏那一项和它的 `act_window` 已删，理由是 `/my/library` 左栏就是完整入口（那条路由 `auth='user'`，
-    老师与 admin 都能进），留一页只在顶栏多摆一个重复入口；文件夹的 form 视图保留，
-    给条目表单里那个下拉的「打开/编辑」用。
-  - **隐私收口**：条目、文件夹、**标签**三张表都挂 `[('user_id','=',user.id)]` 的组规则；
-    标签原来是全共享字典，而标签名本身就是"这个人在学什么"，所以本轮改成按用户私有
-    （新列 + 迁移按"跟着用它的人走"回填、被多人用过的拆成每人一份）。
-    越权访问 `/my/library/<id>`、`/tutoring/library/<id>/raw` 一律 404；判定要用
-    `has_access`/`search`，不能用 `browse().exists()`（见陷阱 26）。
-    正文回吐那道口还堵了 SVG：`kind` 不再把 svg 当可内联图片，raw 路由对 svg 一律按附件
-    + `X-Content-Type-Options: nosniff`（SVG 能嵌脚本，同源内联等于给自己种 XSS）。
-    预览 HTML 是 `sanitize=False` 的裸拼串，所以进 `title`/`alt` 属性位的文件名/标题
-    一律 `markupsafe.escape`——`_clean_name` 只护住控制器那条路，JSON-RPC 直接 write
-    `filename` 不经过它（实测能撑破属性，属 self-XSS，但分享功能一开就是现成的存储型 XSS）。
-  - **用户端页**（`/my/library`，非管理员用）：整页重做——容量条 + 左栏文件夹 + 拖拽上传（逐文件进度，
-    没 JS 时同一张表单走原生 multipart POST）+ 搜索/分类药丸/排序/每页 + 卡片墙 + 分页；
-    详情页可就地改名、挪文件夹、改分类标签、下载、删除。取数是服务端 `domain+order+limit/offset`，
-    文件夹与分类计数各一次 `_read_group`。
-  - **「练习册/教辅」这一类现在真的是一本练习册**（`19.0.1.20.0`）：以前那个分类只是条目上的
-    一个标签，只有后台练习册表单里的「上传教材」才会建 `tutoring.workbook`——而错题速记条、
-    门户「教材」页、错题「展示那一页」、AI 摘要定位**认的全是 `tutoring.workbook`**，
-    所以在知识库里传了教辅的人，到错题页那本下拉是空的，**当场记不了错题**。
-    现在 `tutoring.library.item._ensure_workbook_link()` 补上这条链：书名取条目标题（同名即同一本，
-    一本多份文件自然归到一起），有正文才建 `tutoring.workbook.file` 并用 `item_id` **复用同一条条目**
-    （不产生第二个文件），没附件的只把书立起来。挂在 `create`/`write` 两个钩子上，
-    上传、改分类、后台直接建条目都走同一条路；`tutoring.workbook.file` 那边带
-    `no_workbook_link` 上下文闸门——委托继承会先回写父记录，不拦就是 item.create→file.create→item.write 回头路。
-    边界：学生账号对练习册只有读权限（它是老师维护的字典），所以**只给建得动的人挂，不 sudo 硬闯**。
-  - **「谁可以看」＝按条共享给学生**（`19.0.1.29.0` 进 main；**2026-10-09 20:12 那次 `-u` 已随 `31.0` 一起落上本机
-    业务库**（关系表 `tutoring_library_item_share_rel` 已建）；云机没部署。验收当初是在一次性库
-    `zz_library_share` 上做完的，那个库与它的 filestore 已删）：条目上 `share_user_ids` + 一条**只放开 read** 的记录规则
-    （同组内规则按"或"算，write/create/unlink 仍归"仅本人"那条，所以被共享的人改不动删不掉）；
-    配额按 `user_id` 求和、行不搬家，**对方一格都不占**。候选名单只认学生档案的门户账号
-    （库里没有 teacher↔student 字段，"和我相关的学生"目前＝"平台上的学生"）。
-    门户详情页主人有折叠面板、列表页有「共享给我」药丸；**非本人的条目不渲染文件夹/标签/错题关联**
-    （那三样各自隔离，读名字会先炸 `AccessError`，标签名本身还会透出去），
-    四个写入口的域里补钉了 `user_id`。**这条同时给出了"门户学生读不到教材"那个老 bug 的正解**：
-    `security` 里"委托继承的字段不受父表规则影响"那句是**错的**（实测学生 `search_count` 就是 0、
-    读 `content` 就是 `AccessError`），把那条教材条目共享给学生即可，`/my/learning/workbook-files/<id>`
-    从 404 变 200。细节与验收数字、新陷阱 66（`t-call` 片段里没有 `user`，要用 `env.user`）、
-    67（同主机不同端口共用 cookie jar → 8899 登录会顶掉 8069 的会话并报 CSRF）见
-    [updates/2026-10-09.md](updates/2026-10-09.md) 末节。
-  - **先记名字、附件后补**（`19.0.1.20.0`）：`/my/library` 搜索框旁多一个「新建资料」
-    （原生 Bootstrap collapse + 表单，`POST /my/library/new`），只填名字就能建一条**不占配额的空条目**；
-    分类选「练习册/教辅」时它当场就是一本练习册，错题页立刻选得到。附件什么时候有什么时候补：
-    条目详情页没有正文时那块画的是「补附件」表单（`POST /my/library/<id>/add_file`，原生 multipart，
-    配额走条目 `write()` 现成的增量校验），卡片与详情页都标「还没补附件」并且不给下载按钮。
-    存量由 `migrations/19.0.1.20.0/post-migrate.py` 补链。**已知没做的**：补附件只能一次一个文件、
-    已有附件的条目不给"换附件"；条目改名不会把已挂的书一起改名（免得挪到另一本去）。
-  - **网站顶栏第四项「知识库」**（`/my/library`）：靠 `website.menu.group_ids`
-    （内部 + 门户两组）+ 核心全局规则 "Website menu: group_ids" 过滤，**匿名访客看不到这一项**（见陷阱 28）。
-  - **Markdown 就地渲染 + 纯文本就地编辑**（`19.0.1.14.0`）：`kind` 多出 `markdown`/`text` 两档，
-    md 由 `models/library_markdown.py`（服务端、子集语法、零第三方依赖）渲染成 HTML，
-    代码块交给站点自带的 Prism 上色，链接与图片过协议白名单后再走一遍 `html_sanitize`；
-    **渲染只有这一份实现**——编辑时的「预览草稿」是 `POST /tutoring/library/render_md` 拿同一份输出，
-    前端不养第二个解析器。md/txt/csv/json/yaml/代码等纯文本可在库里直接改
-    （`text_body` 计算字段带 inverse，写回 `content` 因而走配额增量重算），
-    超过 512KB、空文件、非 UTF-8 一律只读并把原因写在 `read_note` 上；
-    PDF/图片这类仍然只能看。编辑器就是原生 textarea + Tab 缩进 + Ctrl/⌘+S，不做 IDE
-    （核心那个 `widget="code"` 是 Ace，半个 IDE，没用）。
-  - **错题是知识库的一个固有类型**：`category` 多一档 `mistake`，条目可挂 `mistake_id`
-    （`ondelete='set null'`）反向是 `mistake.library_item_ids`。错题的正文仍然是结构化记录
-    （出处/难度/错因/知识点），文件只是"题目长什么样"的附件——
-    门户错题详情页可直接传题目照片（`POST /my/learning/mistakes/<id>/attach`，
-    分类固定错题并绑回本条），错题卡片带照片数记号，知识库的卡与详情页又能跳回那道错题。
-    入口这块补了 `/my` 首页的「错题」卡（原生 `config_card=True` 常显，见陷阱 35），
-    并且**内部用户（老师）不再被 `/my` 重定向到空的学习看板**——他现在有自己的档案，
-    那张卡片页正是他要的入口（`19.0.1.14.1`）。
-  - **老师也是学习者**（`19.0.1.15.0`）：每位教师账号自动得到一份名为「我自己」的学习档案
-    （`tutoring.student.SELF_PROFILE_NAME`，年级默认 `13`）——存量靠
-    `data/self_profile_data.xml` 在升级时补，新增靠 `models/res_users.py` 的 `create` 钩子。
-    错题页因此长出**范围切换**药丸（我自己 / 全部 / 各学生，`?scope=`）与速记条上的
-    **记到谁**下拉；只有一份档案的学生 `len(scope_students) > 1` 不成立，页面照旧。
-    老师给自己记的错题、传的题目照片，落的就是**他本人**的知识库行级隔离那一份。
-  - **老师之间互不见私人档案**（`19.0.1.15.2`）：`tutoring.student` 加一列 `is_self_profile`
-    （建档案时写死，存量由数据阶段的 `mark_self_profiles()` 补），两条 `base.group_user`
-    记录规则把**别人的本人档案连同它名下的错题**一起收口——真实学生及其错题仍全体教师可见。
-    学生列表、错题看板、范围药丸与「记到谁」下拉都靠 `search()` 取数，所以规则一处生效即可。
-    以前 `tutoring.student`/`tutoring.mistake` 对内部用户零规则，两位老师会各看到两条
-    「我自己」（陷阱 36 的现场），现在从根上没了。
-  细节与两轮迁移见 [updates/2026-10-05.md](updates/2026-10-05.md)。
-
-- **时间账本：接住了桌面端 Do1ng**（`19.0.1.19.0`，批次①，细节与新陷阱 51~58 见
-  [updates/2026-10-07.md](updates/2026-10-07.md)）：
-  维护者自研的 JavaFX 计时工具 **Do1ng**（`D:\WorkSpaceD\CodeMountains\Do1ng`，数据只在本机 `data/tasks.json`）
-  现在能把任务与计时传到本站。云端五张表 `tutoring.time.task/.session/.pool.item/.device/.sync`，
-  每行带**客户端生成的** `client_id`（云端不自造主键，多机重复上报只会落一行）；
-  删除是墓碑、落在原生 `active=False`（读路径自动跳过，同步查行必须显式 `active_test=False`）；
-  冲突用服务器发的 `rev` 做乐观锁——**不比较客户端时间戳**，多机本地时钟不可信；
-  内容一致判 `noop`，专门为了让"服务端写成功但响应被网络吃掉"能收敛（这条链路 TLS 握手实测四分之三被重置）。
-  `total_seconds` 云端按区间重算、只累已结束区间，和 Do1ng 的 `totalMillis` 口径一致
-  （Do1ng 落盘只到秒，故两边最多差每段区间 1 秒，展示层看不出来）。时区按行存偏移 + 一列"当地日期"，
-  否则东八区早上 7 点那段会被算进前一天。三条机器接口 `/tutoring/time/login`（自己实现只为让客户端不必填库名）、
-  `/sync`（`auth='public'` 自判空会话，避免核心的会话过期把 302 登录页 HTML 当同步结果返回给程序；
-  `csrf=False` 换成要求自定义头 `X-Do1ng-Sync`）、`/ping`。门户 `/my/time` 目前是最小页（概览四卡 +
-  任务卡片墙 + 同步流水 + 接入说明），顶栏第 5 项与 `/my` 入口卡都靠 `group_ids`/`config_card` 收口。
-  隐私与知识库同强度：五张表都挂"仅本人"记录规则，老师之间互不见。
-  Do1ng 侧：**用内容哈希判脏而不是给 16 处 `store.save()` 埋脏标记**，删除靠"登记过而本地找不到"推墓碑，
-  所以 `TaskStore.delete()` 一行没改；`Session`/`PoolItem` 补了 id 并在启动时写回；
-  DPAPI 记住密码（PowerShell 调用，零新依赖，回传走 base64 绕开 cp936）；
-  触发＝手动 + 改动后 30 秒 debounce + 心跳到点 + 退出前收尾；**本地文件就是队列**，
-  传不上去只是还没传，不会丢。**批次②＝完整展示页（热力图/排行/时间轴/详情/设备面板）；
-  批次③＝双向拉取 + 网页端可编辑 + 字段级合并与冲突副本 + 多机验收。**
-  本轮只在一次性新库上验到 100/100 + 15/15 + 36/36；**2026-10-08 21:33 随 `19.0.1.20.0` 那次 `-u` 一起升上本机业务库**
-  （五张表已建、`/my/time` 顶栏项已落，见 [updates/2026-10-08.md](updates/2026-10-08.md) 末节），**云机仍未部署**。
-
-- **错题能被 AI 分析**（`19.0.1.16.0`）：这是错题区别于其它知识库内容的地方。
-  在题目详情页（门户与后台都有按钮）发起一次：服务端定位这条错题对应的那一页教辅、
-  **把那一页的扫描图**交给 `deepseek-flash`（显式关思考、`max_tokens=700`、一次约 1300 输入 + 80 输出 token、2~4 秒），
-  让模型抄回题目原文、生成一句 ≤40 字摘要（错题卡片上直接看得到，不必点开），
-  并把该学生年级的候选知识点发过去让它**逐字**挑一个——候选里没有就如实留空，
-  题上已有人工知识点一律不动。AI 不解题、也不保证资料正确（页码填错它就直接回 `{"found": false}`）。
-  口径：**每账号每天 5 条额度**，一题只许发起一次，成败都扣；
-  失败后这道题永久不再自动生，页面上写明"请手工填知识点"。
-  执行走 `ir.cron`（每分钟、每 tick 最多 2 条、一条一提交），点按钮只排队并提示"大约需要 2 分钟"。
-  分界线是"token 花出去没有"：花出去之前崩的（没密钥、我们自己的代码出错）走 `_abort()`
-  ——任务转 `error`、错题退回未生成、**不扣额度**；之后的一切失败才扣并锁死。
-  密钥优先环境变量 `DEEPSEEK_API_KEY`，兜底系统参数 `tutoring_center.deepseek_api_key`
-  （`data/ai_job_data.xml` 是 `noupdate=1`，否则每次升级会把填好的值抹空）。
-  **抄回来的题目带 LaTeX**，所以有 `models/math_text.py` 把子集转成**纯文本**
-  （`a^x`→`aˣ`、`\frac{a}{b}`→`(a)/(b)`、`cases`→`分段：式子（条件）`），
-  页面显示 `ai_readable_summary`/`ai_readable_text`，原始字段照旧留着；
-  刻意不产 HTML（后台 Char 字段不渲染标签，产标签就得再写一个字段组件、维护第二份实现），
-  也刻意不引 KaTeX/MathJax（核心没有，前端零依赖是纪律）。**不认识的记号原样留着，绝不改题意。**
-  提示词不在 .py 里：`prompts/summary_system.txt` 与 `prompts/summary_user.txt`，改文案不必碰代码。
-  **素材判据与失败口径在 2026-10-13 改了两次（`19.0.1.34.2`／`19.0.1.34.3`）**：练习册 34.0 起是可选的，
-  所以 `can_ai_summary` 从"能不能从教辅 PDF 定位到那一页"放开成「**有题目照片 或 能定位到原页**」，
-  且这道题还没生成成功过；**没生成出来的那道允许再点**（他推翻了自己当初"一题一次、失败也永久锁死"那条，
-  防烧钱交给当日额度）。34.2 把 `AiPageError` 改成 `AiSourceError` 并归进 `_abort()`（素材取不到＝钱没花出去、
-  不扣额度），但 `_abort()` 顺手把 `ai_hint` 抹空，于是门户表现为"按钮亮着、点下去转一圈、什么都没发生"，
-  被判断成"DeepSeek 无响应"——**那次接口一次都没被打到**。两次真密钥实验的读数（他批准）：纯文字 1.7 秒
-  回 `通了`；真实题页 + 出处/题号/年级/候选**全空**时 2.5 秒回 `found:true` 加正确抄题与摘要，
-  **所以话术那层不用放宽**，他拖图记的那道题也在 48 秒里走通了照片这条路。
-  34.3 三处：① 知识库条目的 `kind` 在扩展名说不出话时**改认文件头**（JPEG/PNG/GIF/BMP/WebP 五种签名，
-  `b64_head()` 只解开头 16 字节，不整份解码）——手机照片常见没后缀或被改名，以前判成「其它文件」就
-  **有图被当没图**，而 `kind` 一处同时喂门户缩略图、`library_photo_count`（按钮该不该出现）与 `_photo_images()`；
-  ② `_abort()` 把原因写回 `ai_hint`（`ai_state` 照旧回未生成，不构成"订正状态"），那句还报出是哪一本哪一页、
-  并给出去路"传一张题目照片再点一次"；③ 门户详情页加一档「未生成但写着原因」。
-  **34.3 只在磁盘上，本机业务库还没升**（含 Python 改动，要停服 `-u`，等维护者给窗口）。
-  细节与新陷阱 44~49 见 [updates/2026-10-05.md](updates/2026-10-05.md) 第二十八、二十九节；
-  这次排查全程与 34.3 见 [updates/2026-10-13.md](updates/2026-10-13.md)。
-
-核心自定义模块：`server/addons/tutoring_center`（24 个模型，含练习册 `tutoring.workbook`、教材文件
-`tutoring.workbook.file`、单页缓存 `tutoring.workbook.page`、速记向导 `tutoring.mistake.quickadd`
-与时间账本 `tutoring.time.*`，详见根 README）。
-
-## 二、环境与使用方式
-
-| 角色 | 环境 | 说明 |
+| 内容 | 落点 | 入库 |
 |---|---|---|
-| **协作者** | 原生 Windows 安装（**优先**） | PostgreSQL 18 + Python 3.12 + Odoo 19 源码，完整步骤见 [ONBOARDING.md](ONBOARDING.md) 路径 A |
-| **协作者（备选）** | Docker（`docker compose up -d`） | ONBOARDING.md 路径 B，容器内 `edu_dev` 库，数据一次性 |
-| **维护者** | 原生 Windows 服务 | Odoo 19 社区版 + PostgreSQL 18（服务 `odoo-server-19.0` / `postgresql-x64-18`），**本机不装 Docker** |
-| **使用端（公网）** | 云服务器 + Docker | 与本机完全独立的一套环境。它的地址、目录、口令位置、加固清单与变更史都记在**那台机自己的运维档案** `~/odoo-edu/ops/`（`state.md` / `runbook.md` / `updates/`，权限 700/600，不在仓库内）；本仓库只留可复用的技术结论（陷阱 18、`updates/2026-10-01.md`） |
+| 你的交接档案 | `.agent/local/handoff.md` | **否** |
+| 按日期的开发日志 | `.agent/local/updates/<YYYY-MM-DD>.md` | 否 |
+| 陷阱清单（会咬人的那些） | `.agent/local/traps.md` | 否 |
+| 一次性验收 / 冒烟 / 造数脚本 | `dev/zz_*` | 否 |
+| 开发向文档（可行性评估、内部方案、测试记录） | `docs/dev/` | 否 |
+| 安装步骤、使用说明、架构说明的修正 | `.agent/ONBOARDING.md`、`docs/` 那两份 | 是 |
 
-两套环境数据完全隔离。维护者环境的详细安装/陷阱见根 README 与 `updates/2026-09-29.md`。
+判断只有一句：**"另一个人要把这套软件装起来、用起来，需不需要它？"** 需要 → 入库；
+只是我们干活路上留下的 → 本地。
 
-> **本机形态（2026-10-03 逐项实测校准）——`E:\Odoo` 就是唯一真源，一切从这里开始**：
-> 这个目录既是本仓库的主工作树（`git worktree list` 第一项），也是正在运行的 Odoo 安装目录，
-> **不存在第二份需要"同步"的部署副本**。实测：服务 `odoo-server-19.0`（nssm 拉起
-> `E:\Odoo\python\python.exe E:\Odoo\server\odoo-bin -c E:\Odoo\server\odoo.conf`）与
-> `postgresql-x64-18`（数据 `D:\PostSQL\data`，`psql` 在 `D:\PostSQL\bin`）均在 Running，业务库 **`OdooForDB`**，
-> `addons_path` 第二项 `E:\Odoo\server\addons` 就落在仓库工作树里 → 改 `server/addons/tutoring_center`
-> 的文件，服务读的就是这一份；`svcctl.ps1`（skill `odoo-service-control`）**在本机可用**。
-> 但**改文件 ≠ 生效**：Python 变更必须重启服务，XML/QWeb/JS 变更必须 `-u` 重建资产包（见第四节）。
->
-> **（2026-10-05 补充）别的 worktree 不算数**：`git worktree list` 里除 `E:/Odoo` 外还有几个
-> 工作树（含 WorkBuddy 的 `C:\Users\lenovo\WorkBuddy\Worktrees\Odoo\main-*`）。
-> 服务只认 `E:/Odoo/server/addons/tutoring_center` 这一份，所以**在别的 worktree 里改完代码，
-> 必须把 `server/addons/tutoring_center/` 同步到 `E:/Odoo` 下才会被加载**（`--addons-path` 另指
-> 只对本进程有效，服务进程不受影响）。同步前先把 `E:/Odoo` 的当前内容备份到 `E:\Odoo\backup\` 下，
-> 并注意 `E:/Odoo` 自己可能正 checkout 在别人的分支上且有未提交改动。
-> 另：本机业务库确为 `OdooForDB`（`edu_native` 在本机不存在，是云机/别处的库）。
->
-> 2026-10-01 曾在这里记过一套"开发模式"形态（`E:\Odoo\odoo19` + venv + `edu_native` + `start-odoo.bat`
-> 前台跑 `--dev`、无 Windows 服务、`addons_path` 指向 `E:/workspace/Odoo_Edu`），**本机复核不成立**——
-> 磁盘上没有 `odoo19/`、`E:\Odoo\odoo.conf`、`pgsql/`、`pgdata/`、`start-odoo.bat`。那描述的是别处的另一份副本；
-> 协作者照 [ONBOARDING.md](ONBOARDING.md) 自装的机器可能是那种形态，动手前先按上面几行判自己在哪台机器上。
+**为什么这么分**：仓库是公开的，而开发日志天然带着本机路径、服务名、备份文件名、
+一次性库名、账号口令、真实学习数据。本项目开发者极少，公开这些收益很小、暴露面很大。
+完整口径见 [DOC_POLICY.md](DOC_POLICY.md)。
 
-## 三、当前数据与账号（维护者本机）
+## 二、一份 handoff 该有哪几节
 
-| 对象 | 事实 |
-|---|---|
-| 学生"表弟"（id 2） | 初一，已**结课**；5 次课、2 场考试（78%/85%）、3 条掌握、7 条错题（演示） |
-| 学生"小明"（id 4） | 初一，**真实数据**，总课次 20 |
-| 学生"示例学生B"（id 3） | 初二，隔离验证用，可删 |
-| portal 账号 | `biaodi`（表弟）、`student02`（示例学生B）；密码见本地密码记录，**不入库** |
-| 知识点 | 初一 5 个演示数据；模块另自带高中库 98 条（11 专题 / 87 考点）——**业务库尚未升级，升级后才落库** |
-| 练习册 | 「53」「一数」「课内/其他」3 本（错题数 7/7/1，按 表弟/小明 计）；教材文件 3 份（《53》按 1–55 / 56–110 / 111–164 页拆的三份） |
+照这个骨架写；哪节没数就写"未确认"，**别删标题**（标题在，下一个人才知道要补）。
 
-容器演示环境的账号由 `dev/seed_data.py` 创建（`biaodi` / `student02`，密码环境变量注入）。
+1. **协作规则** — 分支命名、提交信息、PR、仓库卫生、版本号规矩。本项目已有现成的：
+   [MULTI_AGENT.md](MULTI_AGENT.md)（并发与部署）与 [ONBOARDING.md](ONBOARDING.md) 的「开发工作流」节，
+   **指向它们，别抄第二份**；
+2. **现在是什么样** — 模块版本、服务在不在跑、部署到哪一批。
+   **版本号必须把"库里的"和"磁盘上的"分开写**：两个值不等就是有人改了没升级，
+   这是本项目最常见的一类事故；
+3. **功能现状** — 每块 3~5 行"现在是什么"，不写"怎么变成这样的"；细节交给代码与架构说明；
+4. **当前数据与账号** — 用脚本实测，别抄上一次的值（见第三节第 2 条）；
+5. **环境与高频操作** — 启停、升级、免重启那条路、日志在哪个文件；
+6. **仍会咬人的陷阱** — 按主题分组，编号沿用归档，别重新编号；
+7. **明确没做 / 挂着的事** — **这节最有用**，下一段对话基本都从这里接；
+8. **索引** — 让人知道去哪找细节。
 
-## 四、维护者高频操作要点
+## 三、写内容的四条规矩
 
-> 服务启停与体检**统一走 Qoder skill `odoo-service-control` 的 `svcctl.ps1`**（命令、UAC 规则、六层 `check`、失败判读见 [service-control.md](service-control.md)），不要手搓 `Start-Service` / `Stop-Service`。
+1. **只写你验证过的，并写清怎么验的。**
+   `库 = 磁盘 19.0.1.36.0（2026-10-16 12:17 那次停服 -u，exit 0、0 ERROR）` 可以写；
+   `应该已经生效了` 不能写。**机器证据与真机点击是两件事，别混着记。**
+2. **数字要带日期与取数方式。** 数据快照要么写"截至某日实测 ＋ 取数脚本路径"，
+   要么干脆写"以库为准"。没有取数方式的计数，一周后就是误导。
+3. **过时比缺失更坏。** 改不动、核不了的段落就删掉。留着但没人再核对的描述，
+   半年后会把下一个人带偏——本项目吃过一次：某段"环境形态"记的是别处机器的样子，
+   照着做的人白跑半天。
+4. **口径变了就地改，别叠第二份。** 同一个事实出现两种说法，读的人无法判断哪条新。
+   推翻旧口径就在原句改掉，并注明"从某版本起已解除"。
 
-1. **没有"部署副本"要同步**：`addons_path = E:\Odoo\server\odoo\addons,E:\Odoo\server\addons`，第二项所在的 `E:\Odoo` **就是仓库主工作树**，服务加载的正是你手里在编辑的这份文件。合并到 main 之后只需 `git pull`；**不要用 `cp -a` 往哪儿盖**——历史上那套"备份副本 → `diff --strip-trailing-cr` → 整份覆盖"已作废，真去覆盖只会把 `git status` 弄脏，让下一个人分不清哪些是真改动。动手前先 `git status`：这一份目录所有 agent 共用，别人未提交的 WIP 会被你一次重启一起加载进内存。要留底就把模块整份复制到 `E:\Odoo\backup\` 下（**别放进 addons_path 目录**，带 `__manifest__.py` 的目录会被当模块扫出来）。
-2. **标准升级**（Python 变更必须走）：`svcctl.ps1 stop odoo`（UAC）→ `"E:\Odoo\python\python.exe" "E:\Odoo\server\odoo-bin" -c odoo.conf -d OdooForDB -u tutoring_center --stop-after-init` → `start odoo`。
-3. **纯 XML/数据变更免重启**：`PYTHONUTF8=1 odoo-bin shell -c odoo.conf -d OdooForDB < E:\Odoo\dev\upgrade_via_rpc.py`，脚本内 `button_immediate_upgrade()`，运行中服务经 signaling 自动重载。**必须带 `PYTHONUTF8=1`**：脚本有中文注释，默认按控制台代码页读 stdin 会 `UnicodeEncodeError: surrogates not allowed`。
-4. **硬限制**：运行中的服务无法加载新增 Python 模型类/控制器，必须重启；纯字段/视图变更无此限制。
-5. **前端资产（`static/src` 的 JS/CSS）改动也走标准升级**：资产包只在模块升级时重建，改完刷新页面看不到变化（实证见 `updates/2026-09-30.md`）。
-6. 服务体检：`svcctl.ps1 check` 六层；日志 UTC（本地 UTC+8）。
+## 四、每次交接要做什么
 
-## 五、最重要陷阱（正文 19 条；20~22 见 updates/2026-10-03.md，23~49 见 updates/2026-10-05.md，50 见 updates/2026-10-06.md，51~58 见 updates/2026-10-07.md，59~65 见 updates/2026-10-08.md，66~70 见 updates/2026-10-09.md，71~80 见 updates/2026-10-12.md，81~90 见同一份第十~十八节，91~93 见 [updates/2026-10-13.md](updates/2026-10-13.md)）
+- 至少更新第二节的**「现在是什么样」与「挂着的事」**两节；
+- 部署过就记：时间（注明日志是 UTC 还是本地）、命令、exit code、ERROR 计数、
+  库里 `latest_version` 的前后值；
+- 验过就记验到哪一层：模型层断言 / 真实 HTTP / 浏览器真机点击 / **没动浏览器**；
+- 收尾：一次性库、临时账号、口令文件删了没删，写在档案里；
+  **别信文档说"已删"，去数数据库**；
+- 给下一个人留一句开场模板。本项目的是：
+  「读 `.agent/local/handoff.md`，更新本地 `main`，之后我交代需求」。
 
-> 编号在几份文档里有过错位，以"见哪份 updates"为准：知识库那两次新增的八条写在
-> [updates/2026-10-05.md](updates/2026-10-05.md) 第六节与第十二节（委托继承的字段搬运、
-> stored compute 要 flush 才能 SQL 统计、`@api.model` 方法不能用记录调用；
-> `browse().exists()` 与缓存值不经过记录规则、SQL 约束炸过要 savepoint、
-> 顶栏菜单可见性的原生 `group_ids` 机制、门户 JS 其实在 `assets_frontend_lazy` 包里、
-> 给存量表加 required 字段不能用 `IS NULL` 找旧行）。
+## 五、不要写进仓库的东西
 
-1. `db_template = odoo_template_c` **不可改回 template0**（Windows 上 collate≠ctype 库无法连接，已存在库只能删库重建）；
-2. `_sql_constraints` 在 Odoo 19 已弃用，用 `models.Constraint('unique(...)', '消息')`；
-3. chatter 写法：表单内直接 `<chatter/>`，旧式 `oe_chatter` div 会被当普通子列表渲染；
-4. 视图优先级：核心视图 `base.view_partner_form` 为 priority=1，自定义默认视图需 **priority=0** 才能稳定胜出；
-5. 若单独升级 `project`/`contacts`/`portal`/`base`，门户卡片/联系人视图指回/菜单隐藏可能复位，**重跑 `tutoring_center` 升级即恢复**；
-6. 删除账号后残留会话会导致浏览器 403，全量清 `%LOCALAPPDATA%\OpenERP S.A\Odoo\sessions\` 即可；
-7. git：`.gitignore` 的 `*` 不匹配点开头文件；且本地 Odoo 源码树 `server/.gitignore` 的否定行已移除（详见 updates，重装 Odoo 源码需重做）；
-8. **画布/交互容器上对 `pointerdown` 调 `preventDefault()` 会抑制浏览器合成的 `mousedown`/`click`/`dblclick`**——容器内按钮会彻底点不动（本项目「函数图像」页的全屏/重置按钮就栽在这）。前端交互控件必须**真实点击**验收，脚本里的 `element.click()` 合成事件会掩盖此问题（细节见 `updates/2026-09-30.md`）。
-9. **用了别人模块的记录就必须声明依赖，否则只有维护者的库能装**——`<record id="contacts.action_contacts">`、`inherit_id="project.*"` 这类写法在**全新库**上直接报 `The ID "…" refers to an uninstalled module` 并中断安装；维护者的库因为从完整 ERP 演示库改造而来，那些模块本来就装着，所以永远发现不了。纯清理/装饰性的跨模块引用不要写死 XML，用容错函数（`env.ref(..., raise_if_not_found=False)`，见 `models/ir_ui_menu.py`、`models/ir_ui_view.py`）。**每次改模块后要用一次性新库跑一次 `-i tutoring_center` 才算验收**（细节见 `updates/2026-09-30.md`）。
-10. **门户 QWeb 表单/分页两个坑**：① 表单取 CSRF 令牌要用 `request.csrf_token()`，裸 `csrf_token()` 未注入上下文会 `KeyError` 直接 500；② 列表分页器写 `<t t-call="portal.pager"/>`（`pager` 走上下文），误用 `<t t-out="pager"/>` 会把 `{'page_count':…}` 字典原样打印到页面底部（错题/课次/作业/考试四处已统一修正）。给已有行的表加**必填**字段时，Odoo 升级只会延迟并降级 NOT NULL 约束（不中断），但要用数据阶段 `<function>` 先回填存量行，收尾约束才干净生效（见 `data/mistake_data.xml`）。
-11. **Selection 键值按字符串排序，选项定义顺序不算数**——`_order` 与 `read_group` 分组都按**值**比较，`'10' < '7'`，所以两位数键值会把「高一」排在「初一」之前（知识点页默认按年级分组，正是用户天天看的那一屏）。年级键值已统一**补零**为 `07~13`（`13`=高中，跨高一~高三的知识点层）（见 `models/tutoring_knowledge.py` 的 `GRADE_SELECTION`，学生与知识点共用一份定义）；改键值必须配 `migrations/<版本>/pre-migrate.py` 把存量行一起补零，`19.0.1.2.0` 已处理 `tutoring_student`、`tutoring_knowledge_point`（细节与实测见 `updates/2026-10-01.md`）。
-12. **列表控制栏按钮的两个死法**：① 按钮方法上加 `@api.model` 必报 `TypeError: takes 1 positional argument but 2 were given`——`call_kw` **只对带 `@api.model` 的方法跳过 ids**，而 `/web/dataset/call_button` 恒以 `[ids]` 为首个位置参数（空选区是 `[[]]`），于是实际调用成 `method(recs, [])`；② `icon` 只认 `fa-`/`oi-` 前缀（`ViewButton.iconFromString` 把其余一律当图片 `src`），写 `icon="fa fa-magic"` 就是一个破图，正确写法 `icon="fa-magic"`。想在列表页放**常驻**按钮，用 `<header><button name="..." type="object" display="always"/>`（19 原生渲染进 `control-panel-always-buttons` 插槽），不必 patch `web.ListView.Buttons`。
-13. **并发时对共享业务库跑 `-u` 会吃掉别人的迁移**：Odoo 执行迁移脚本的区间是 `(ir_module_module.latest_version, 新 manifest 版本]`。两路同时把版本写成 `19.0.1.2.0`、而年级补零迁移挂在 `migrations/19.0.1.2.0/`，本方为验收先升级了 `OdooForDB`，`latest_version` 就越过了那个目录，合并后那次统一升级会**静默跳过**对方的迁移（存量 `'7'/'8'` 不补零 → 新键值 `'07'/'08'` 显示为空、分组乱序）。规则：别人有未合并改动时**不要升级业务库**；必须升级则事后核对 `latest_version`，必要时 `UPDATE` 回退一格（详见 `updates/2026-10-01.md`）。
-
-14. **自定义字段组件的 import 必须写绝对别名**——照抄核心文件里的相对路径（如 `from "../standard_field_props"`）会被 `js_transpiler` 按**你自己的模块**解析成 `@tutoring_center/standard_field_props`，该模块不存在 → 整个组件文件加载失败，页面只留一行 `Missing widget: chili for field of type selection` 的 console 警告并**静默回退成默认 widget**（难度列照样显示 🌶🌶🌶，肉眼看不出差别）。跨模块一律写 `@web/views/fields/standard_field_props`；验收要确认自定义类名（如 `.o_tutoring_chili`）真的出现在 DOM 里，而不是"看起来正常"。另：编译后的资产包是 `ir.attachment` 里的 `web.assets_backend.min.js/.css` 两条缓存，只在收到 assets 失效信号时重建——就地升级 `button_immediate_upgrade()` 会重载 registry 但**不**触发该信号，删掉这两条 attachment 即可让下次请求按磁盘新代码重新生成（纯派生缓存，不用停服）。
-15. **Binary 默认不在库里、进库也是 base64、上传天花板是 96MB 而不是 128MB**：19 里 `fields.Binary` 的 `attachment` 默认 `True` → 正文进 `ir.attachment`，而 `ir.attachment.location` 默认 `file` → **字节在磁盘 filestore，库里只有元数据**；要"文件就在 PostgreSQL"必须写 `attachment=False`（列变 `bytea`），但 bytea 里存的是 **base64 文本**，实测 7497 字节的 PDF 占 `octet_length=9996`，**库体积 ≈ 文件的 4/3**。更坑的是上传上限：`odoo/http.py` 给每个请求硬设 `max_content_length = 128MiB`，而请求体是在 `_serve_db` 判定只读性时就被读掉的（`web/controllers/dataset.py` → `request.get_json_data()`），**早于** `base/ir_http._pre_dispatch` 里用 `web.max_file_upload_size` 覆盖上限的那句——所以**这个系统参数对 `/web/dataset/*` 的写无效**，只抬得动浏览器第一道检查。结论：单个文件超过 **≈96MB**（128MiB ÷ 4/3）就必须拆，且几份不能攒在一次保存里一起提交。反面代价另记：`bin_size` 对非 attachment 列是**先全量读再算体积**，任何"按 content 过滤 / 显示大小"都会把整本 PDF 拉进内存；Binary 默认 `prefetch=False`，列表页只显示行数据是安全的。
-16. **后台弹窗的四个原生机制**（省掉一整层自定义 JS，细节见 `updates/2026-10-01.md`）：① 列表整行点击可直接交给 Python 方法——`<list type="object" action="方法名">`（19 原生，`base/rng/list_view.rng` 已声明这两个属性），方法返回 `target='new'` 即"页中页"，且列表在弹窗关闭后会自动 `root.load()`（实测上传完计数列自己变了）；但**弹窗叠几层不可依赖**：点文件行是叠在下层之上、点「上传教材」是替换掉下层，按"关掉可能回下层也可能回列表"来测；② 弹窗尺寸走 context 键 `dialog_size`（`extra-large|large|medium|small`），**但 context 的 `footer: False` 只能配 client action**——给表单弹窗用它，Dialog 连 `<footer>` 节点都不生成，表单按钮插槽的 portal 找不到目标，直接 `OwlError: invalid portal target`，而且服务端全是 200、只能看浏览器 console；想让表单弹窗不出"保存/放弃"，就在 arch 里写显式 `<footer>`（`form_compiler.compileFooter` 只有在 `footer@replace` 为假值时才追加 `DefaultButtonsSlot`）；③ `target='new'` 的表单弹窗里**已存在记录默认按只读渲染**（上传键与保存都不出现），改脏后才出现保存/放弃——"打开就是看、要动就动手"是天然分层的；④ 上传组件的配套 `filename` 字段**必须 `invisible="1"`（列表里 `column_invisible="1"`）**，写成 `readonly="1"` 就不进保存载荷、落库 NULL（核心 `hr_skills`/`l10n_in` 同款写法）。另外：可编辑网格里单击单元格是"进编辑态"，`<list action=… type=…>` 的行点击在那儿**不触发**，要开弹窗必须放显式 `<button>`。
-
-17. **SQL 判重约束：换定义可以，换属性名会留幽灵**——Odoo 19 的 `Constraint.apply_to_database` 拿库里的定义与代码比对，不同就 `DROP` 再 `ADD`（知识点判重从 `unique(name, grade)` 换成含 `parent_id` 已实测生效）；但它只遍历模型**当前声明**的表对象，属性名一改旧约束就没人认领、永久留在库里继续拦数据，所以改定义时保持 `_name_grade_uniq` 这个名字别动。另注意 `unique(..., parent_id)` 里 NULL 互相视为不同——**枝干层（无上级）重名数据库不管**。
-
-18. **Odoo 不能挂在子路径下（`domain/edu` 这种一律不通）**——它生成的资源与表单 URL 全是根相对路径（实测登录页里 `href="/web/static/src/…"`、`action="/website/search"`），套前缀后这些请求会打到同域名的别的应用上；JS 运行时拼出的 `/jsonrpc`、`/web/dataset/*` 连 `sub_filter` 都改不动。`proxy_mode` / `web.base.url` 只处理主机名，**公网部署必须用独立主机名（子域名）**。反代三件套必须齐：`X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host`，且 `proxy_mode = True`——否则登录防爆破按来源 IP 计数（`res_users.py:1283-1303`，默认 5 次失败 / 60 秒冷却）会把所有访客当成同一个人，一人连错全员被关；Odoo 用 `ProxyFix(x_for=1, x_proto=1, x_host=1)`（`http.py:189-190`）。另两条：没配 SMTP 就把 `auth_signup.reset_password` 设 `False`（否则那页面 200 却永远发不出信，实测 `mail_mail.state=exception`）；`ports` 收回 `127.0.0.1:8069:8069` 才是真不泄露端口（compose 里 `ports` 默认合并，要 `!override` 才替换得掉基础文件的写法）。
-
-19. **升级时 `<record id="别的模块.x">` 会被静默跳过**——想改 `website.default_website`、`base.main_company` 这类**由别人模块创建**的记录，在 XML 里写 `<record>` 既不报错也不生效：Odoo 加载升级数据时，凡目标 xmlid 自身带 `noupdate=1`（网站名与公司名恰好都是）就直接跳过。改名实测无效，最后用 `<function model="website" name="_apply_tutoring_branding"/>` 在 Python 里 write 才落库（见 `data/branding_data.xml`）。副作用要知道：**这样每次升级都会盖回模块里这一份**，网站设置里手填的同名项目留不住。两条附带结论：`website.logo`/`favicon` 都是 attachment 型 Binary（库里**没有列**，正文在 filestore），XML 里 `<field type="base64" file="..."/>` 可以写；但 favicon 在 `website._handle_favicon` 里会被 `image_process(..., output_format='ICO')` 过一遍，**源图必须是位图**，给 SVG 会在那一步崩。
-
-## 六、文档索引
-
-| 文档 | 内容 |
-|---|---|
-| [ONBOARDING.md](ONBOARDING.md) | 协作者安装配置指南（原生 Windows 完整步骤 + Docker 备选 + 自检清单 + 工作流） |
-| [MULTI_AGENT.md](MULTI_AGENT.md) | 多 agent 并发协作规范：谁负责部署、独占规则、部署标准动作、版本号礼仪、验收要求、占用声明 |
-| [service-control.md](service-control.md) | 服务启停与体检 skill（`svcctl.ps1`）：action/target、UAC 规则、六层 `check`、失败判读、红线 |
-| [updates/](updates/) | 按日期的完整更新记录（含维护者原生环境详情、验证记录、陷阱全表） |
-| 根 [README.md](../README.md) | 面向人的项目总览、模块概览、快速开始 |
-| `docs/R3ynA学习平台使用说明.md` | 面向使用者的操作说明 |
-
-## 七、备份与交付物
-
-- 改造前全量备份：`E:\Odoo\backup\`（数据库 dump + filestore，**不入库**）；
-- `dev/`：演示数据、品牌、进程内升级、临时验收账号等脚本（密码均环境变量注入）；
-- `docs/`：使用说明 `R3ynA学习平台使用说明.md`（PPT 及截图素材不入库，仅本地保存）；
-- `odoo.conf.example`：脱敏配置模板，复制成 `odoo.conf` 再填密码（真配置含密码，不入库）。
-
-> **仓库只跟踪自研内容**（模块 + 文档 + 运维脚本，共 50 余个文件），Odoo 本体源码不入库、由协作者
-> clone 上游 19.0 获取。这不是缺陷：已核实维护者本机源码树自安装后**零改动**，换机不会缺项目代码。
+细则见 [DOC_POLICY.md](DOC_POLICY.md) 第四节。一句话版：
+账号与口令（连"存在哪个文件"都不写）、数据库凭据、API 密钥、本机绝对路径与 Windows 服务名、
+备份文件名与体积、一次性库名与端口、真实学生的姓名分数错题与能认出人的截图、
+公网那台机器的地址目录与口令位置。

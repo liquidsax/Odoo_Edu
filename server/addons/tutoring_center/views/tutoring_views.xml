@@ -812,7 +812,7 @@
                         </group>
                     </sheet>
                     <!-- 显式 footer：只读台不想要核心的"保存/放弃"，但完全不给 footer 节点
-                         会让按钮插槽的 portal 找不到目标（handoff 陷阱，实测崩） -->
+                         会让按钮插槽的 portal 找不到目标（不给 footer 节点实测就崩） -->
                     <footer>
                         <button string="关闭" special="cancel" class="btn-secondary" data-hotkey="z"/>
                     </footer>
