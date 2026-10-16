@@ -102,9 +102,10 @@ if sample:
         check("**没有**吐出复习排期字段（学生看不到'复习'字样）",
               lambda: not (banned & set(item)) or
               (_ for _ in ()).throw(AssertionError("漏了 %s" % sorted(banned & set(item)))))
-        check("卡片口径齐全（id/difficulty/heat/due/photo_count）",
+        check("卡片口径齐全（id/difficulty/heat/due/photo_count/workbook）",
               lambda: {'id', 'difficulty', 'difficulty_label', 'heat', 'due',
-                       'photo_count', 'summary'} .issubset(set(item)) or
+                       'photo_count', 'summary', 'workbook_id', 'workbook_name'}
+              .issubset(set(item)) or
               (_ for _ in ()).throw(AssertionError("缺字段：%s" % (item.keys()))))
 else:
     print("  -- 库里没有错题，跳过（不影响结论）")
