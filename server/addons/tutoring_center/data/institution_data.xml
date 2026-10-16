@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- 机构门面「师资」那一栏的真源就是打了这个标签的联系人（`controllers/public_api.py`
+             按名字取它），所以标签得由模块建出来：缺它不是报错，而是门面上一片空白，
+             那是最难被当成问题的一种坏。
+             noupdate=1：改名或停用是老板自己的事，升级不该盖回去。 -->
+        <record id="partner_tag_team" model="res.partner.category">
+            <field name="name">师资展示</field>
+        </record>
+    </data>
+</odoo>
