@@ -76,7 +76,7 @@
 | `docs/R3ynA学习平台使用说明.md` | 面向使用者的操作说明 |
 | `dev/` | 演示数据脚本、品牌设置、RPC 进程内升级、临时验收账号等运维脚本 |
 | `docker-compose.yml` | 协作者一键开发环境（Odoo 19 + PostgreSQL 18 容器，含热重载） |
-| `.agent/` | 协作须知：[handoff](.agent/handoff.md)（交接要点+协作规则）、[MULTI_AGENT](.agent/MULTI_AGENT.md)（多 agent 并发协作规范：谁部署、怎么独占、什么才算交付完）、[ONBOARDING](.agent/ONBOARDING.md)（安装配置指南）、[service-control](.agent/service-control.md)（服务启停与体检 skill）、[updates](.agent/updates)（按日期的更新记录） |
+| `.agent/` | 协作须知：[handoff](.agent/handoff.md)（**交接档案怎么写**：落点与规矩，不含项目事实）、[DOC_POLICY](.agent/DOC_POLICY.md)（仓库卫生与文档分工）、[MULTI_AGENT](.agent/MULTI_AGENT.md)（多 agent 并发协作规范：谁部署、怎么独占、什么才算交付完）、[ONBOARDING](.agent/ONBOARDING.md)（安装配置指南）、[service-control](.agent/service-control.md)（服务启停与体检 skill）、[updates](.agent/updates)（**已冻结**的历史开发记录，按日期，只当历史读） |
 
 > Odoo 本体源码、Python 运行时、数据库备份、`odoo.conf`、日志等本机安装产物**不入库**，见 [.gitignore](.gitignore)。
 
