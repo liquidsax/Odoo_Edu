@@ -24,6 +24,7 @@
    只会在真点开的时候才露出来。
 """
 
+import base64
 import logging
 from datetime import datetime, timezone
 
@@ -62,6 +63,22 @@ def _ok(**payload):
 
 def _error(status, code, message, **extra):
     return _json(status, dict({'ok': False, 'error': code, 'message': message}, **extra))
+
+
+def _binary(data, mime, name):
+    """吐二进制（教材 PDF 那几条路由用）：内联 + 禁止改嗅类型。
+
+    头纪律与门户 `_mistake_file_response` 同源：`nosniff` 不能省——
+    吐回去的是用户上传的内容，别让今天这一口变成明天的存储型 XSS。
+    文件名刻意用 ASCII（page-12.pdf 这种）：中文书名塞进裸 header 要走
+    RFC 5987，而客户端（wx.downloadFile）根本不读这个文件名，不值得一险。
+    """
+    return request.make_response(data, [
+        ('Content-Type', mime),
+        ('Content-Disposition', 'inline; filename="%s"' % name),
+        ('Cache-Control', 'private, max-age=300'),
+        ('X-Content-Type-Options', 'nosniff'),
+    ])
 
 
 def _client_header_ok():
@@ -487,9 +504,11 @@ class TutoringApi(http.Controller):
             'question_text': mistake.ai_readable_text or '',
             'ai_state': mistake.ai_state or False,
             'ai_hint': mistake.ai_hint or '',
-            'workbook_id': mistake.workbook_id.id or False,
-            'workbook_name': mistake.workbook_id.name or '',
             'recorded_at': fields.Datetime.to_string(mistake.create_date) if mistake.create_date else False,
+            # "看那一页"按钮亮不亮。判据与门户封面同一份（cover_pdf_ready 走 sudo，
+            # 对学生它只说"有原页可画"）；真取那一页还要过本人权限，可能 404——
+            # 客户端必须有退路（门户就是这么定的，见错题试用版本批次②）。
+            'page_pdf_ready': bool(mistake.cover_pdf_ready),
         })
         return _ok(item=data)
 
@@ -513,6 +532,9 @@ class TutoringApi(http.Controller):
             'cause_name': mistake.cause_id.name or '',
             'point_id': mistake.point_id.id or False,
             'point_name': mistake.point_id.name or '',
+            # 出处是这条记录的本体（平台不做题、只记哪儿错了），卡片上就要能看见
+            'workbook_id': mistake.workbook_id.id or False,
+            'workbook_name': mistake.workbook_id.name or '',
             'page': mistake.page or '',
             'question_no': mistake.question_no or '',
             'note': mistake.note or '',
@@ -526,3 +548,114 @@ class TutoringApi(http.Controller):
             'heat': mistake.portal_heat or '',
             'heat_note': mistake.portal_heat_note or '',
         }
+
+    # ------------------------------------------------------------
+    # 教材（练习册 PDF）
+    # ------------------------------------------------------------
+
+    @http.route('/r3yna/api/workbooks', type='http', auth='bearer',
+                methods=['GET'], csrf=False, readonly=True)
+    def api_workbooks(self, student=None, scope=None, **kw):
+        """教材页的书单：当前范围内错题里出现过的练习册，一本一行、行里带分册。
+
+        口径与门户「教材」页同源（`_tutoring_workbooks`：书单按错题出处归集，
+        不是全库练习册清单）。这里改用 `read_group` 在 SQL 里做同一件事：
+        顺带拿到"这本书在当前范围内记了多少条错题"，也不把错题整捞进内存。
+
+        分册（上册/下册/答案册…）只列**当前账号读得到**的：教材正文放在知识库
+        条目里、按人隔离，学生要靠共享（security/tutoring_security.xml 那两条
+        规则就是墙）。`search()` 过规则天然只回能读的那几份，这里绝不 sudo
+        补全——列出来却打不开，比少列一行更骗人。一本书一份分册都读不到时，
+        照样回这本书（错题数还在），`files` 为空，客户端自己说明原因。
+        """
+        guarded = _guard()
+        if guarded:
+            return guarded
+        domain, _picked, scope_key = _resolve_scope(student, scope)
+        if domain is None:
+            return _error(404, 'student_not_found', _('没有这份学生档案，或者你读不到它。'))
+
+        Mistake = request.env['tutoring.mistake']
+        groups = Mistake.read_group(
+            domain + [('workbook_id', '!=', False)], ['workbook_id'], ['workbook_id'])
+        counts = {g['workbook_id'][0]: g['workbook_id_count'] for g in groups}
+        if not counts:
+            return _ok(scope=scope_key, items=[])
+        workbooks = request.env['tutoring.workbook'].search(
+            [('id', 'in', list(counts))], order='name, id')
+        files = request.env['tutoring.workbook.file'].search(
+            [('workbook_id', 'in', workbooks.ids)], order='workbook_id, page_from, id')
+        by_book = {}
+        for f in files:
+            by_book.setdefault(f.workbook_id.id, []).append({
+                'id': f.id,
+                'name': f.name or '',
+                'page_from': f.page_from or 0,
+                'page_to': f.page_to or 0,
+                # bytea 在库里就是 base64，大小这列是算好存着的整数（不触正文）
+                'size': f.file_size or 0,
+                'content_path': '/r3yna/api/workbooks/files/%d/content.pdf' % f.id,
+            })
+        return _ok(
+            scope=scope_key,
+            items=[{
+                'id': w.id,
+                'name': w.name,
+                'note': w.note or '',
+                'mistake_count': counts.get(w.id, 0),
+                'files': by_book.get(w.id, []),
+            } for w in workbooks],
+        )
+
+    @http.route('/r3yna/api/workbooks/files/<int:file_id>/content.pdf', type='http',
+                auth='bearer', methods=['GET'], csrf=False, readonly=True)
+    def api_workbook_file_pdf(self, file_id, **kw):
+        """一份分册的整本 PDF（小程序 `wx.downloadFile` + 微信内置阅读器那条路）。
+
+        与网页不同，手机上没有 pdf.js，也没有"翻到第 N 页"——客户端只能整份
+        下载后交给 `wx.openDocument`，所以这里给的就是原件。**大小自知**：
+        分册按页切开正是为了把单份压在 96MB 上限内，客户端拿到 `size` 要先
+        提示再下载，别让流量在用户不知情时跑掉。
+
+        权限：`search()` 过记录规则（教材条目按人隔离，学生靠共享），
+        读不到＝不存在，一律 404，不区分这两种情况。
+        """
+        guarded = _guard()
+        if guarded:
+            return guarded
+        workbook_file = request.env['tutoring.workbook.file'].search(
+            [('id', '=', file_id)], limit=1)
+        if not workbook_file:
+            return _error(404, 'not_found', _('这份教材找不到，或者你读不到它。'))
+        data = base64.b64decode(workbook_file.content) if workbook_file.content else None
+        if not data:
+            return _error(404, 'no_content', _('这份教材还没有正文。'))
+        return _binary(data, 'application/pdf', 'workbook-file-%d.pdf' % file_id)
+
+    @http.route('/r3yna/api/mistakes/<int:mistake_id>/page.pdf', type='http',
+                auth='bearer', methods=['GET'], csrf=False, readonly=False)
+    def api_mistake_page_pdf(self, mistake_id, **kw):
+        """这道题"出处那一页"的单页 PDF——错题详情页那颗「看那一页」。
+
+        与门户 `/my/learning/mistakes/<id>/page.pdf` 同一份实现（读 `page_pdf`
+        计算字段，`_locate_page` 自己管权限与缓存），只是认证换 bearer。
+        单页 PDF 只有几 KB，正是手机上"回到出错那一页"的正确粒度——
+        整本下载是教材页的事，不该混进错题详情。
+
+        **`readonly=False` 是刻意的**：第一次取某一页会把抽出的单页写进
+        `tutoring.workbook.page` 缓存表（同页多题共用）。这是派生缓存、
+        可随时重建，但 readonly 路由的事务不让写，挂上它首抽必 500。
+        """
+        guarded = _guard()
+        if guarded:
+            return guarded
+        mistake = request.env['tutoring.mistake'].with_context(
+            active_test=False).search([('id', '=', mistake_id)], limit=1)
+        if not mistake or not mistake.has_access('read'):
+            return _error(404, 'not_found', _('这道题找不到，或者你读不到它。'))
+        data = base64.b64decode(mistake.page_pdf) if mistake.page_pdf else None
+        if not data:
+            # 没填出处 / 页码翻不出来 / 教材没共享，都归这一句：抽不出来不是错误
+            return _error(404, 'page_unavailable',
+                          _('定位不到那一页：出处没填、页码越界或教材读不到。'))
+        return _binary(data, 'application/pdf', 'page-%d.pdf' % mistake_id)
