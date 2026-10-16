@@ -550,87 +550,8 @@ class TutoringApi(http.Controller):
         }
 
     # ------------------------------------------------------------
-    # 教材（练习册 PDF）
+    # 错题"出处那一页"（单页 PDF）
     # ------------------------------------------------------------
-
-    @http.route('/r3yna/api/workbooks', type='http', auth='bearer',
-                methods=['GET'], csrf=False, readonly=True)
-    def api_workbooks(self, student=None, scope=None, **kw):
-        """教材页的书单：当前范围内错题里出现过的练习册，一本一行、行里带分册。
-
-        口径与门户「教材」页同源（`_tutoring_workbooks`：书单按错题出处归集，
-        不是全库练习册清单）。这里改用 `read_group` 在 SQL 里做同一件事：
-        顺带拿到"这本书在当前范围内记了多少条错题"，也不把错题整捞进内存。
-
-        分册（上册/下册/答案册…）只列**当前账号读得到**的：教材正文放在知识库
-        条目里、按人隔离，学生要靠共享（security/tutoring_security.xml 那两条
-        规则就是墙）。`search()` 过规则天然只回能读的那几份，这里绝不 sudo
-        补全——列出来却打不开，比少列一行更骗人。一本书一份分册都读不到时，
-        照样回这本书（错题数还在），`files` 为空，客户端自己说明原因。
-        """
-        guarded = _guard()
-        if guarded:
-            return guarded
-        domain, _picked, scope_key = _resolve_scope(student, scope)
-        if domain is None:
-            return _error(404, 'student_not_found', _('没有这份学生档案，或者你读不到它。'))
-
-        Mistake = request.env['tutoring.mistake']
-        groups = Mistake.read_group(
-            domain + [('workbook_id', '!=', False)], ['workbook_id'], ['workbook_id'])
-        counts = {g['workbook_id'][0]: g['workbook_id_count'] for g in groups}
-        if not counts:
-            return _ok(scope=scope_key, items=[])
-        workbooks = request.env['tutoring.workbook'].search(
-            [('id', 'in', list(counts))], order='name, id')
-        files = request.env['tutoring.workbook.file'].search(
-            [('workbook_id', 'in', workbooks.ids)], order='workbook_id, page_from, id')
-        by_book = {}
-        for f in files:
-            by_book.setdefault(f.workbook_id.id, []).append({
-                'id': f.id,
-                'name': f.name or '',
-                'page_from': f.page_from or 0,
-                'page_to': f.page_to or 0,
-                # bytea 在库里就是 base64，大小这列是算好存着的整数（不触正文）
-                'size': f.file_size or 0,
-                'content_path': '/r3yna/api/workbooks/files/%d/content.pdf' % f.id,
-            })
-        return _ok(
-            scope=scope_key,
-            items=[{
-                'id': w.id,
-                'name': w.name,
-                'note': w.note or '',
-                'mistake_count': counts.get(w.id, 0),
-                'files': by_book.get(w.id, []),
-            } for w in workbooks],
-        )
-
-    @http.route('/r3yna/api/workbooks/files/<int:file_id>/content.pdf', type='http',
-                auth='bearer', methods=['GET'], csrf=False, readonly=True)
-    def api_workbook_file_pdf(self, file_id, **kw):
-        """一份分册的整本 PDF（小程序 `wx.downloadFile` + 微信内置阅读器那条路）。
-
-        与网页不同，手机上没有 pdf.js，也没有"翻到第 N 页"——客户端只能整份
-        下载后交给 `wx.openDocument`，所以这里给的就是原件。**大小自知**：
-        分册按页切开正是为了把单份压在 96MB 上限内，客户端拿到 `size` 要先
-        提示再下载，别让流量在用户不知情时跑掉。
-
-        权限：`search()` 过记录规则（教材条目按人隔离，学生靠共享），
-        读不到＝不存在，一律 404，不区分这两种情况。
-        """
-        guarded = _guard()
-        if guarded:
-            return guarded
-        workbook_file = request.env['tutoring.workbook.file'].search(
-            [('id', '=', file_id)], limit=1)
-        if not workbook_file:
-            return _error(404, 'not_found', _('这份教材找不到，或者你读不到它。'))
-        data = base64.b64decode(workbook_file.content) if workbook_file.content else None
-        if not data:
-            return _error(404, 'no_content', _('这份教材还没有正文。'))
-        return _binary(data, 'application/pdf', 'workbook-file-%d.pdf' % file_id)
 
     @http.route('/r3yna/api/mistakes/<int:mistake_id>/page.pdf', type='http',
                 auth='bearer', methods=['GET'], csrf=False, readonly=False)
