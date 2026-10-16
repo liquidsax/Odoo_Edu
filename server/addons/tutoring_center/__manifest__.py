@@ -1,6 +1,6 @@
 {
     'name': 'R3ynA 学习平台',
-    'version': '19.0.1.37.0',
+    'version': '19.0.1.38.0',
     'category': 'Services',
     'summary': '个人学习数据平台：学生档案、课次、考试、错题与知识点，含学生/家长门户',
     'description': """
@@ -14,9 +14,12 @@ R3ynA 学习平台
 """,
     'author': 'Tutoring',
     'license': 'LGPL-3',
-    'depends': ['portal', 'website', 'contacts'],
+    # product/crm 是给机构门面那一屏用的：服务清单落在 `product.template`，
+    # 预约试听留资落在 `crm.lead`（老板的客户管理与它是同一张表，不开第二个入口）
+    'depends': ['portal', 'website', 'contacts', 'product', 'crm'],
     'data': [
         'data/branding_data.xml',
+        'data/institution_data.xml',
         'security/tutoring_security.xml',
         'security/ir.model.access.csv',
         'data/mistake_data.xml',
