@@ -27,11 +27,14 @@
 import base64
 import logging
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 from odoo import _, fields, http
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.http import request
 
+from ..models.tutoring_library_item import b64_to_bytes
+from .library import TutoringLibraryController
 from .portal import TutoringPortal
 
 _logger = logging.getLogger(__name__)
@@ -130,6 +133,39 @@ def _portal():
     不依赖实例状态，所以复用的是"口径"而不是"某个对象"。
     """
     return TutoringPortal()
+
+
+def _library():
+    """知识库控制器实例，只为借它的 `store_uploads()`（与门户同一条落盘逻辑）。"""
+    return TutoringLibraryController()
+
+
+def _library_item(item):
+    """一个知识库条目 → JSON。
+
+    刻意不吐 `content`：正文走 `…/raw`，列表里塞 base64 会把响应撑爆
+    （`bin_size` 那条老路数：非 attachment 的 Binary 读出来就是整份文件）。
+    分类的中文名由顶层那份 `categories` 表去翻，不在每条里重复一份。
+    """
+    return {
+        'id': item.id,
+        'name': item.name or '',
+        'filename': item.filename or '',
+        'category': item.category or '',
+        'kind': item.kind or '',
+        'ext': item.ext or '',
+        'mimetype': item.mimetype or '',
+        'size': item.file_size or 0,
+        'size_text': item.size_text or '',
+        'upload_date': fields.Datetime.to_string(item.upload_date) if item.upload_date else False,
+        'folder_id': item.folder_id.id or False,
+        'folder_name': item.folder_id.name or '',
+        'tags': item.tag_ids.mapped('name'),
+        'mistake_id': item.mistake_id.id or False,
+        'mistake_label': item.mistake_label or '',
+        'is_own': item.user_id.id == request.env.user.id,
+        'raw_path': '/r3yna/api/library/%d/raw' % item.id,
+    }
 
 
 def _readable_students():
@@ -580,3 +616,123 @@ class TutoringApi(http.Controller):
             return _error(404, 'page_unavailable',
                           _('定位不到那一页：出处没填、页码越界或教材读不到。'))
         return _binary(data, 'application/pdf', 'page-%d.pdf' % mistake_id)
+
+    # ------------------------------------------------------------
+    # 知识库（读取 + 上传）
+    # ------------------------------------------------------------
+
+    @http.route('/r3yna/api/library', type='http', auth='bearer',
+                methods=['GET'], csrf=False, readonly=True)
+    def api_library(self, sortby=None, filterby=None, search=None, folder=None,
+                    page=1, limit=None, **kw):
+        """知识库列表：与门户 `/my/library` **共用同一份取数**（`_library_query`）。
+
+        分类药丸、文件夹栏、配额、搜索域、排序白名单都从那一处来，
+        这里只做"把 recordset 翻成 JSON"。网页上筛出来的和小程序里筛出来的
+        必须是同一批条目，否则这个接口迟早和网站说两套话。
+        """
+        guarded = _guard()
+        if guarded:
+            return guarded
+        q = _portal()._library_query(
+            sortby=sortby, filterby=filterby, search=search, folder=folder,
+            page=page, limit=limit)
+        return _ok(
+            items=[_library_item(i) for i in q['items']],
+            pager=_pager(q['total'], q['page'], q['page_size']),
+            filterby=q['filterby'],
+            sortby=q['sortby'],
+            search=q['search'],
+            folder=q['folder_key'],
+            shared_scope=q['shared_scope'],
+            filters=[{'key': k, 'label': v['label']}
+                     for k, v in q['searchbar_filters'].items()],
+            counts=q['filter_counts'],
+            sortings=[{'key': k, 'label': v['label']}
+                      for k, v in q['searchbar_sortings'].items()],
+            categories=[{'key': k, 'label': v} for k, v in q['categories'].items()],
+            folders=[{'key': e['key'], 'label': e['label'], 'count': e['count'],
+                      'active': e['active']} for e in q['folder_entries']],
+            quota=q['quota'],
+            page_sizes=q['page_sizes'],
+        )
+
+    @http.route('/r3yna/api/library/<int:item_id>', type='http', auth='bearer',
+                methods=['GET'], csrf=False, readonly=True)
+    def api_library_detail(self, item_id, **kw):
+        """一个条目的全部元数据。正文不在这里吐——走 `…/raw`。"""
+        guarded = _guard()
+        if guarded:
+            return guarded
+        item = request.env['tutoring.library.item'].search(
+            [('id', '=', item_id)], limit=1)
+        if not item:
+            return _error(404, 'not_found', _('这个文件找不到，或者它不是你的。'))
+        data = _library_item(item)
+        data.update({
+            'from_workbook': item.from_workbook or '',
+            'share_user_names': item.share_user_ids.mapped('name'),
+        })
+        return _ok(item=data)
+
+    @http.route('/r3yna/api/library/<int:item_id>/raw', type='http', auth='bearer',
+                methods=['GET'], csrf=False, readonly=True)
+    def api_library_raw(self, item_id, download=False, **kw):
+        """条目正文（预览或下载）。
+
+        与门户那条 `/tutoring/library/<id>/raw` 同规则，但**取记录用 `search()`
+        不用 `browse().exists()`**——后者不过记录规则，猜 id 就能读到别人的文件
+        （陷阱 26）。SVG 一律按附件回吐 + `nosniff`：SVG 能嵌脚本，同源内联
+        等于给自己种存储型 XSS。
+        """
+        guarded = _guard()
+        if guarded:
+            return guarded
+        item = request.env['tutoring.library.item'].search(
+            [('id', '=', item_id)], limit=1)
+        if not item:
+            return _error(404, 'not_found', _('这个文件找不到，或者它不是你的。'))
+        try:
+            data = b64_to_bytes(item.content)
+        except Exception:  # noqa: BLE001 - 内容损坏不该炸成 500
+            _logger.warning('知识库条目 %s 的正文不是合法 base64', item_id)
+            return _error(404, 'bad_content', _('这个文件读不出内容，可能已损坏。'))
+        if not data:
+            return _error(404, 'no_content', _('这个条目还没有正文。'))
+        disposition = ('attachment'
+                       if (download or item.mimetype == 'image/svg+xml') else 'inline')
+        return request.make_response(data, [
+            ('Content-Type', item.mimetype or 'application/octet-stream'),
+            ('Content-Length', str(len(data))),
+            ('X-Content-Type-Options', 'nosniff'),
+            ('Content-Disposition', "%s; filename*=UTF-8''%s" % (
+                disposition, quote(item.filename or item.name or 'file'))),
+        ])
+
+    @http.route('/r3yna/api/library/upload', type='http', auth='bearer',
+                methods=['POST'], csrf=False, readonly=False)
+    def api_library_upload(self, **kw):
+        """上传：一次一个或多个 `file` 字段（`wx.uploadFile` 一次只能带一个，
+        小程序那边就一个文件发一次，进度条各走各的）。
+
+        **`readonly=False` 是必须的**——这条真的要写库。落盘逻辑与门户共用
+        `store_uploads()`：分类白名单、错题关联自动归 `mistake` 分类、标签、
+        配额与单文件大小校验（1GB / 64MB）、"一个文件写坏不带走整批"，
+        全都只有一处实现。越权不需要在这里判：`create()` 走记录规则，
+        配额按 `env.user` 算，别人的条目改不动。
+        """
+        guarded = _guard()
+        if guarded:
+            return guarded
+        files = request.httprequest.files.getlist('file')
+        if not files:
+            return _error(400, 'no_file', _('没有收到文件，重新选一个试试。'))
+        result = _library().store_uploads(
+            files,
+            category=kw.get('category'),
+            folder_id=kw.get('folder_id'),
+            mistake_id=kw.get('mistake_id'),
+            title=kw.get('title'),
+            tags=kw.get('tags'),
+        )
+        return _ok(**result)

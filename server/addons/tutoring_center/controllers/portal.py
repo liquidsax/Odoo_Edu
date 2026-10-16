@@ -1342,9 +1342,14 @@ class TutoringPortal(CustomerPortal):
             [(key, {'label': label, 'domain': [('category', '=', key)]})
              for key, label in self._library_categories().items()])
 
-    @http.route('/my/library', type='http', auth='user', website=True)
-    def portal_my_library(self, sortby=None, filterby=None, search=None, folder=None,
-                          page=1, limit=None, **kwargs):
+    def _library_query(self, sortby=None, filterby=None, search=None, folder=None,
+                       page=1, limit=None):
+        """知识库那一屏的取数：门户页面与 `/r3yna/api/library` **共用这一份**。
+
+        返回一个 dict（`items` 是 recordset，由调用方决定是渲染还是序列化）。
+        拆出来只为一件事：接口层照的是"和网页看到同一批条目"这个承诺，
+        域拼装、分类计数、文件夹条目、配额这些只要有两份实现就早晚对不上。
+        """
         Item = request.env['tutoring.library.item']
         uid = request.env.user.id
         searchbar_filters = self._library_searchbar_filters()
@@ -1404,8 +1409,7 @@ class TutoringPortal(CustomerPortal):
         }
         if search:
             url_args['search'] = search
-        values = {
-            'page_name': 'library',
+        return {
             'items': items,
             'total': total,
             'quota': Item.quota_state(),
@@ -1417,6 +1421,7 @@ class TutoringPortal(CustomerPortal):
             'searchbar_filters': searchbar_filters,
             'filter_counts': filter_counts,
             'page_size': page_size,
+            'page': page,
             'page_sizes': self.LIBRARY_PAGE_SIZES,
             'folder_entries': self._library_folder_entries(
                 [('user_id', '=', uid)], folder_key),
@@ -1428,6 +1433,14 @@ class TutoringPortal(CustomerPortal):
                 url='/my/library', url_args=url_args,
                 total=total, page=page, step=page_size),
         }
+
+    @http.route('/my/library', type='http', auth='user', website=True)
+    def portal_my_library(self, sortby=None, filterby=None, search=None, folder=None,
+                          page=1, limit=None, **kwargs):
+        values = self._library_query(
+            sortby=sortby, filterby=filterby, search=search, folder=folder,
+            page=page, limit=limit)
+        values['page_name'] = 'library'
         return request.render('tutoring_center.portal_my_library', values)
 
     @http.route('/my/library/upload', type='http', auth='user', methods=['POST'],
