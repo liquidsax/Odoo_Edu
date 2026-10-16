@@ -29,15 +29,36 @@ class TutoringLibraryController(http.Controller):
         if not files:
             return request.make_json_response(
                 {'ok': False, 'error': _('没有收到文件，重新选一个试试。')})
+        result = self.store_uploads(
+            files,
+            category=kw.get('category'),
+            folder_id=kw.get('folder_id'),
+            mistake_id=kw.get('mistake_id'),
+            title=kw.get('title'),
+            tags=kw.get('tags'),
+        )
+        return request.make_json_response(dict(result, ok=not result['failed']))
 
+    def store_uploads(self, files, category=None, folder_id=None, mistake_id=None,
+                      title=None, tags=None):
+        """把一批上传落成知识库条目，**逐个提交**。
+
+        门户那条 `/tutoring/library/upload` 与接口层那条
+        `/r3yna/api/library/upload` 共用这一份：分类白名单、错题关联自动归
+        `mistake` 分类、标签、配额校验、"一个文件写坏不带走整批"这些口径
+        只留一处实现——两处各写一遍的话，早晚一边能传另一边不能。
+
+        配额与大小都在 `model.create()` 里校验（它才拿得到增量），所以这里
+        只负责把 `UserError` 翻成"哪一个文件为什么没进去"。
+        """
         model = request.env['tutoring.library.item']
-        category = kw.get('category') or 'other'
         if category not in dict(model._fields['category'].selection):
-            category = 'other'
-        folder = self._own_folder(kw.get('folder_id'))
-        mistake = self._own_mistake(kw.get('mistake_id'))
-        if mistake and not kw.get('category'):
-            category = 'mistake'
+            category = None
+        folder = self._own_folder(folder_id)
+        mistake = self._own_mistake(mistake_id)
+        cat = category or 'other'
+        if mistake and not category:
+            cat = 'mistake'
 
         uploaded, failed = [], []
         for upload in files:
@@ -45,13 +66,13 @@ class TutoringLibraryController(http.Controller):
             filename = self._clean_name(upload.filename or '')
             try:
                 item = model.create({
-                    'name': self._title_of(filename, kw.get('title')),
+                    'name': self._title_of(filename, title),
                     'filename': filename,
                     'content': base64.b64encode(raw).decode(),
-                    'category': category,
+                    'category': cat,
                     'folder_id': folder.id if folder else False,
                     'mistake_id': mistake.id if mistake else False,
-                    'tag_ids': model.tags_from_names(kw.get('tags')),
+                    'tag_ids': model.tags_from_names(tags),
                 })
                 # 逐个提交：下一个文件失败要回滚时，不能把已成功的也带走
                 request.env.cr.commit()
@@ -69,12 +90,7 @@ class TutoringLibraryController(http.Controller):
                 _logger.exception('知识库上传失败：%s', filename)
                 failed.append({'name': filename, 'error': _('写入失败，请重试。')})
 
-        return request.make_json_response({
-            'ok': not failed,
-            'uploaded': uploaded,
-            'failed': failed,
-            'quota': model.quota_state(),
-        })
+        return {'uploaded': uploaded, 'failed': failed, 'quota': model.quota_state()}
 
     # ------------------------------------------------------------
     # 读取：预览与下载走同一条路由，download=1 才是附件下载
