@@ -1551,8 +1551,8 @@
                               t-attf-action="#{'/my/learning/mistakes/%s/edit' % mistake.id if mode == 'edit' else '/my/learning/mistakes/new'}">
                             <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
                             <div class="mb-3">
-                                <label class="form-label" for="workbook_id">练习册 <span class="text-danger">*</span></label>
-                                <select class="form-select" name="workbook_id" id="workbook_id" required="required">
+                                <label class="form-label" for="workbook_id">练习册</label>
+                                <select class="form-select" name="workbook_id" id="workbook_id">
                                     <option value="">（不填出处也可以）</option>
                                     <t t-foreach="workbooks" t-as="wb" t-key="wb.id">
                                         <option t-att-value="wb.id" t-att-selected="wb.id == form['workbook_id']">

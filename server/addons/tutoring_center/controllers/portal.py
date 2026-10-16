@@ -1174,6 +1174,9 @@ class TutoringPortal(CustomerPortal):
 
         老师也能记自己的题——他有一份"我自己"的档案，速记条上的"记到谁"下拉
         默认就落在那份上，也可以选别的学生。
+
+        出处（练习册）可空：模型上 `workbook_id` 已非必填，速记条那个
+        "（不填出处也可以）"的选项以前被这里的旧校验拦下来，属于老模型残留。
         """
         student = self._mistake_target_student(kw)
         if not student:
@@ -1185,11 +1188,6 @@ class TutoringPortal(CustomerPortal):
         if request.httprequest.method != 'POST':
             return request.redirect('/my/mistakes#quickadd')
         vals = self._mistake_vals_from_post(student, kw)
-        if not vals['workbook_id']:
-            # 带着已填的值回到速记条，不让用户重打一遍
-            values = self._mistake_page_values(
-                kw, form=self._mistake_form_from_post(kw), error=_('请先选择练习册。'))
-            return request.render('tutoring_center.portal_my_mistakes', values)
         Mistake = request.env['tutoring.mistake']
         mistakes = Mistake.create([
             dict(vals, question_no=no if no else vals['question_no'])
@@ -1211,11 +1209,8 @@ class TutoringPortal(CustomerPortal):
         if request.httprequest.method == 'POST':
             vals = self._mistake_vals_from_post(student, kw)
             vals.pop('student_id')  # 不允许改归属学生
-            if not vals['workbook_id']:
-                error = {'message': _('请选择练习册。')}
-            else:
-                mistake.write(vals)
-                return request.redirect('/my/learning/mistakes/%d?saved=1' % mistake.id)
+            mistake.write(vals)
+            return request.redirect('/my/learning/mistakes/%d?saved=1' % mistake.id)
         values = self._mistake_form_values(student, mistake=mistake, post=kw)
         values.update({'error': error, 'mode': 'edit'})
         return request.render('tutoring_center.portal_my_learning_mistake_form', values)
