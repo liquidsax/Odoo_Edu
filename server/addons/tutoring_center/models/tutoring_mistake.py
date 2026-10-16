@@ -269,16 +269,22 @@ class TutoringMistake(models.Model):
 
     @api.model
     def default_get(self, fields_list=None):
-        """新建行沿用上一条记录的学生与练习册：连续记同一本练习册时不必反复选。"""
+        """后台新建时沿用上一条记录的学生：连着给同一个学生记不必反复选。
+
+        **练习册不再沿用**（19.0.1.37.0 改的）。ORM 建任何一行都会走 `default_get`，
+        所以"沿用上一条的练习册"不只影响界面新建：门户拖图记题、`POST /r3yna/api/mistakes`、
+        知识库错题条目自动立题，全都曾在不填出处时悄悄挂上上一道题的那本书——
+        而出处现在"有则更好"，默认值把"没填"变成了"填错"。
+        后台连续记同一本练习册的便利不在这儿：那条走 `tutoring.mistake.quickadd`
+        自己的 `_last_mistake()`（瞬态模型，字段各带各的默认值）。
+        """
         defaults = super().default_get(fields_list)
         student_id = self.env.context.get('default_student_id')
         last = self.search(
             [('student_id', '=', student_id)] if student_id else [],
             limit=1, order='create_date desc, id desc')
-        if last:
-            for fname in ('student_id', 'workbook_id'):
-                if fields_list is None or fname in fields_list:
-                    defaults.setdefault(fname, last[fname].id)
+        if last and (fields_list is None or 'student_id' in fields_list):
+            defaults.setdefault('student_id', last.student_id.id)
         return defaults
 
     @api.depends('student_id', 'workbook_id', 'page', 'question_no')

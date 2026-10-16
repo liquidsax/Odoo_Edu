@@ -602,7 +602,7 @@ class TutoringLibraryItem(models.Model):
         """
         if self.env.context.get('library_skip_quota'):
             items = super().create(vals_list)
-            return items._sync_workbook_link()
+            return items._sync_links()
         incoming_total = {}
         for vals in vals_list:
             if 'content' not in vals:
@@ -616,7 +616,7 @@ class TutoringLibraryItem(models.Model):
                 filename=vals.get('filename') or vals.get('name'))
             incoming_total[user_id] += size
         items = super().create(vals_list)
-        return items._sync_workbook_link()
+        return items._sync_links()
 
     def _clean_share_commands(self, value):
         """把界面传来的共享名单收敛到「可以共享给」里面。
@@ -648,7 +648,7 @@ class TutoringLibraryItem(models.Model):
                         exclude_ids=item.ids)
         res = super().write(vals)
         if {'category', 'content'} & set(vals):
-            self._sync_workbook_link()
+            self._sync_links()
         return res
 
     def unlink(self):
@@ -656,8 +656,21 @@ class TutoringLibraryItem(models.Model):
         return super().unlink()
 
     # ------------------------------------------------------------
-    # 与练习册那套打通
+    # 与练习册、错题那两套打通
     # ------------------------------------------------------------
+
+    def _sync_links(self):
+        """两个"会变成真对象"的分类各核对一次：教辅立成一本书，错题立成一道题。
+
+        其余分类只是条目上的标签，不落地任何东西。
+        """
+        return self._sync_workbook_link()._sync_mistake_link()
+
+    def _sync_mistake_link(self):
+        rows = self.filtered(lambda item: item.category == 'mistake' and not item.mistake_id)
+        if rows:
+            rows._ensure_mistake_link()
+        return self
 
     def _sync_workbook_link(self):
         """分类是「练习册/教辅」的条目，建完/改完都核对一次它挂上了没有。
@@ -709,6 +722,36 @@ class TutoringLibraryItem(models.Model):
                 # 不显式带上本人就会在超用户跑迁移时把条目判给 superuser
                 'user_id': item.user_id.id,
             })
+
+    def _ensure_mistake_link(self):
+        """把这条条目立成一道真错题，出处留空——照片本身就是题面。
+
+        与练习册那条对称：分类只是标签，错题页、复习队列、AI 摘要认的全是
+        `tutoring.mistake`。不补这一层，"在知识库传了一张题、错题页看不到"就永远成立
+        （维护者实测报的）。
+
+        归属人取条目自己的 `user_id` 对应的那份学生档案（门户用户＝联系人链上那份，
+        内部用户＝「我自己」）。**没有档案或本人无权建错题就维持原状**，
+        这里同样不 sudo 硬闯——宁可条目静静躺在知识库里，也不替别人造一道他管不了的题。
+        """
+        Student = self.env['tutoring.student']
+        Mistake = self.env['tutoring.mistake']
+        if not Mistake.has_access('create'):
+            return
+        for item in self:
+            partner = item.user_id.partner_id
+            if not partner:
+                continue
+            student = Student.search([('partner_id', '=', partner.id)], limit=1)
+            if not student:
+                continue
+            happened = item.upload_date or item.create_date
+            mistake = Mistake.create({
+                'student_id': student.id,
+                'date': happened.date() if happened else fields.Date.context_today(item),
+                'note': False,
+            })
+            item.mistake_id = mistake.id
 
     # ------------------------------------------------------------
     # 动作
