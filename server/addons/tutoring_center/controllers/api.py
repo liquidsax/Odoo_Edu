@@ -25,6 +25,7 @@
 """
 
 import base64
+import json
 import logging
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -34,6 +35,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.http import request
 
 from ..models.tutoring_library_item import b64_to_bytes
+from ..models.tutoring_mistake import split_question_numbers
 from .library import TutoringLibraryController
 from .portal import TutoringPortal
 
@@ -97,6 +99,20 @@ def _guard():
         return _error(400, 'missing_client_header',
                       _('缺少 %s 头，这个接口只接受客户端调用。', CLIENT_HEADER))
     return None
+
+
+def _read_json_body():
+    """JSON 请求体 → dict；不是合法 JSON 对象时返回 None。
+
+    `type='http'` 路由的 `**kw` 只合并 query、表单和文件（`http.py:1995
+    get_http_params`），**不含 JSON 体**——所以 JSON 写路由必须自己读一次原始体。
+    口径与 `time_sync.py:_read_payload` 同一套。
+    """
+    try:
+        payload = json.loads(request.httprequest.get_data(as_text=True) or '{}')
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _int(raw, default, low, high):
@@ -545,6 +561,13 @@ class TutoringApi(http.Controller):
             # 对学生它只说"有原页可画"）；真取那一页还要过本人权限，可能 404——
             # 客户端必须有退路（门户就是这么定的，见错题试用版本批次②）。
             'page_pdf_ready': bool(mistake.cover_pdf_ready),
+            # 题目照片的真源就是知识库条目（错题自己不存正文，只记出处与绑图关系）。
+            # 用 search() 而不是 `mistake.library_item_ids`：后者是 browse 出来的，
+            # 不过记录规则（陷阱 26），别人家的条目会跟着反向关系漏进来。
+            'library_items': [
+                _library_item(item) for item in request.env['tutoring.library.item'].search(
+                    [('mistake_id', '=', mistake.id)])
+            ],
         })
         return _ok(item=data)
 
@@ -584,6 +607,50 @@ class TutoringApi(http.Controller):
             'heat': mistake.portal_heat or '',
             'heat_note': mistake.portal_heat_note or '',
         }
+
+    # ------------------------------------------------------------
+    # 记错题（写）
+    # ------------------------------------------------------------
+
+    @http.route('/r3yna/api/mistakes', type='http', auth='bearer',
+                methods=['POST'], csrf=False, readonly=False)
+    def api_mistake_create(self, **kw):
+        """记一道题：出处（练习册/页码/题号）可空；题号写 `1-5` 会拆成多条。
+
+        这条口子存在的前提是模型上 `workbook_id` 已非必填——手机上拍道题、
+        黑板上抄道题，不该先被要求选一本练习册。字段白名单、难度默认值、
+        年级知识点域、"记到谁"的挑选全部借 `portal.py` 那一份实现
+        （`_mistake_target_student` + `_mistake_vals_from_post`），这里不重定义。
+
+        **照片不在这里传**：`wx.uploadFile` 一次只能带一个文件，所以客户端先用这条
+        建出错题拿到 id，再逐张打 `/library/upload` 带上 `mistake_id`——一道题几张图
+        就绑几条条目。绑图、自动归 `mistake` 分类、配额与"一张写坏不带走整批"
+        都只有一份实现（`store_uploads()`）。
+        """
+        guarded = _guard()
+        if guarded:
+            return guarded
+        payload = _read_json_body()
+        if payload is None:
+            return _error(400, 'bad_json', _('请求体不是合法的 JSON 对象。'))
+        Mistake = request.env['tutoring.mistake']
+        if not Mistake.has_access('create'):
+            return _error(403, 'cannot_create', _('这个账号不能记错题。'))
+        portal = _portal()
+        student = portal._mistake_target_student(payload)
+        if not student:
+            return _error(404, 'student_not_found',
+                          _('还没有可记录的学习档案，请先在网页端建一条。'))
+        vals = portal._mistake_vals_from_post(student, payload)
+        try:
+            mistakes = Mistake.create([
+                dict(vals, question_no=no if no else vals['question_no'])
+                for no in split_question_numbers(vals['question_no'])
+            ])
+        except (UserError, ValidationError) as err:
+            return _error(400, 'rejected', str(err))
+        return _ok(created=len(mistakes),
+                   items=[self._mistake_item(m) for m in mistakes])
 
     # ------------------------------------------------------------
     # 错题"出处那一页"（单页 PDF）
@@ -719,7 +786,8 @@ class TutoringApi(http.Controller):
         `store_uploads()`：分类白名单、错题关联自动归 `mistake` 分类、标签、
         配额与单文件大小校验（1GB / 64MB）、"一个文件写坏不带走整批"，
         全都只有一处实现。越权不需要在这里判：`create()` 走记录规则，
-        配额按 `env.user` 算，别人的条目改不动。
+        配额按 `env.user` 算，别人的条目改不动。带 `mistake_id` 就是给那道错题补图
+        （小程序"一道题拍几张"用的正是这条，见 `api_mistake_create`）。
         """
         guarded = _guard()
         if guarded:
@@ -727,6 +795,13 @@ class TutoringApi(http.Controller):
         files = request.httprequest.files.getlist('file')
         if not files:
             return _error(400, 'no_file', _('没有收到文件，重新选一个试试。'))
+        if kw.get('mistake_id'):
+            # 绑图的那道错题必须真读得到。`store_uploads` 里的 `_own_mistake`
+            # 取不到时只是静默存成一张不绑图的条目——"明明传了图，错题页却看不到"
+            # 就是这么来的，宁可在这里明确回 404。
+            if not request.env['tutoring.mistake'].search(
+                    [('id', '=', _int(kw.get('mistake_id'), 0, 1, 10 ** 12))], limit=1):
+                return _error(404, 'mistake_not_found', _('这道题不存在，或者你读不到它。'))
         result = _library().store_uploads(
             files,
             category=kw.get('category'),
