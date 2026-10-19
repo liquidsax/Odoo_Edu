@@ -33,10 +33,10 @@ from datetime import datetime, time, timedelta
 
 import pytz
 
-from odoo import _, fields, http
+from odoo import Command, _, fields, http
 from odoo.http import request
 
-from .api import _date, _error, _guard, _int, _ok, _pager, _role
+from .api import _date, _error, _guard, _int, _ok, _pager, _read_json_body, _role
 
 _logger = logging.getLogger(__name__)
 
@@ -46,6 +46,11 @@ DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
 
 WEEKDAYS = ('周一', '周二', '周三', '周四', '周五', '周六', '周日')
+
+# 写侧的两道闸：一节课最长 8 小时（本校实际是 120 分钟/节，留足余量只为拦住填错的表），
+# 标题长度与模型上那个 name 一样是自由的，但一个不可信的长串不该原样进库
+MAX_CLASS_MINUTES = 480
+MAX_TITLE_LEN = 120
 
 
 def _timezone(raw):
@@ -81,6 +86,25 @@ def _utc_bounds(lo, hi, tz):
     stop = tz.localize(datetime.combine(hi + timedelta(days=1), time.min))
     return (start.astimezone(pytz.UTC).replace(tzinfo=None),
             stop.astimezone(pytz.UTC).replace(tzinfo=None))
+
+
+def _local_to_utc(naive, tz):
+    """本地墙上时间（naive）→ 库里那种 naive UTC。写侧专用，与 `_utc_bounds` 同一套换算。"""
+    return tz.localize(naive).astimezone(pytz.UTC).replace(tzinfo=None)
+
+
+def _parse_clock(raw):
+    """`HH:MM` → `time`；不合法返回 None，由调用方回 400（表单填错要当场说）。"""
+    parts = str(raw or '').strip().split(':')
+    if len(parts) < 2:
+        return None
+    try:
+        hour, minute = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return time(hour, minute)
 
 
 def _parse_date(raw):
@@ -285,6 +309,113 @@ class TutoringScheduleApi(http.Controller):
             'has_description': bool(event.description),
             'location': event.location or '',
         }
+
+    @http.route('/r3yna/api/schedule', type='http', auth='bearer',
+                methods=['POST'], csrf=False, readonly=False)
+    def api_schedule_create(self, **kw):
+        """给一位老师排一节课。**只有校长能写。**
+
+        真源是原生 `calendar.event`：`user_id` 放任课老师（读侧 `?teacher=` 就是按它筛的，
+        两边一个口径），`partner_ids` 放老师 + 学生——只写这两个，核心会自动补齐
+        `calendar.attendee`（`calendar/models/calendar_event.py:665`），不需要自己摆参与人行。
+
+        **建的时候必须带 `no_mail_to_attendees=True`**：原生 calendar 在 create 里就给参与人发
+        会议邀请邮件（L714 → `calendar.attendee._send_invitation_emails`），而这是小程序上
+        点一下的动作，不该给老师和家长寄邮件；`mail_create_nolog` 顺带不写那条 chatter 消息。
+
+        入参刻意用"表单形状"（`date` + `start_time` + `end_time` + `tz`）而不是拼好的 datetime：
+        时区换算留在服务端做，读侧与写侧共用同一份历法，两边才不会对不上。
+        """
+        guarded = _guard()
+        if guarded:
+            return guarded
+        if _role() != 'principal':
+            return _error(403, 'not_principal', _('只有机构管理员能排课。'))
+
+        vals = _read_json_body()
+        if vals is None:
+            return _error(400, 'bad_body', _('请求体要是一个 JSON 对象。'))
+
+        tz_name, tzinfo = _timezone(vals.get('tz'))
+        day = _parse_date(vals.get('date'))
+        if day is None:
+            return _error(400, 'bad_date', _('日期要写成 YYYY-MM-DD。'))
+        clock_start = _parse_clock(vals.get('start_time'))
+        clock_stop = _parse_clock(vals.get('end_time'))
+        if clock_start is None or clock_stop is None:
+            return _error(400, 'bad_time', _('时间要写成 HH:MM。'))
+        # `datetime.time` 减不了（本轮就是这么炸的 TypeError），所以换成分钟数比——
+        # 顺带把"跨午夜"这种表单一律拒掉：一节课不会从今晚 23:00 排到明早
+        span = (clock_stop.hour * 60 + clock_stop.minute) - (clock_start.hour * 60 + clock_start.minute)
+        if span <= 0:
+            return _error(400, 'bad_time', _('结束时间要晚于开始时间。'))
+        if span > MAX_CLASS_MINUTES:
+            return _error(400, 'too_long', _('一节课不超过 %d 小时。', MAX_CLASS_MINUTES // 60))
+
+        teacher = self._pick_teacher(vals.get('teacher_id'))
+        if isinstance(teacher, tuple):
+            return _error(*teacher)
+        student = self._pick_student(vals.get('student_id'))
+        if isinstance(student, tuple):
+            return _error(*student)
+
+        start_utc = _local_to_utc(datetime.combine(day, clock_start), tzinfo)
+        stop_utc = _local_to_utc(datetime.combine(day, clock_stop), tzinfo)
+
+        # 撞车检查：同一位老师同一时段已经有课就不再叠一节。按 `user_id` 查、不加身份域——
+        # 能走到这里的只有校长，全校的课本来就看得到。
+        # 真机构里"两个学生会撞在同一位老师身上"是最容易发生的错，静悄悄记进去反而最难发现。
+        if request.env['calendar.event'].search_count(
+                [('user_id', '=', teacher.id), ('start', '<', stop_utc), ('stop', '>', start_utc)]):
+            return _error(409, 'overlaps',
+                          _('这位老师 %s %s–%s 已经有课了。', _date(day),
+                            vals.get('start_time'), vals.get('end_time')))
+
+        title = str(vals.get('name') or '').strip()[:MAX_TITLE_LEN] or student.name
+        event = request.env['calendar.event'].with_context(
+            no_mail_to_attendees=True, mail_create_nolog=True).create({
+                'name': title,
+                'user_id': teacher.id,
+                'start': start_utc,
+                'stop': stop_utc,
+                'partner_ids': [Command.link(teacher.partner_id.id),
+                                Command.link(student.partner_id.id)],
+            })
+
+        # 回一条与 GET 完全同形的卡片：页面把这条直接插进列表就行，不必为了"确认写进去了"再整屏重取
+        local_start = _to_local(event.start, tzinfo)
+        local_stop = _to_local(event.stop, tzinfo)
+        item = self._event_item(event, local_start, local_stop, _organizers([event]),
+                                _student_names(event.partner_ids.ids))
+        return _ok(item=item, tz=tz_name)
+
+    @staticmethod
+    def _pick_teacher(raw):
+        """表单上的老师 id → 那条 `res.users`，或者一个 `(状态码, 错误码, 话)` 三元组。
+
+        认的是 `group_teacher` 的显式成员——`/teachers` 给的就是这份名单，
+        写入按同一份认，才不会出现在名单里选不到、却能用 id 塞进来的第二种口径。
+        """
+        try:
+            teacher_id = int(raw)
+        except (TypeError, ValueError):
+            return 400, 'bad_teacher', _('老师要选一位。')
+        group = request.env.ref('tutoring_center.group_teacher', raise_if_not_found=False)
+        members = group.user_ids.ids if group else []
+        return request.env['res.users'].search(
+            [('id', '=', teacher_id), ('id', 'in', members),
+             ('active', '=', True), ('share', '=', False)],
+            limit=1) or (404, 'teacher_not_found', _('没有这位老师，或者他不在老师名单里。'))
+
+    @staticmethod
+    def _pick_student(raw):
+        """学生 id 同样过 `search()`（记录规则），不读别人的档案。"""
+        try:
+            student_id = int(raw)
+        except (TypeError, ValueError):
+            return 400, 'bad_student', _('学生要选一位。')
+        return request.env['tutoring.student'].search(
+            [('id', '=', student_id)], limit=1) or (404, 'student_not_found', _('没有这份学生档案。'))
 
     @http.route('/r3yna/api/teachers', type='http', auth='bearer',
                 methods=['GET'], csrf=False, readonly=True)
