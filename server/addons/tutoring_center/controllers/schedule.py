@@ -21,6 +21,10 @@
 唯一的受控口子是 `?teacher=`，非校长用它直接 403。维护者 2026-10-19 明确选了"只在接口层拼域"，
 不给 `calendar.event` 加记录规则——那会连带改掉 Odoo 网页端原生日历对内部用户的共享语义。
 
+**这一屏三种身份都接**（校长看全校、老师看自己的、学生/家长看孩子这周由谁上），
+所以本文件有**接口层第二处 `sudo()`**，只在 `_organizers()` 里，边界写在那个函数的文档里。
+`api.py` 那条"本文件不出现 sudo()"的纪律没变——这一份是另一个文件，而且用的是同一套"sudo 后逐字段白名单"。
+
 信封、客户端头、分页这些纪律复用 `api.py` 那一份（`from .api import ...`），这里不重写。
 """
 
@@ -108,13 +112,41 @@ def _student_names(partner_ids):
     return names
 
 
+def _organizers(events):
+    """这批事件的任课老师 → `{user_id: {'id', 'name', 'partner_id'}}`，一次查齐。
+
+    **这是接口层第二处 `sudo()`**（第一处在 `public_api.py`，纪律照抄：sudo 之后只按
+    字段白名单取值，绝不把整条记录吐出去）。为什么非用不可：任课老师是 `res.users`，
+    而门户账号读不到 `res.users`（原生记录规则，实测 `Access Denied ... model: res.users`），
+    可家长这一屏要看的恰恰就是"这节是谁上的"——维护者 2026-10-19 拍了：学生也要看到老师名。
+
+    边界钉死在这三样，不是"能按 id 捞任意账号"的口子：
+
+    - 待查的 id **只能来自这次请求已经按身份拼域拿到的那些事件**（校长拿到全校、老师与学生只拿到自己的）；
+    - 白名单就 `id` / `name` / `partner_id` 三个字段，登录名、邮箱、Key、权限一律不碰；
+    - 整页一次查，不在循环里逐条读。
+    """
+    user_ids = list({event.user_id.id for event in events if event.user_id})
+    if not user_ids:
+        return {}
+    users = request.env['res.users'].sudo().browse(user_ids).exists()
+    return {
+        user.id: {
+            'id': user.id,
+            'name': user.name or '',
+            'partner_id': user.partner_id.id or 0,
+        }
+        for user in users
+    }
+
+
 class TutoringScheduleApi(http.Controller):
 
     @http.route('/r3yna/api/schedule', type='http', auth='bearer',
                 methods=['GET'], csrf=False, readonly=True)
     def api_schedule(self, date=None, date_from=None, date_to=None, teacher=None,
                      tz=None, page=1, page_size=None, **kw):
-        """按时间窗回排课。**校长看全校，老师只看自己参与的那几节，门户账号不接这一屏。**
+        """按时间窗回排课。**校长看全校，老师与学生/家长只看自己参与的那几节。**
 
         - `?date=YYYY-MM-DD` 单天；`?date_from=&date_to=` 区间；都不传就是调用方时区的本周一~周日。
         - `?teacher=<res.users id>` 只有校长能用，非校长直接 403（不是忽略——静默忽略筛选条件
@@ -127,14 +159,6 @@ class TutoringScheduleApi(http.Controller):
 
         tz_name, tzinfo = _timezone(tz)
         role = _role()
-        if role == 'student':
-            # 排课这一屏只服务内部账号（校长与老师）。不是"忘了做学生"，是卡片结构决定的：
-            # 每条要报任课老师的名，而那是一次 `res.users` 的读——本轮实测：门户家长（uid=7）
-            # 读老师（record 5）被原生记录规则拒了，`Access Denied by record rules for
-            # operation: read, model: res.users`，整个请求变成裸 403。
-            # 要给学生开放，得先决定是放开 res.users 可见性（动原生安全，代价大）
-            # 还是另做一个不含老师姓名的形状——那是另一批的事，别顺手改。
-            return _error(403, 'not_internal', _('课程表目前只对机构内部账号开放。'))
         today = datetime.now(tzinfo).date()
 
         # 窗口：单天 `?date=` 优先，其次区间；两种写法都不传就是本周一~周日。
@@ -193,15 +217,18 @@ class TutoringScheduleApi(http.Controller):
                 # 周期事件只按第一次出现的那天判，实例不展开（见 _event_item 里的 recurrency）
                 rows.append((event, local_start, local_stop))
 
+        total = len(rows)
         page = _int(page, 1, 1, 10000)
         size = _int(page_size, DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE)
-        window_rows = rows[(page - 1) * size:page * size]
+        rows = rows[(page - 1) * size:page * size]
+        page_events = [event for event, _ls, _lp in rows]
 
-        # 学生名一次取齐：循环里逐条 search 会变成 N 条 SQL
+        # 学生名与老师名各一次取齐：循环里逐条查会变成 N 条 SQL
         partners = set()
-        for event, _ls, _lp in window_rows:
+        for event in page_events:
             partners.update(event.partner_ids.ids)
         students_by_partner = _student_names(partners)
+        organizers = _organizers(page_events)
 
         return _ok(
             role=role,
@@ -209,31 +236,15 @@ class TutoringScheduleApi(http.Controller):
             tz=tz_name,
             window={'from': _date(lo), 'to': _date(hi)},
             items=[
-                self._event_item(
-                    event, local_start, local_stop,
-                    self._student_names_of(event, students_by_partner))
-                for event, local_start, local_stop in window_rows
+                self._event_item(event, local_start, local_stop,
+                                 organizers, students_by_partner)
+                for event, local_start, local_stop in rows
             ],
-            pager=_pager(len(rows), page, size),
+            pager=_pager(total, page, size),
         )
 
     @staticmethod
-    def _student_names_of(event, students_by_partner):
-        """这一节课报名的学生名。
-
-        **任课老师那个联系人一律不当学生报**：老师也有「我自己」那份本人档案
-        （`tutoring_student.py` 的 `ensure_teacher_profiles`），它挂在老师自己的联系人上，
-        不摘掉的话校长看到的名单会多出一行"我自己"。
-        """
-        names = []
-        for partner_id in event.partner_ids.ids:
-            if partner_id == event.user_id.partner_id.id:
-                continue
-            names.extend(students_by_partner.get(partner_id, []))
-        return sorted(set(names))
-
-    @staticmethod
-    def _event_item(event, local_start, local_stop, students):
+    def _event_item(event, local_start, local_stop, organizers, students_by_partner):
         """一节排课 → 客户端卡片。
 
         时分、星期、时长这些**服务端排好了再吐**（与 `/meta` 同一口径：小程序不硬编码常量、
@@ -244,7 +255,15 @@ class TutoringScheduleApi(http.Controller):
             minutes = int((local_stop - local_start).total_seconds() // 60)
         hours, mins = divmod(max(minutes, 0), 60)
         duration_text = ('%d 小时 %d 分钟' % (hours, mins)) if hours else '%d 分钟' % mins
-        teacher = event.user_id
+        teacher = organizers.get(event.user_id.id) or False
+        # **任课老师那个联系人一律不当学生报**：老师也有「我自己」那份本人档案
+        # （`tutoring_student.py` 的 `ensure_teacher_profiles`），它挂在老师自己的联系人上，
+        # 不摘掉的话校长看到的名单会多出一行"我自己"。
+        names = []
+        for partner_id in event.partner_ids.ids:
+            if teacher and partner_id == teacher['partner_id']:
+                continue
+            names.extend(students_by_partner.get(partner_id, []))
         return {
             'id': event.id,
             'name': event.name or '',
@@ -257,8 +276,8 @@ class TutoringScheduleApi(http.Controller):
             'stop_text': local_stop.strftime('%H:%M') if local_stop and not event.allday else '',
             'duration_minutes': minutes,
             'duration_text': duration_text if minutes else '',
-            'teacher': {'id': teacher.id, 'name': teacher.name} if teacher else False,
-            'students': students,
+            'teacher': {'id': teacher['id'], 'name': teacher['name']} if teacher else False,
+            'students': sorted(set(names)),
             # 周期事件只回第一次出现的那一节，实例不展开——客户端看到 recurrency=True
             # 就该说明"这一条是排好的循环安排"
             'recurrency': bool(event.recurrency),
