@@ -6,3 +6,5 @@ from . import tools
 from . import api
 # 机构门面：手上还没有 Key 的潜在客户走这一条，信封与客户端头纪律复用 api.py 那一份
 from . import public_api
+# 排课：身份判定（`_role()`）与信封都复用 api.py 那一份，所以必须在它之后导入
+from . import schedule
