@@ -16,7 +16,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONTROLLERS = ('api.py', 'schedule.py', 'public_api.py')
 DOC_DEFAULT = os.path.join(ROOT, 'docs', 'api-contract.md')
-DOC_BRANCH = 'docs/api-contract'
+DOC_BRANCH = 'origin/docs/api-contract'
 
 # 40.0 / 39.2 必做主线：代码与文档都必须有
 REQUIRED = {
