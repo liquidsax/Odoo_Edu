@@ -194,6 +194,27 @@ def _own_student():
     return _portal()._tutoring_student()
 
 
+def _role():
+    """当前账号的身份档位：`principal`（校长）/ `teacher`（老师）/ `student`（门户）。
+
+    这是**全项目唯一一处身份判定**——`/me` 下发它，排课接口也读它，
+    小程序只按这个字段决定露哪个入口，**不在客户端重算一遍**。
+    判据只用服务端已有的组，不接受客户端传来的任何"我是什么"：
+
+    - **校长 = `base.group_system`**：维护者 2026-10-19 拍的，不为排课新立一个"校长组"，
+      免得出现"有账号没进组、进了组又排不了课"这种两处真源对不上的情况；
+    - **老师 = `tutoring_center.group_teacher`**（`security/tutoring_security.xml:17`）；
+    - **内部用户但两个组都不在**：按老师口径走，不放宽成全校。
+      多给一个人看全校，将来要说清为什么；少看，他自己会来问。
+    """
+    user = request.env.user
+    if user.has_group('base.group_system'):
+        return 'principal'
+    if user.has_group('tutoring_center.group_teacher'):
+        return 'teacher'
+    return 'teacher' if user._is_internal() else 'student'
+
+
 def _student_brief(student):
     return {
         'id': student.id,
@@ -277,13 +298,18 @@ class TutoringApi(http.Controller):
     @http.route('/r3yna/api/me', type='http', auth='bearer',
                 methods=['GET'], csrf=False, readonly=True)
     def api_me(self, **kw):
-        """我是谁 + 我有哪些学生档案（决定小程序里那个"范围切换"能列出谁）。"""
+        """我是谁 + 我有哪些学生档案（决定小程序里那个"范围切换"能列出谁）。
+
+        `role` 是这个接口的**唯一身份出口**：校长/老师/学生的差别只在这里说清，
+        客户端拿它决定露不露排课入口，不再自己看"有几个学生档案"去猜。
+        """
         guarded = _guard()
         if guarded:
             return guarded
         user = request.env.user
         own = _own_student()
         return _ok(
+            role=_role(),
             user={
                 'id': user.id,
                 'login': user.login,
