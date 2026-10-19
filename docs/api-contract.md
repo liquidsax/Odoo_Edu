@@ -39,7 +39,7 @@
 
 | HTTP | `error` | 含义 |
 |---|---|---|
-| 400 | `missing_client_header` / `bad_json` / `bad_body` / `bad_date` / `bad_time` / `bad_teacher` / `bad_student` | 入参问题，改参数可重试 |
+| 400 | `missing_client_header` / `bad_json` / `bad_body` / `bad_date` / `bad_time` / `bad_teacher` / `bad_student` / `too_long` / `no_file` / `incomplete` / `bad_phone` / `rejected` | 入参问题，改参数可重试 |
 | 401 | *(无信封)* | Key 缺失/无效/过期。**见 §5 已知代价** |
 | 403 | `not_principal` / `cannot_create` | 身份有、但这个口子不给你 |
 | 404 | `not_found` / `student_not_found` / `teacher_not_found` / `mistake_not_found` / `page_unavailable` / `no_content` / `bad_content` | 不存在**或**读不到，两者刻意不区分 |
@@ -63,7 +63,7 @@
 `/summary`、`/sessions`、`/exams`、`/mistakes` 共用一套：
 
 - `?student=<学生档案 id>`：只看这一份；读不到 → `404 student_not_found`；
-- `?scope=all`：全部可读范围（老师=名下学生；门户账号通常只有自己那份）；
+- `?scope=all`：全部可读范围（老师＝全校学生，但同事的「本人档案」除外；门户账号通常只有自己那份）；
 - 都不传：有本人档案就只看本人，否则退回"全部可读"；
 - 响应里的 `scope` 回显最终生效的那一档（数字 id / `all` / `mine`）。
 
