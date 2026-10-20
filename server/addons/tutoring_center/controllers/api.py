@@ -498,6 +498,32 @@ class TutoringApi(http.Controller):
             'percentage': round(exam.percentage, 1),
         }
 
+    @http.route('/r3yna/api/exams/<int:exam_id>', type='http', auth='bearer',
+                methods=['GET'], csrf=False, readonly=True)
+    def api_exam_detail(self, exam_id, **kw):
+        """一场考试的明细：总分 + 各教学内容得分。取不到（含"读不到"）一律 404，
+        与 `/sessions/<id>` 同一条口径。"""
+        guarded = _guard()
+        if guarded:
+            return guarded
+        # 先过记录规则：读不到就是"不存在"
+        exam = request.env['tutoring.exam'].search([('id', '=', exam_id)], limit=1)
+        if not exam or not exam.has_access('read'):
+            return _error(404, 'not_found', _('这场考试找不到，或者你读不到它。'))
+        data = self._exam_item(exam)
+        data.update({
+            'student_name': exam.student_id.name,
+            'remark': exam.remark or '',
+            'lines': [{
+                'topic_id': line.topic_id.id,
+                'topic_name': line.topic_id.name,
+                'score': line.score,
+                'full_score': line.full_score,
+                'percentage': round(line.percentage, 1),
+            } for line in exam.line_ids],
+        })
+        return _ok(item=data)
+
     # ------------------------------------------------------------
     # 错题
     # ------------------------------------------------------------
@@ -677,6 +703,25 @@ class TutoringApi(http.Controller):
             return _error(400, 'rejected', str(err))
         return _ok(created=len(mistakes),
                    items=[self._mistake_item(m) for m in mistakes])
+
+    @http.route('/r3yna/api/mistakes/<int:mistake_id>/review', type='http',
+                auth='bearer', methods=['POST'], csrf=False, readonly=False)
+    def api_mistake_review(self, mistake_id, **kw):
+        """看过这一道：复习排期往后挪一格。
+
+        走的就是模型上的 `touch_review()`（门户整屏流的"这道先放过"同一个方法），
+        不另造状态字段；排期本身仍然不吐给客户端，响应只回派生出来的 due/heat。
+        归档掉的行不在默认域里，这里与门户 snooze 一致：取不到就 404。
+        """
+        guarded = _guard()
+        if guarded:
+            return guarded
+        mistake = request.env['tutoring.mistake'].search(
+            [('id', '=', mistake_id)], limit=1)
+        if not mistake or not mistake.has_access('write'):
+            return _error(404, 'not_found', _('这道题找不到，或者你改不了它。'))
+        mistake.touch_review()
+        return _ok(item=self._mistake_item(mistake))
 
     # ------------------------------------------------------------
     # 错题"出处那一页"（单页 PDF）
