@@ -608,6 +608,7 @@ class TutoringApi(http.Controller):
             'question_text': mistake.ai_readable_text or '',
             'ai_state': mistake.ai_state or False,
             'ai_hint': mistake.ai_hint or '',
+            'can_edit': mistake.has_access('write'),
             'recorded_at': fields.Datetime.to_string(mistake.create_date) if mistake.create_date else False,
             # "看那一页"按钮亮不亮。判据与门户封面同一份（cover_pdf_ready 走 sudo，
             # 对学生它只说"有原页可画"）；真取那一页还要过本人权限，可能 404——
@@ -733,6 +734,108 @@ class TutoringApi(http.Controller):
         except (UserError, ValidationError) as err:
             return _error(400, 'ai_not_queued', str(err))
         return _ok(queued=True, job_id=job.id, ai_state=mistake.ai_state)
+
+    @http.route('/r3yna/api/mistakes/<int:mistake_id>/edit', type='http',
+                auth='bearer', methods=['GET'], csrf=False, readonly=True)
+    def api_mistake_edit_options(self, mistake_id, **kw):
+        """补充信息的可选项与当前值：小程序详情页的编辑弹层用。"""
+        guarded = _guard()
+        if guarded:
+            return guarded
+        Mistake = request.env['tutoring.mistake']
+        mistake = Mistake.search([('id', '=', mistake_id)], limit=1)
+        if not mistake or not mistake.has_access('write'):
+            return _error(404, 'not_found', _('这道题找不到，或者你改不了它。'))
+        portal = _portal()
+        points = []
+        for group in portal._mistake_point_groups(mistake.student_id):
+            for point in group['points']:
+                points.append({
+                    'id': point.id,
+                    'name': point.name or '',
+                    'group': group['label'] or '',
+                })
+        workbooks = request.env['tutoring.workbook'].search([])
+        causes = request.env['tutoring.mistake.cause'].search([])
+        difficulties = [
+            {'value': value, 'label': label}
+            for value, label in Mistake._fields['difficulty'].selection
+        ]
+        return _ok(
+            values={
+                'workbook_id': mistake.workbook_id.id or 0,
+                'page': mistake.page or '',
+                'question_no': mistake.question_no or '',
+                'difficulty': mistake.difficulty or '3',
+                'cause_id': mistake.cause_id.id or 0,
+                'point_id': mistake.point_id.id or 0,
+                'note': mistake.note or '',
+            },
+            workbooks=[{'id': w.id, 'name': w.name or ''} for w in workbooks],
+            points=points,
+            causes=[{'id': c.id, 'name': c.name or ''} for c in causes],
+            difficulties=difficulties,
+        )
+
+    @http.route('/r3yna/api/mistakes/<int:mistake_id>/edit', type='http',
+                auth='bearer', methods=['POST'], csrf=False, readonly=False)
+    def api_mistake_edit(self, mistake_id, **kw):
+        """补/改错题的出处与错因等：字段白名单借门户那一份，学生不改归属。"""
+        guarded = _guard()
+        if guarded:
+            return guarded
+        Mistake = request.env['tutoring.mistake']
+        mistake = Mistake.search([('id', '=', mistake_id)], limit=1)
+        if not mistake or not mistake.has_access('write'):
+            return _error(404, 'not_found', _('这道题找不到，或者你改不了它。'))
+        payload = _read_json_body()
+        if payload is None:
+            return _error(400, 'bad_json', _('请求体不是合法的 JSON 对象。'))
+        portal = _portal()
+        workbook = request.env['tutoring.workbook'].browse()
+        raw_wb = payload.get('workbook_id')
+        if raw_wb:
+            try:
+                workbook = request.env['tutoring.workbook'].search(
+                    [('id', '=', int(raw_wb))], limit=1)
+            except (TypeError, ValueError):
+                return _error(400, 'bad_workbook', _('练习册 id 要是一个数字。'))
+            if not workbook:
+                return _error(404, 'workbook_not_found', _('没有这本练习册，或者你读不到它。'))
+        cause = request.env['tutoring.mistake.cause'].browse()
+        raw_cause = payload.get('cause_id')
+        if raw_cause:
+            try:
+                cause = request.env['tutoring.mistake.cause'].search(
+                    [('id', '=', int(raw_cause))], limit=1)
+            except (TypeError, ValueError):
+                return _error(400, 'bad_cause', _('错因 id 要是一个数字。'))
+            if not cause:
+                return _error(404, 'cause_not_found', _('没有这个错因，或者你读不到它。'))
+        point = request.env['tutoring.knowledge.point'].browse()
+        raw_point = payload.get('point_id')
+        if raw_point:
+            try:
+                point = request.env['tutoring.knowledge.point'].search(
+                    [('id', '=', int(raw_point))], limit=1)
+            except (TypeError, ValueError):
+                return _error(400, 'bad_point', _('知识点 id 要是一个数字。'))
+            if not point:
+                return _error(404, 'point_not_found', _('没有这个知识点，或者你读不到它。'))
+            student = mistake.student_id
+            if point.grade not in (student.knowledge_grades or [student.grade]):
+                return _error(400, 'point_grade', _('这个知识点不属于这份档案的年级。'))
+        vals = portal._mistake_vals_from_post(mistake.student_id, payload)
+        vals.pop('student_id', None)
+        vals.pop('date', None)
+        vals['workbook_id'] = workbook.id if workbook else False
+        vals['cause_id'] = cause.id if cause else False
+        vals['point_id'] = point.id if point else False
+        try:
+            mistake.write(vals)
+        except (UserError, ValidationError) as err:
+            return _error(400, 'rejected', str(err))
+        return _ok(item=self._mistake_item(mistake))
 
     @http.route('/r3yna/api/mistakes/<int:mistake_id>/review', type='http',
                 auth='bearer', methods=['POST'], csrf=False, readonly=False)
