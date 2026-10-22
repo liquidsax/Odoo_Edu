@@ -704,6 +704,36 @@ class TutoringApi(http.Controller):
         return _ok(created=len(mistakes),
                    items=[self._mistake_item(m) for m in mistakes])
 
+    @http.route('/r3yna/api/mistakes/<int:mistake_id>/ai_summary', type='http',
+                auth='bearer', methods=['POST'], csrf=False, readonly=False)
+    def api_mistake_ai_summary(self, mistake_id, **kw):
+        """给一道错题排队一次 AI 摘要：只建任务，真正调用交给 ir.cron。
+
+        小程序在照片全部上传完之后才调这里，所以视觉模型拿到的是完整的一组图；
+        能不能生成（素材、是否已生成、当日额度）全部由模型上的 create 把关。
+        """
+        guarded = _guard()
+        if guarded:
+            return guarded
+        mistake = request.env['tutoring.mistake'].search(
+            [('id', '=', mistake_id)], limit=1)
+        if not mistake or not mistake.has_access('read'):
+            return _error(404, 'not_found', _('这道题找不到，或者你读不到它。'))
+        if mistake.ai_state == 'pending':
+            return _error(400, 'ai_pending', _('这道题已经排进队列，正在生成中。'))
+        if mistake.ai_state == 'done':
+            return _error(400, 'ai_done', _('这道题已经生成过摘要，不再重复生成。'))
+        if not mistake.can_ai_summary:
+            return _error(400, 'no_source',
+                          _('这道题还没有可分析的素材，先传一张题目照片。'))
+        try:
+            job = request.env['tutoring.mistake.ai.job'].create({
+                'mistake_id': mistake.id,
+            })
+        except (UserError, ValidationError) as err:
+            return _error(400, 'ai_not_queued', str(err))
+        return _ok(queued=True, job_id=job.id, ai_state=mistake.ai_state)
+
     @http.route('/r3yna/api/mistakes/<int:mistake_id>/review', type='http',
                 auth='bearer', methods=['POST'], csrf=False, readonly=False)
     def api_mistake_review(self, mistake_id, **kw):
