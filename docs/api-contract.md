@@ -1,6 +1,6 @@
 # R3ynA 移动端 API 契约（protocol 1）
 
-> 适用版本：`tutoring_center >= 19.0.1.40.0`（40.0 新增 `GET /exams/<id>` 与 `POST /mistakes/<id>/review`）。
+> 适用版本：`tutoring_center >= 19.0.1.40.0`（40.0 新增 `GET /exams/<id>`、`POST /mistakes/<id>/review` 与 `POST /mistakes/<id>/ai_summary`）。
 > 真源是代码：`controllers/api.py`、`controllers/schedule.py`、`controllers/public_api.py`。
 > 本文只写**客户端可以依赖**的东西；响应结构做破坏性变更时要同时改这里与 `api.py` 的 `PROTOCOL` 常量。
 
@@ -92,7 +92,7 @@
 
 客户端**不要**根据学生档案数量或 `is_internal` 自己推断身份。
 
-## 2. 路由总表（22 条）
+## 2. 路由总表（23 条）
 
 | # | 方法 | 路径 | 认证 | 用途 |
 |---|---|---|---|---|
@@ -109,15 +109,16 @@
 | 11 | POST | `/r3yna/api/mistakes` | bearer | 记一道题 |
 | 12 | GET | `/r3yna/api/mistakes/<id>/page.pdf` | bearer | 出处那一页（PDF） |
 | 13 | POST | `/r3yna/api/mistakes/<id>/review` | bearer | 看过这道，复习排期前移（**40.0**） |
-| 14 | GET | `/r3yna/api/library` | bearer | 知识库列表 |
-| 15 | GET | `/r3yna/api/library/<id>` | bearer | 条目元数据 |
-| 16 | GET | `/r3yna/api/library/<id>/raw` | bearer | 条目正文 |
-| 17 | POST | `/r3yna/api/library/upload` | bearer | 上传（可带 `mistake_id` 绑图） |
-| 18 | GET | `/r3yna/api/schedule` | bearer | 课表 |
-| 19 | POST | `/r3yna/api/schedule` | bearer | 排一节课（仅校长） |
-| 20 | GET | `/r3yna/api/teachers` | bearer | 老师名单（仅校长） |
-| 21 | GET | `/r3yna/api/public/institution` | public | 机构门面整屏 |
-| 22 | POST | `/r3yna/api/public/trial` | public | 预约试听留资 |
+| 14 | POST | `/r3yna/api/mistakes/<id>/ai_summary` | bearer | 排队一次 AI 摘要 |
+| 15 | GET | `/r3yna/api/library` | bearer | 知识库列表 |
+| 16 | GET | `/r3yna/api/library/<id>` | bearer | 条目元数据 |
+| 17 | GET | `/r3yna/api/library/<id>/raw` | bearer | 条目正文 |
+| 18 | POST | `/r3yna/api/library/upload` | bearer | 上传（可带 `mistake_id` 绑图） |
+| 19 | GET | `/r3yna/api/schedule` | bearer | 课表 |
+| 20 | POST | `/r3yna/api/schedule` | bearer | 排一节课（仅校长） |
+| 21 | GET | `/r3yna/api/teachers` | bearer | 老师名单（仅校长） |
+| 22 | GET | `/r3yna/api/public/institution` | public | 机构门面整屏 |
+| 23 | POST | `/r3yna/api/public/trial` | public | 预约试听留资 |
 
 ## 3. 逐条
 
@@ -167,7 +168,7 @@
 
 ### 3.9 `POST /mistakes`
 JSON 体；出处（练习册/页码/题号）可空；题号写 `1-5` 会拆成多条。
-成功回 `{created: n, items:[卡片]}`。照片不走这里，见 3.12。
+成功回 `{created: n, items:[卡片]}`。照片不走这里，见 3.13。
 
 ### 3.10 `GET /mistakes/<id>/page.pdf`
 回 `application/pdf`（内联，`nosniff`）。抽不出来回 `404 page_unavailable`。
@@ -177,20 +178,27 @@ JSON 体；出处（练习册/页码/题号）可空；题号写 `1-5` 会拆成
 `next_review_at` 按 1/3/7/15/30/60 天推进。回 `{item: 卡片}`（同样不吐排期三字段）。
 需要 `write` 权限；归档的题取不到（404，与门户 snooze 一致）。
 
-### 3.12 `POST /library/upload`
+### 3.12 `POST /mistakes/<id>/ai_summary`
+无请求体。给这道题排一次 AI 摘要任务（`tutoring.mistake.ai.job`）：只建任务，真正调用交给服务端 cron。
+需要能读这道题；没有可分析素材回 `400 no_source`，已生成/生成中回 `400 ai_done` / `400 ai_pending`，
+当日额度用完等回 `400 ai_not_queued`（message 是人话）。
+成功回 `{queued: true, job_id, ai_state: "pending"}`。
+小程序在照片全部上传完之后调用，确保视觉模型拿到完整的一组图。
+
+### 3.13 `POST /library/upload`
 `multipart/form-data`：`file`（一个或多个）、`category`、`folder_id`、`mistake_id`、`title`、`tags`。
 带 `mistake_id` 时**先校验那道题读得到**，否则 404，不会静默存成一张不绑图的条目。
 回 `{uploaded:[{id,name,size,size_text}], failed:[{name,error}], quota}`；
 **一个文件失败不带走整批**，逐个提交。
 配额 1GB、单文件 ≤64MB。
 
-### 3.13 `GET /library` / `<id>` / `<id>/raw`
+### 3.14 `GET /library` / `<id>` / `<id>/raw`
 列表回 `items/pager/filterby/sortby/search/folder/shared_scope/filters/counts/sortings/categories/folders/quota/page_sizes`；
 条目 = `{id,name,filename,category,kind,ext,mimetype,size,size_text,upload_date,folder_id,folder_name,tags,mistake_id,mistake_label,is_own,raw_path}`；
 详情另加 `from_workbook, share_user_names`。
 `raw` 回原始字节；SVG 一律 `attachment` + `nosniff`。
 
-### 3.14 `GET /schedule`
+### 3.15 `GET /schedule`
 收 `date` / `date_from`+`date_to`（默认本周）/ `teacher`（仅校长）/ `tz` / `page` / `page_size`。
 回：
 
@@ -207,13 +215,13 @@ JSON 体；出处（练习册/页码/题号）可空；题号写 `1-5` 会拆成
 
 非校长传 `?teacher=` → **403**（不静默忽略）。周期事件只回第一次出现的那一节，不展开实例。
 
-### 3.15 `POST /schedule`（仅校长）
+### 3.16 `POST /schedule`（仅校长）
 JSON：`{teacher_id, student_id, date, start_time, end_time, name?, tz}`。
 成功回 `{item: 与 GET 同形的卡片, tz}`。
 撞车 409、非校长 403、时段非法 400、单节 >8 小时 400。
 建事件时带 `no_mail_to_attendees=True`，**不给参与人发邀请邮件**。
 
-### 3.16 `GET /teachers`（仅校长）
+### 3.17 `GET /teachers`（仅校长）
 `{items:[{id,name}], count}`。口径是 `group_teacher` 的**显式**成员，不是门面「师资展示」标签。
 
 ## 4. 公共门面（`public`）
